@@ -61,16 +61,30 @@ type SpringTrainAction struct {
 }
 
 type SpringTrainBatch struct {
-	BatchID uint64              `json:"batch_id"`
+	// 这里的 BatchID 现在表示真实 TxBatch 编号，不是单个 PPO 推理请求编号。
+	BatchID uint64 `json:"batch_id"`
+
+	TxStartNonce uint64 `json:"tx_start_nonce"`
+	TxEndNonce   uint64 `json:"tx_end_nonce"`
+	TxCount      int    `json:"tx_count"`
+
+	EnqueueUnixNano int64 `json:"enqueue_unix_nano"`
+
 	Actions []SpringTrainAction `json:"actions"`
 }
 
 type SpringOnlineUpdateInput struct {
 	TimeUnixNano int64 `json:"time_unix_nano"`
 
-	BatchID       uint64 `json:"batch_id"`
-	FeedbackEpoch int    `json:"feedback_epoch"`
-	Shards        int    `json:"shards"`
+	// 这里的 BatchID 表示真实 TxBatch 编号。
+	BatchID uint64 `json:"batch_id"`
+
+	TxStartNonce uint64 `json:"tx_start_nonce"`
+	TxEndNonce   uint64 `json:"tx_end_nonce"`
+	TxCount      int    `json:"tx_count"`
+
+	FeedbackEpoch int `json:"feedback_epoch"`
+	Shards        int `json:"shards"`
 
 	Actions    []SpringTrainAction `json:"actions"`
 	Reward     float64             `json:"reward"`
@@ -262,19 +276,26 @@ func (rthm *RelayCommitteeModule) springAppendFeedbackRecord(record SpringFeedba
 
 // 注意：这个函数默认在 rthm.springLock 已经加锁时调用。
 // 不要在这里重复加锁，避免死锁。
-func (rthm *RelayCommitteeModule) springEnqueueTrainActionsLocked(batchID uint64, actions []SpringTrainAction) {
+func (rthm *RelayCommitteeModule) springEnqueueTrainActionsLocked(
+	batchID uint64,
+	actions []SpringTrainAction,
+	txStartNonce uint64,
+	txEndNonce uint64,
+	txCount int,
+) {
 	if batchID == 0 || len(actions) == 0 {
 		return
 	}
 
 	newBatch := SpringTrainBatch{
-		BatchID: batchID,
-		Actions: actions,
+		BatchID:         batchID,
+		TxStartNonce:    txStartNonce,
+		TxEndNonce:      txEndNonce,
+		TxCount:         txCount,
+		EnqueueUnixNano: time.Now().UnixNano(),
+		Actions:         actions,
 	}
 
-	// 防御：如果最后一个 pending batch 和当前 batchID 一样，
-	// 说明重复入队了，直接用更完整的 actions 覆盖它。
-	// 正常情况下这个分支不会触发。
 	if len(rthm.springPendingTrainBatches) > 0 {
 		lastIdx := len(rthm.springPendingTrainBatches) - 1
 		last := rthm.springPendingTrainBatches[lastIdx]
@@ -285,8 +306,11 @@ func (rthm *RelayCommitteeModule) springEnqueueTrainActionsLocked(batchID uint64
 			}
 
 			rthm.sl.Slog.Printf(
-				"[SPRING ONLINE ACTIONS] replace batch_id=%d actions=%d pending_batches=%d\n",
+				"[SPRING ONLINE ACTIONS] replace tx_batch_id=%d tx_nonce=[%d,%d] tx_count=%d actions=%d pending_batches=%d\n",
 				batchID,
+				txStartNonce,
+				txEndNonce,
+				txCount,
 				len(actions),
 				len(rthm.springPendingTrainBatches),
 			)
@@ -297,8 +321,11 @@ func (rthm *RelayCommitteeModule) springEnqueueTrainActionsLocked(batchID uint64
 	rthm.springPendingTrainBatches = append(rthm.springPendingTrainBatches, newBatch)
 
 	rthm.sl.Slog.Printf(
-		"[SPRING ONLINE ACTIONS] enqueue batch_id=%d actions=%d pending_batches=%d\n",
+		"[SPRING ONLINE ACTIONS] enqueue tx_batch_id=%d tx_nonce=[%d,%d] tx_count=%d actions=%d pending_batches=%d\n",
 		batchID,
+		txStartNonce,
+		txEndNonce,
+		txCount,
 		len(actions),
 		len(rthm.springPendingTrainBatches),
 	)
@@ -320,6 +347,20 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 
 	batch := rthm.springPendingTrainBatches[0]
 	rthm.springPendingTrainBatches = rthm.springPendingTrainBatches[1:]
+
+	rthm.sl.Slog.Printf(
+		"[SPRING ALIGN PAIR] tx_batch_id=%d tx_nonce=[%d,%d] tx_count=%d actions=%d -> feedback_epoch=%d reward=%.6f crossRate=%.6f rWLB=%.6f pending_after_pop=%d\n",
+		batch.BatchID,
+		batch.TxStartNonce,
+		batch.TxEndNonce,
+		batch.TxCount,
+		len(batch.Actions),
+		rewardRecord.Epoch,
+		rewardRecord.Reward,
+		rewardRecord.CrossRate,
+		rewardRecord.RWLB,
+		len(rthm.springPendingTrainBatches),
+	)
 
 	if len(batch.Actions) == 0 {
 		return SpringOnlineUpdateInput{}, false
@@ -343,7 +384,12 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 	input := SpringOnlineUpdateInput{
 		TimeUnixNano: time.Now().UnixNano(),
 
-		BatchID:       batch.BatchID,
+		BatchID: batch.BatchID,
+
+		TxStartNonce: batch.TxStartNonce,
+		TxEndNonce:   batch.TxEndNonce,
+		TxCount:      batch.TxCount,
+
 		FeedbackEpoch: rewardRecord.Epoch,
 		Shards:        params.ShardNum,
 

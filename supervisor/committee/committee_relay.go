@@ -55,6 +55,9 @@ type RelayCommitteeModule struct {
 
 	// SPRING: 新地址放置动作编号，用于生成 action_1.json、action_2.json
 	springActionSeq uint64
+
+	// SPRING: 真实 TxBatch 编号，用于核对 PPO action 和 block reward 是否对齐
+	springTxBatchSeq uint64
 }
 
 func NewRelayCommitteeModule(Ip_nodeTable map[uint64]map[uint64]string, Ss *signal.StopSignal, slog *supervisor_log.SupervisorLog, csvFilePath string, dataNum, batchNum int) *RelayCommitteeModule {
@@ -238,20 +241,60 @@ func (rthm *RelayCommitteeModule) springPreparePlacementPPOBatch(
 	txlist []*core.Transaction,
 	batchPlacement map[string]uint64,
 ) {
+	// 这个 txBatchID 是真正的 TxBatch 编号，不再使用单个 PPO 推理请求的 batch_id 代替。
+	// springPreparePlacement() 外层已经持有 springLock，所以这里直接自增即可。
+	rthm.springTxBatchSeq++
+	txBatchID := rthm.springTxBatchSeq
+
+	txStartNonce := uint64(0)
+	txEndNonce := uint64(0)
+	if len(txlist) > 0 {
+		txStartNonce = txlist[0].Nonce
+		txEndNonce = txlist[len(txlist)-1].Nonce
+	}
+
+	rthm.sl.Slog.Printf(
+		"[SPRING ALIGN PREPARE] tx_batch_id=%d tx_nonce=[%d,%d] tx_count=%d inject_speed=%d tx_batch_size=%d\n",
+		txBatchID,
+		txStartNonce,
+		txEndNonce,
+		len(txlist),
+		params.InjectSpeed,
+		params.TxBatchSize,
+	)
+
 	// SPRING paper semantics: sender_pos is updated after each placement
 	// action within the current A-Shard block.
 	trainActions := make([]SpringTrainAction, 0)
+
 	for _, tx := range txlist {
 		if action, ok := rthm.springPlaceAddressPPOSequential(tx.Sender, tx.Recipient, batchPlacement); ok {
 			trainActions = append(trainActions, action)
 		}
+
 		if action, ok := rthm.springPlaceAddressPPOSequential(tx.Recipient, tx.Sender, batchPlacement); ok {
 			trainActions = append(trainActions, action)
 		}
 	}
 
 	if params.SpringOnlineTrain == 1 && len(trainActions) > 0 {
-		rthm.springEnqueueTrainActionsLocked(trainActions[0].BatchID, trainActions)
+		rthm.springEnqueueTrainActionsLocked(
+			txBatchID,
+			trainActions,
+			txStartNonce,
+			txEndNonce,
+			len(txlist),
+		)
+	} else {
+		rthm.sl.Slog.Printf(
+			"[SPRING ALIGN PREPARE NO_ACTION] tx_batch_id=%d tx_nonce=[%d,%d] tx_count=%d actions=%d online_train=%d\n",
+			txBatchID,
+			txStartNonce,
+			txEndNonce,
+			len(txlist),
+			len(trainActions),
+			params.SpringOnlineTrain,
+		)
 	}
 }
 
