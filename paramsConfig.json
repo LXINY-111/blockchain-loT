@@ -21,7 +21,7 @@
   "UseBlocksizeInBytes": 0,
 
   "InjectSpeed": 1000,
-  "TotalDataSize": 100000,
+  "TotalDataSize": 300000,
   "TxBatchSize": 1000,
 
   "BrokerNum": 10,
