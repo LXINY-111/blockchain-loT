@@ -7,7 +7,7 @@
 
   "SpringEvalSample": 1,
 
-  "SpringRewardLambda": 0.6,
+  "SpringRewardLambda": 0.5,
   "SpringRewardBeta": 0.1,
   
   "PbftViewChangeTimeOut":600000,
