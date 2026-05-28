@@ -7,19 +7,20 @@ class ActorCritic(nn.Module):
     def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 64):
         super().__init__()
 
+        # 对齐 SPRING 论文中的隐藏层激活函数：ReLU
         self.actor = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(hidden_dim, action_dim),
         )
 
         self.critic = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )
 

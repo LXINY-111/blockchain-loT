@@ -16,6 +16,7 @@ import (
 	"os"
 	"time"
 
+	"sort"
 	"sync"
 )
 
@@ -25,6 +26,42 @@ type SpringBlockStat struct {
 	Relay1Tx int `json:"relay1_tx"`
 	Relay2Tx int `json:"relay2_tx"`
 	CrossTx  int `json:"cross_tx"`
+
+	// 当前 shard block 中和 PPO 放置决策直接相关的 TxBatch。
+	// 只统计 InnerShardTxs + Relay1Txs，不统计 Relay2Txs，避免跨片第二阶段重复计算。
+	DecisionBatchIDs []uint64 `json:"decision_batch_ids"`
+}
+
+func springCollectDecisionBatchIDs(txGroups ...[]*core.Transaction) []uint64 {
+	batchSet := make(map[uint64]bool)
+
+	txBatchSize := uint64(params.TxBatchSize)
+	if txBatchSize == 0 {
+		txBatchSize = 1
+	}
+
+	for _, txs := range txGroups {
+		for _, tx := range txs {
+			if tx == nil {
+				continue
+			}
+
+			// nonce 从 0 开始，tx_batch_id 从 1 开始
+			batchID := tx.Nonce/txBatchSize + 1
+			batchSet[batchID] = true
+		}
+	}
+
+	batchIDs := make([]uint64, 0, len(batchSet))
+	for bid := range batchSet {
+		batchIDs = append(batchIDs, bid)
+	}
+
+	sort.Slice(batchIDs, func(i, j int) bool {
+		return batchIDs[i] < batchIDs[j]
+	})
+
+	return batchIDs
 }
 
 type RelayCommitteeModule struct {
@@ -326,7 +363,7 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 
 	// 构造 PPO 状态。
 	// 当前代码里的 springBuildState 已经会把最近 5 个块的 totalTx/crossTx 归一化到 0~1。
-	state := rthm.springBuildState(related)
+	state := rthm.springBuildState(related, batchPlacement)
 
 	// 从 state 的 sender_pos 区域反推 related 是否已知、在哪个 shard。
 	// 这样可以保证诊断字段和 PPO 实际看到的 state 一致。
@@ -383,22 +420,22 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 		inferCostUs,
 		1,
 	)
-
-	rthm.sl.Slog.Printf(
-		"[SPRING PPO SEQ PLACE] mode=%d addr=%s shard=%d related=%s source=%s confidence=%.6f related_known=%v related_shard=%d chosen_shard=%d same_as_related=%v related_in_current_batch=%v totalPlaced=%d\n",
-		params.SpringMode,
-		key,
-		sid,
-		item.Related,
-		source,
-		confidence,
-		relatedKnown,
-		relatedShard,
-		chosenShard,
-		sameAsRelated,
-		relatedInCurrentBatch,
-		len(rthm.springAddrShard),
-	)
+	/*
+		rthm.sl.Slog.Printf(
+			"[SPRING PPO SEQ PLACE] mode=%d addr=%s shard=%d related=%s source=%s confidence=%.6f related_known=%v related_shard=%d chosen_shard=%d same_as_related=%v related_in_current_batch=%v totalPlaced=%d\n",
+			params.SpringMode,
+			key,
+			sid,
+			item.Related,
+			source,
+			confidence,
+			relatedKnown,
+			relatedShard,
+			chosenShard,
+			sameAsRelated,
+			relatedInCurrentBatch,
+			len(rthm.springAddrShard),
+		)*/
 
 	// 只有真正由 PPO 网络产生的动作，才进入在线训练。
 	// heuristic fallback 只是保证系统能跑，不作为 PPO 经验。
@@ -541,15 +578,6 @@ func (rthm *RelayCommitteeModule) MsgSendingControl() {
 }
 
 func (rthm *RelayCommitteeModule) HandleBlockInfo(b *message.BlockInfoMsg) {
-	rthm.sl.Slog.Printf(
-		"[BLOCK INFO] shard=%d epoch=%d body=%d inner=%d relay1=%d relay2=%d\n",
-		b.SenderShardID,
-		b.Epoch,
-		b.BlockBodyLength,
-		len(b.InnerShardTxs),
-		len(b.Relay1Txs),
-		len(b.Relay2Txs),
-	)
 
 	rthm.springLock.Lock()
 	defer rthm.springLock.Unlock()
@@ -557,13 +585,30 @@ func (rthm *RelayCommitteeModule) HandleBlockInfo(b *message.BlockInfoMsg) {
 	// 注意：
 	// 1. CrossTx 第一版只用 Relay1Tx。
 	// 2. Relay2Tx 是跨片交易第二阶段，不要和 Relay1 一起重复计入 crossRate。
+	decisionBatchIDs := springCollectDecisionBatchIDs(
+		b.InnerShardTxs,
+		b.Relay1Txs,
+	)
+
 	stat := SpringBlockStat{
-		NumTx:    b.BlockBodyLength,
-		InnerTx:  len(b.InnerShardTxs),
-		Relay1Tx: len(b.Relay1Txs),
-		Relay2Tx: len(b.Relay2Txs),
-		CrossTx:  len(b.Relay1Txs),
+		NumTx:            b.BlockBodyLength,
+		InnerTx:          len(b.InnerShardTxs),
+		Relay1Tx:         len(b.Relay1Txs),
+		Relay2Tx:         len(b.Relay2Txs),
+		CrossTx:          len(b.Relay1Txs),
+		DecisionBatchIDs: decisionBatchIDs,
 	}
+
+	rthm.sl.Slog.Printf(
+		"[BLOCK INFO] shard=%d epoch=%d body=%d inner=%d relay1=%d relay2=%d decision_batches=%v\n",
+		b.SenderShardID,
+		b.Epoch,
+		b.BlockBodyLength,
+		len(b.InnerShardTxs),
+		len(b.Relay1Txs),
+		len(b.Relay2Txs),
+		decisionBatchIDs,
+	)
 
 	// 更新最近 5 个区块窗口，供 springBuildState() 继续使用。
 	// 这里不再跳过 body=0 的空块，因为空块也代表该 shard 当前负载为 0。
@@ -685,10 +730,14 @@ func springExtractRelatedShardFromState(state []float64) (bool, int) {
 	return false, -1
 }
 
-func (rthm *RelayCommitteeModule) springBuildState(related utils.Address) []float64 {
+func (rthm *RelayCommitteeModule) springBuildState(
+	related utils.Address,
+	batchPlacement map[string]uint64,
+) []float64 {
 	state := make([]float64, 0, 11*params.ShardNum+1)
 
-	// 最近 5 个块的总交易数
+	// 最近 5 个块的总交易数 num_tx。
+	// 顺序保持为：更旧 -> 更新，和论文中滑动窗口时序信息一致。
 	for back := 4; back >= 0; back-- {
 		for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
 			st := rthm.springGetStat(sid, back)
@@ -696,7 +745,7 @@ func (rthm *RelayCommitteeModule) springBuildState(related utils.Address) []floa
 		}
 	}
 
-	// 最近 5 个块的跨片交易数
+	// 最近 5 个块的跨片交易数 cross_tx。
 	for back := 4; back >= 0; back-- {
 		for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
 			st := rthm.springGetStat(sid, back)
@@ -704,10 +753,24 @@ func (rthm *RelayCommitteeModule) springBuildState(related utils.Address) []floa
 		}
 	}
 
-	// sender_pos：相关地址所在分片
+	// sender_pos：
+	// 优先使用当前 TxBatch 内已经产生的 placement，
+	// 再回退到全局 address -> shard 放置表。
 	relatedSid := -1
-	if sid, ok := rthm.springAddrShard[string(related)]; ok {
-		relatedSid = int(sid)
+	relatedKey := string(related)
+
+	if relatedKey != "" {
+		if batchPlacement != nil {
+			if sid, ok := batchPlacement[relatedKey]; ok {
+				relatedSid = int(sid)
+			}
+		}
+
+		if relatedSid < 0 {
+			if sid, ok := rthm.springAddrShard[relatedKey]; ok {
+				relatedSid = int(sid)
+			}
+		}
 	}
 
 	for sid := 0; sid < params.ShardNum; sid++ {
@@ -718,7 +781,9 @@ func (rthm *RelayCommitteeModule) springBuildState(related utils.Address) []floa
 		}
 	}
 
-	// flag F：当前数据集里没有合约/普通账户类型，先统一设为 0
+	// flag F：
+	// 当前 selectedTxs_300K.csv 没有稳定的合约账户/普通账户标签，
+	// 先统一设为 0，代表未知或默认普通账户。
 	state = append(state, 0.0)
 
 	return state

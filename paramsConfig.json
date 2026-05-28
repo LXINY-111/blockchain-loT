@@ -20,9 +20,9 @@
   "BlocksizeInBytes": 200000,
   "UseBlocksizeInBytes": 0,
 
-  "InjectSpeed": 50,
-  "TotalDataSize": 200,
-  "TxBatchSize": 50,
+  "InjectSpeed": 1000,
+  "TotalDataSize": 100000,
+  "TxBatchSize": 1000,
 
   "BrokerNum": 10,
   "RelayWithMerkleProof": 0,

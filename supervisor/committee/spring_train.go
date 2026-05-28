@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -25,6 +26,8 @@ type SpringFeedbackRewardRecord struct {
 	Inners []int `json:"inners"`
 	Relay1 []int `json:"relay1"`
 	Relay2 []int `json:"relay2"`
+
+	DecisionBatchIDs []uint64 `json:"decision_batch_ids"`
 
 	CrossRate              float64 `json:"cross_rate"`
 	RawLoadVariance        float64 `json:"raw_load_variance"`
@@ -79,6 +82,8 @@ type SpringOnlineUpdateInput struct {
 	// 这里的 BatchID 表示真实 TxBatch 编号。
 	BatchID uint64 `json:"batch_id"`
 
+	MatchedBatchIDs []uint64 `json:"matched_batch_ids"`
+
 	TxStartNonce uint64 `json:"tx_start_nonce"`
 	TxEndNonce   uint64 `json:"tx_end_nonce"`
 	TxCount      int    `json:"tx_count"`
@@ -116,6 +121,7 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 	epoch int,
 	shardStats map[uint64]SpringBlockStat,
 ) (SpringFeedbackRewardRecord, bool) {
+	decisionBatchSet := make(map[uint64]bool)
 	lambda := params.SpringRewardLambda
 	if lambda < 0 || lambda > 1 {
 		lambda = 0.5
@@ -150,6 +156,10 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 		totalInner += stat.InnerTx
 		totalRelay1 += stat.Relay1Tx
 		totalRelay2 += stat.Relay2Tx
+
+		for _, bid := range stat.DecisionBatchIDs {
+			decisionBatchSet[bid] = true
+		}
 	}
 
 	// 全空 epoch 跳过。
@@ -184,23 +194,33 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 	// Paper workload-balance term: r_wlb = exp(-beta * abs_diff).
 	avgLoad := float64(totalTx) / float64(params.ShardNum)
 
-	absDiff := 0.0
+	rawAbsDiff := 0.0
 	rawVar := 0.0
 
 	for _, load := range loads {
 		diff := float64(load) - avgLoad
-		absDiff += math.Abs(diff)
+		rawAbsDiff += math.Abs(diff)
 		rawVar += diff * diff
 	}
 
 	rawVar = rawVar / float64(params.ShardNum)
 
-	// 保留 normalizedLoadVariance 只是为了日志对比，
-	// 真实 reward 不再用它作为主项。
+	// 保留 normalizedLoadVariance 用于日志观察
 	normVar := rawVar / (avgLoad*avgLoad + eps)
 	normVar = normVar / (1.0 + normVar)
 
-	rWLB := math.Exp(-beta * absDiff)
+	// 关键修改：用归一化负载差计算 r_wlb
+	// 原来：rWLB = exp(-beta * rawAbsDiff)
+	// 现在：rWLB = exp(-beta * normalizedAbsDiff)
+	//
+	// normalizedAbsDiff = sum_i |load_i - avgLoad| / avgLoad
+	// 含义：总负载偏离量相当于几个“平均分片负载”
+	normalizedAbsDiff := 0.0
+	if avgLoad > eps {
+		normalizedAbsDiff = rawAbsDiff / (avgLoad + eps)
+	}
+
+	rWLB := math.Exp(-beta * normalizedAbsDiff)
 
 	// SPRING-style reward:
 	// r_t = λ * r_cstr + (1 - λ) * r_wlb
@@ -222,6 +242,15 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 		rWLB = 0.0
 	}
 
+	decisionBatchIDs := make([]uint64, 0, len(decisionBatchSet))
+	for bid := range decisionBatchSet {
+		decisionBatchIDs = append(decisionBatchIDs, bid)
+	}
+
+	sort.Slice(decisionBatchIDs, func(i, j int) bool {
+		return decisionBatchIDs[i] < decisionBatchIDs[j]
+	})
+
 	record := SpringFeedbackRewardRecord{
 		TimeUnixNano: time.Now().UnixNano(),
 
@@ -237,13 +266,15 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 		Relay1: relay1s,
 		Relay2: relay2s,
 
+		DecisionBatchIDs: decisionBatchIDs,
+
 		CrossRate:              crossRate,
 		RawLoadVariance:        rawVar,
 		NormalizedLoadVariance: normVar,
 
 		RCSTR:       rCSTR,
 		RWLB:        rWLB,
-		AbsLoadDiff: absDiff,
+		AbsLoadDiff: normalizedAbsDiff,
 
 		Reward: reward,
 
@@ -338,23 +369,86 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 ) (SpringOnlineUpdateInput, bool) {
 	if len(rthm.springPendingTrainBatches) == 0 {
 		rthm.sl.Slog.Printf(
-			"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=no_pending_train_batch reward=%.6f\n",
+			"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=no_pending_train_batch reward=%.6f decision_batches=%v\n",
 			rewardRecord.Epoch,
+			rewardRecord.Reward,
+			rewardRecord.DecisionBatchIDs,
+		)
+		return SpringOnlineUpdateInput{}, false
+	}
+
+	if len(rewardRecord.DecisionBatchIDs) == 0 {
+		rthm.sl.Slog.Printf(
+			"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=no_decision_batch_ids reward=%.6f pending_batches=%d\n",
+			rewardRecord.Epoch,
+			rewardRecord.Reward,
+			len(rthm.springPendingTrainBatches),
+		)
+		return SpringOnlineUpdateInput{}, false
+	}
+
+	targetBatchSet := make(map[uint64]bool)
+	for _, bid := range rewardRecord.DecisionBatchIDs {
+		targetBatchSet[bid] = true
+	}
+
+	matchedBatches := make([]SpringTrainBatch, 0)
+	remainingBatches := make([]SpringTrainBatch, 0, len(rthm.springPendingTrainBatches))
+
+	for _, batch := range rthm.springPendingTrainBatches {
+		if targetBatchSet[batch.BatchID] {
+			matchedBatches = append(matchedBatches, batch)
+		} else {
+			remainingBatches = append(remainingBatches, batch)
+		}
+	}
+
+	if len(matchedBatches) == 0 {
+		rthm.sl.Slog.Printf(
+			"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=no_matched_train_batch decision_batches=%v pending_batches=%d first_pending=%d reward=%.6f\n",
+			rewardRecord.Epoch,
+			rewardRecord.DecisionBatchIDs,
+			len(rthm.springPendingTrainBatches),
+			rthm.springPendingTrainBatches[0].BatchID,
 			rewardRecord.Reward,
 		)
 		return SpringOnlineUpdateInput{}, false
 	}
 
-	batch := rthm.springPendingTrainBatches[0]
-	rthm.springPendingTrainBatches = rthm.springPendingTrainBatches[1:]
+	sort.Slice(matchedBatches, func(i, j int) bool {
+		return matchedBatches[i].BatchID < matchedBatches[j].BatchID
+	})
+
+	rthm.springPendingTrainBatches = remainingBatches
+
+	matchedIDs := make([]uint64, 0, len(matchedBatches))
+	actions := make([]SpringTrainAction, 0)
+
+	txStartNonce := matchedBatches[0].TxStartNonce
+	txEndNonce := matchedBatches[0].TxEndNonce
+	txCount := 0
+
+	for _, batch := range matchedBatches {
+		matchedIDs = append(matchedIDs, batch.BatchID)
+
+		if batch.TxStartNonce < txStartNonce {
+			txStartNonce = batch.TxStartNonce
+		}
+		if batch.TxEndNonce > txEndNonce {
+			txEndNonce = batch.TxEndNonce
+		}
+
+		txCount += batch.TxCount
+		actions = append(actions, batch.Actions...)
+	}
 
 	rthm.sl.Slog.Printf(
-		"[SPRING ALIGN PAIR] tx_batch_id=%d tx_nonce=[%d,%d] tx_count=%d actions=%d -> feedback_epoch=%d reward=%.6f crossRate=%.6f rWLB=%.6f pending_after_pop=%d\n",
-		batch.BatchID,
-		batch.TxStartNonce,
-		batch.TxEndNonce,
-		batch.TxCount,
-		len(batch.Actions),
+		"[SPRING ALIGN PAIR] matched_batches=%v tx_nonce=[%d,%d] tx_count=%d actions=%d -> feedback_epoch=%d reward=%.6f crossRate=%.6f rWLB=%.6f pending_after_match=%d\n",
+		matchedIDs,
+		txStartNonce,
+		txEndNonce,
+		txCount,
+		len(actions),
 		rewardRecord.Epoch,
 		rewardRecord.Reward,
 		rewardRecord.CrossRate,
@@ -362,57 +456,67 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 		len(rthm.springPendingTrainBatches),
 	)
 
-	if len(batch.Actions) == 0 {
+	if len(actions) == 0 {
 		return SpringOnlineUpdateInput{}, false
 	}
 
-	actions := make([]SpringTrainAction, len(batch.Actions))
-	copy(actions, batch.Actions)
 	for idx := range actions {
 		actions[idx].Reward = 0.0
 		actions[idx].Done = false
 	}
-	actions[len(actions)-1].Reward = rewardRecord.Reward
+
+	// SPRING-Lite reward propagation:
+	// 仍然使用当前 feedback_epoch 的 block-level reward，
+	// 但不再只给最后一个 action，避免一个 block 内前面 action 的学习信号过弱。
+	// 这里采用平均分配，保证整个 block 的总 reward 不被放大。
+	perActionReward := rewardRecord.Reward / float64(len(actions))
+
+	for idx := range actions {
+		actions[idx].Reward = perActionReward
+		actions[idx].Done = false
+	}
+
 	actions[len(actions)-1].Done = true
 
 	nextStates := make([][]float64, 0, len(actions))
 	for _, action := range actions {
-		nextState := rthm.springBuildState(utils.Address(action.Related))
+		nextState := rthm.springBuildState(utils.Address(action.Related), nil)
 		nextStates = append(nextStates, nextState)
 	}
 
 	input := SpringOnlineUpdateInput{
 		TimeUnixNano: time.Now().UnixNano(),
 
-		BatchID: batch.BatchID,
+		// batch_id 保留为 matched 的第一个 batch，方便兼容旧日志命名。
+		BatchID: matchedIDs[0],
 
-		TxStartNonce: batch.TxStartNonce,
-		TxEndNonce:   batch.TxEndNonce,
-		TxCount:      batch.TxCount,
+		MatchedBatchIDs: matchedIDs,
+
+		TxStartNonce: txStartNonce,
+		TxEndNonce:   txEndNonce,
+		TxCount:      txCount,
 
 		FeedbackEpoch: rewardRecord.Epoch,
 		Shards:        params.ShardNum,
 
-		Actions:    actions,
+		Actions: actions,
+
 		Reward:     rewardRecord.Reward,
 		NextStates: nextStates,
 
-		// The actions above form one placement trajectory for this TxBatch.
 		Done: true,
 
 		CrossRate:              rewardRecord.CrossRate,
 		NormalizedLoadVariance: rewardRecord.NormalizedLoadVariance,
-
-		RCSTR:       rewardRecord.RCSTR,
-		RWLB:        rewardRecord.RWLB,
-		AbsLoadDiff: rewardRecord.AbsLoadDiff,
-		Lambda:      rewardRecord.Lambda,
-		Beta:        rewardRecord.Beta,
-
-		TotalTx:     rewardRecord.TotalTx,
-		TotalInner:  rewardRecord.TotalInner,
-		TotalRelay1: rewardRecord.TotalRelay1,
-		TotalRelay2: rewardRecord.TotalRelay2,
+		RCSTR:                  rewardRecord.RCSTR,
+		RWLB:                   rewardRecord.RWLB,
+		AbsLoadDiff:            rewardRecord.AbsLoadDiff,
+		Lambda:                 rewardRecord.Lambda,
+		Beta:                   rewardRecord.Beta,
+		TotalTx:                rewardRecord.TotalTx,
+		TotalInner:             rewardRecord.TotalInner,
+		TotalRelay1:            rewardRecord.TotalRelay1,
+		TotalRelay2:            rewardRecord.TotalRelay2,
 	}
 
 	return input, true

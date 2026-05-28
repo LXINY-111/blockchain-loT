@@ -57,35 +57,54 @@ type SpringDecisionRecord struct {
 }
 
 type SpringOnlineTrainResult struct {
-	Ok                     bool               `json:"ok"`
-	TimeUnixNano           int64              `json:"time_unix_nano"`
-	BatchID                uint64             `json:"batch_id"`
-	FeedbackEpoch          int                `json:"feedback_epoch"`
-	Shards                 int                `json:"shards"`
-	NumActions             int                `json:"num_actions"`
-	Skipped                int                `json:"skipped"`
-	Reward                 float64            `json:"reward"`
-	Done                   bool               `json:"done"`
-	ActionHist             []int              `json:"action_hist"`
-	CrossRate              float64            `json:"cross_rate"`
-	NormalizedLoadVariance float64            `json:"normalized_load_variance"`
-	TotalTx                int                `json:"total_tx"`
-	TotalInner             int                `json:"total_inner"`
-	TotalRelay1            int                `json:"total_relay1"`
-	TotalRelay2            int                `json:"total_relay2"`
-	InputPath              string             `json:"input_path"`
-	ModelPath              string             `json:"model_path"`
-	LogPath                string             `json:"log_path"`
-	LossInfo               map[string]float64 `json:"loss_info"`
-	ModelSource            string             `json:"model_source"`
-	Message                string             `json:"message"`
-	OnlineUpdateCount      int                `json:"online_update_count"`
+	Ok           bool  `json:"ok"`
+	Updated      bool  `json:"updated"`
+	TimeUnixNano int64 `json:"time_unix_nano"`
+
+	BatchID       uint64 `json:"batch_id"`
+	FeedbackEpoch int    `json:"feedback_epoch"`
+	Shards        int    `json:"shards"`
+
+	NewActions int `json:"new_actions"`
+	Skipped    int `json:"skipped"`
+
+	BatchReward float64 `json:"batch_reward"`
+
+	NewActionHist []int `json:"new_action_hist"`
+
+	RelatedKnownCount  int     `json:"related_known_count"`
+	SameAsRelatedCount int     `json:"same_as_related_count"`
+	SameAsRelatedRatio float64 `json:"same_as_related_ratio"`
+
+	OldPendingSize         int     `json:"old_pending_size"`
+	PendingSize            int     `json:"pending_size"`
+	PendingNumTrajectories int     `json:"pending_num_trajectories"`
+	PendingRewardSum       float64 `json:"pending_reward_sum"`
+	RolloutThreshold       int     `json:"rollout_threshold"`
+
+	CrossRate              float64 `json:"cross_rate"`
+	NormalizedLoadVariance float64 `json:"normalized_load_variance"`
+
+	TotalTx     int `json:"total_tx"`
+	TotalInner  int `json:"total_inner"`
+	TotalRelay1 int `json:"total_relay1"`
+	TotalRelay2 int `json:"total_relay2"`
+
+	InputPath string `json:"input_path"`
+	ModelPath string `json:"model_path"`
+	LogPath   string `json:"log_path"`
+
+	LossInfo map[string]float64 `json:"loss_info"`
+
+	ModelSource       string `json:"model_source"`
+	Message           string `json:"message"`
+	OnlineUpdateCount int    `json:"online_update_count"`
 }
 
 // springChooseShardPPO 保留为单地址调试入口。
 // 正式 TxBatch 运行时会走 springCallPythonBatch。
 func (rthm *RelayCommitteeModule) springChooseShardPPO(addr utils.Address, related utils.Address) uint64 {
-	state := rthm.springBuildState(related)
+	state := rthm.springBuildState(related, nil)
 
 	items := []SpringBatchInferItem{
 		{
@@ -255,10 +274,11 @@ func (rthm *RelayCommitteeModule) springCallPythonBatch(items []SpringBatchInfer
 		}
 	}
 
-	rthm.sl.Slog.Printf(
-		"[SPRING PPO BATCH] batch_id=%d items=%d results=%d sample=%v cost_us=%d server=1 dump=%v\n",
-		reqID, len(items), len(output.Items), sampleMode, inferCostUs, dumpBatchIO,
-	)
+	/*
+		rthm.sl.Slog.Printf(
+			"[SPRING PPO BATCH] batch_id=%d items=%d results=%d sample=%v cost_us=%d server=1 dump=%v\n",
+			reqID, len(items), len(output.Items), sampleMode, inferCostUs, dumpBatchIO,
+		)*/
 
 	return output.Items, inferCostUs, true
 }
@@ -394,15 +414,39 @@ func (rthm *RelayCommitteeModule) springCallPythonOnlineUpdate(input SpringOnlin
 
 	if !result.Ok {
 		rthm.sl.Slog.Printf(
-			"[SPRING ONLINE UPDATE] skip batch_id=%d epoch=%d actions=%d reward=%.6f message=%s cost_us=%d\n",
+			"[SPRING ONLINE UPDATE] skip batch_id=%d epoch=%d new_actions=%d reward=%.6f message=%s cost_us=%d\n",
 			result.BatchID,
 			result.FeedbackEpoch,
-			result.NumActions,
-			result.Reward,
+			result.NewActions,
+			result.BatchReward,
 			result.Message,
 			costUs,
 		)
 		return false
+	}
+
+	// Python 收到数据但还没达到 BATCH_SIZE，只是在累计 rollout buffer。
+	// 这不是错误，说明在线训练样本正在缓存。
+	if !result.Updated {
+		rthm.sl.Slog.Printf(
+			"[SPRING ONLINE BUFFER] ok batch_id=%d epoch=%d new_actions=%d skipped=%d reward=%.6f crossRate=%.6f normVar=%.6f pending=%d/%d trajectories=%d same_related=%d/%d ratio=%.4f message=%s cost_us=%d\n",
+			result.BatchID,
+			result.FeedbackEpoch,
+			result.NewActions,
+			result.Skipped,
+			result.BatchReward,
+			result.CrossRate,
+			result.NormalizedLoadVariance,
+			result.PendingSize,
+			result.RolloutThreshold,
+			result.PendingNumTrajectories,
+			result.SameAsRelatedCount,
+			result.RelatedKnownCount,
+			result.SameAsRelatedRatio,
+			result.Message,
+			costUs,
+		)
+		return true
 	}
 
 	loss := 0.0
@@ -418,11 +462,11 @@ func (rthm *RelayCommitteeModule) springCallPythonOnlineUpdate(input SpringOnlin
 	}
 
 	rthm.sl.Slog.Printf(
-		"[SPRING ONLINE UPDATE] ok batch_id=%d epoch=%d actions=%d reward=%.6f crossRate=%.6f normVar=%.6f loss=%.6f policy=%.6f value=%.6f entropy=%.6f update_count=%d source=%s cost_us=%d\n",
+		"[SPRING ONLINE UPDATE] updated batch_id=%d epoch=%d new_actions=%d reward=%.6f crossRate=%.6f normVar=%.6f loss=%.6f policy=%.6f value=%.6f entropy=%.6f update_count=%d source=%s cost_us=%d\n",
 		result.BatchID,
 		result.FeedbackEpoch,
-		result.NumActions,
-		result.Reward,
+		result.NewActions,
+		result.BatchReward,
 		result.CrossRate,
 		result.NormalizedLoadVariance,
 		loss,
