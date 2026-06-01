@@ -12,8 +12,10 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"math"
 	"math/big"
 	"os"
+	"strings"
 	"time"
 
 	"sort"
@@ -21,11 +23,12 @@ import (
 )
 
 type SpringBlockStat struct {
-	NumTx    int `json:"num_tx"`
-	InnerTx  int `json:"inner_tx"`
-	Relay1Tx int `json:"relay1_tx"`
-	Relay2Tx int `json:"relay2_tx"`
-	CrossTx  int `json:"cross_tx"`
+	NumTx       int     `json:"num_tx"`
+	InnerTx     int     `json:"inner_tx"`
+	Relay1Tx    int     `json:"relay1_tx"`
+	Relay2Tx    int     `json:"relay2_tx"`
+	CrossTx     float64 `json:"cross_tx"`
+	EffectiveTx float64 `json:"effective_tx"`
 
 	// 当前 shard block 中和 PPO 放置决策直接相关的 TxBatch。
 	// 只统计 InnerShardTxs + Relay1Txs，不统计 Relay2Txs，避免跨片第二阶段重复计算。
@@ -89,6 +92,13 @@ type RelayCommitteeModule struct {
 
 	// SPRING 在线训练：等待和真实区块 reward 匹配的 PPO 动作批次
 	springPendingTrainBatches []SpringTrainBatch
+	springTrainedBatchIDs     map[uint64]bool
+
+	// SPRING metrics: running averages for each feedback epoch.
+	springRewardCount  int
+	springCrossRateSum float64
+	springRewardSum    float64
+	springNormVarSum   float64
 
 	// SPRING: 新地址放置动作编号，用于生成 action_1.json、action_2.json
 	springActionSeq uint64
@@ -111,11 +121,12 @@ func NewRelayCommitteeModule(Ip_nodeTable map[uint64]map[uint64]string, Ss *sign
 		Ss:           Ss,
 		sl:           slog,
 
-		springAddrShard:     make(map[string]uint64),
-		springShardLoad:     make([]int, params.ShardNum),
-		springStats:         springStats,
-		springEpochFeedback: make(map[int]map[uint64]SpringBlockStat),
-		springRewardedEpoch: make(map[int]bool),
+		springAddrShard:       make(map[string]uint64),
+		springShardLoad:       make([]int, params.ShardNum),
+		springStats:           springStats,
+		springEpochFeedback:   make(map[int]map[uint64]SpringBlockStat),
+		springRewardedEpoch:   make(map[int]bool),
+		springTrainedBatchIDs: make(map[uint64]bool),
 	}
 }
 
@@ -274,6 +285,31 @@ func (rthm *RelayCommitteeModule) springFillTouchedPlacement(
 	}
 }
 
+func springBuildBatchRelatedMap(txlist []*core.Transaction) map[string]map[string]bool {
+	related := make(map[string]map[string]bool)
+
+	add := func(a, b utils.Address) {
+		if a == "" || b == "" || a == b {
+			return
+		}
+		key := string(a)
+		if _, ok := related[key]; !ok {
+			related[key] = make(map[string]bool)
+		}
+		related[key][string(b)] = true
+	}
+
+	for _, tx := range txlist {
+		if tx == nil {
+			continue
+		}
+		add(tx.Sender, tx.Recipient)
+		add(tx.Recipient, tx.Sender)
+	}
+
+	return related
+}
+
 func (rthm *RelayCommitteeModule) springPreparePlacementPPOBatch(
 	txlist []*core.Transaction,
 	batchPlacement map[string]uint64,
@@ -300,16 +336,20 @@ func (rthm *RelayCommitteeModule) springPreparePlacementPPOBatch(
 		params.TxBatchSize,
 	)
 
+	// Build a block-level relation map first. This is closer to SPRING's
+	// sender_pos semantics than using only one counterparty from one tx.
+	batchRelated := springBuildBatchRelatedMap(txlist)
+
 	// SPRING paper semantics: sender_pos is updated after each placement
 	// action within the current A-Shard block.
 	trainActions := make([]SpringTrainAction, 0)
 
 	for _, tx := range txlist {
-		if action, ok := rthm.springPlaceAddressPPOSequential(tx.Sender, tx.Recipient, batchPlacement); ok {
+		if action, ok := rthm.springPlaceAddressPPOSequential(tx.Sender, tx.Recipient, batchPlacement, batchRelated); ok {
 			trainActions = append(trainActions, action)
 		}
 
-		if action, ok := rthm.springPlaceAddressPPOSequential(tx.Recipient, tx.Sender, batchPlacement); ok {
+		if action, ok := rthm.springPlaceAddressPPOSequential(tx.Recipient, tx.Sender, batchPlacement, batchRelated); ok {
 			trainActions = append(trainActions, action)
 		}
 	}
@@ -321,6 +361,7 @@ func (rthm *RelayCommitteeModule) springPreparePlacementPPOBatch(
 			txStartNonce,
 			txEndNonce,
 			len(txlist),
+			rthm.nowDataNum >= rthm.dataTotalNum,
 		)
 	} else {
 		rthm.sl.Slog.Printf(
@@ -339,6 +380,7 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 	addr utils.Address,
 	related utils.Address,
 	batchPlacement map[string]uint64,
+	batchRelated map[string]map[string]bool,
 ) (SpringTrainAction, bool) {
 	key := string(addr)
 	if key == "" {
@@ -369,6 +411,19 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 	// 这样可以保证诊断字段和 PPO 实际看到的 state 一致。
 	relatedKnown, relatedShard := springExtractRelatedShardFromState(state)
 
+	senderPos, relatedSummary, aggRelatedKnown, aggRelatedShard, relatedWeight, aggRelatedInCurrentBatch, relatedCount := rthm.springBuildSenderPos(
+		key,
+		related,
+		batchPlacement,
+		batchRelated,
+	)
+	// Override the old one-counterparty state with block-level sender_pos.
+	relatedKey = relatedSummary
+	relatedKnown = aggRelatedKnown
+	relatedShard = aggRelatedShard
+	relatedInCurrentBatch = aggRelatedInCurrentBatch
+	state = rthm.springBuildStateFromSenderPos(senderPos, springAddressFlagFromRelatedCount(relatedCount))
+
 	item := SpringBatchInferItem{
 		Address: key,
 		Related: relatedKey,
@@ -385,11 +440,13 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 	var sid uint64
 	source := ""
 	confidence := 0.0
+	entropy := 0.0
 
 	if ok && result.Shard >= 0 && result.Shard < params.ShardNum {
 		sid = uint64(result.Shard)
 		source = result.Source
 		confidence = result.Confidence
+		entropy = result.Entropy
 		if source == "" {
 			source = "python_ppo"
 		}
@@ -400,12 +457,33 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 
 	// sequential 语义的关键：
 	// 当前地址决策后立即落表，后续地址构造 state 时能看到它。
+	chosenShard := int(sid)
+	shardLoadBefore := 0
+	if chosenShard >= 0 && chosenShard < len(rthm.springShardLoad) {
+		shardLoadBefore = rthm.springShardLoad[chosenShard]
+	}
+	loadMeanBefore := springMeanInt(rthm.springShardLoad)
+	localReward, loadPenalty := springLocalActionReward(
+		chosenShard,
+		relatedKnown,
+		relatedShard,
+		relatedWeight,
+		shardLoadBefore,
+		loadMeanBefore,
+	)
+
 	rthm.springAddrShard[key] = sid
 	rthm.springShardLoad[sid]++
 	batchPlacement[key] = sid
 
-	chosenShard := int(sid)
 	sameAsRelated := relatedKnown && chosenShard == relatedShard
+	nextSenderPos, _, _, _, _, _, nextRelatedCount := rthm.springBuildSenderPos(
+		key,
+		related,
+		batchPlacement,
+		batchRelated,
+	)
+	nextState := rthm.springBuildStateFromSenderPos(nextSenderPos, springAddressFlagFromRelatedCount(nextRelatedCount))
 
 	rthm.springAppendDecisionRecord(
 		result.BatchID,
@@ -414,6 +492,7 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 		sid,
 		source,
 		confidence,
+		entropy,
 		result.LogProb,
 		result.Value,
 		state,
@@ -448,14 +527,24 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 		Address:               key,
 		Related:               item.Related,
 		State:                 state,
+		NextState:             nextState,
 		Action:                chosenShard,
 		LogProb:               result.LogProb,
 		Value:                 result.Value,
+		Entropy:               entropy,
+		Confidence:            confidence,
+		LocalReward:           localReward,
 		RelatedKnown:          relatedKnown,
 		RelatedShard:          relatedShard,
+		RelatedWeight:         relatedWeight,
+		RelatedCount:          relatedCount,
+		SenderPos:             senderPos,
 		ChosenShard:           chosenShard,
 		SameAsRelated:         sameAsRelated,
 		RelatedInCurrentBatch: relatedInCurrentBatch,
+		ShardLoadBefore:       shardLoadBefore,
+		ShardLoadMeanBefore:   loadMeanBefore,
+		LoadPenalty:           loadPenalty,
 	}, true
 }
 
@@ -590,12 +679,16 @@ func (rthm *RelayCommitteeModule) HandleBlockInfo(b *message.BlockInfoMsg) {
 		b.Relay1Txs,
 	)
 
+	crossTx := float64(len(b.Relay1Txs)+len(b.Relay2Txs)) / 2.0
+	effectiveTx := float64(len(b.InnerShardTxs)) + crossTx
+
 	stat := SpringBlockStat{
 		NumTx:            b.BlockBodyLength,
 		InnerTx:          len(b.InnerShardTxs),
 		Relay1Tx:         len(b.Relay1Txs),
 		Relay2Tx:         len(b.Relay2Txs),
-		CrossTx:          len(b.Relay1Txs),
+		CrossTx:          crossTx,
+		EffectiveTx:      effectiveTx,
 		DecisionBatchIDs: decisionBatchIDs,
 	}
 
@@ -629,24 +722,39 @@ func (rthm *RelayCommitteeModule) HandleBlockInfo(b *message.BlockInfoMsg) {
 	if len(rthm.springEpochFeedback[b.Epoch]) == params.ShardNum && !rthm.springRewardedEpoch[b.Epoch] {
 		record, ok := rthm.springBuildFeedbackRewardRecord(b.Epoch, rthm.springEpochFeedback[b.Epoch])
 		if ok {
+			rthm.springRewardCount++
+			rthm.springCrossRateSum += record.CrossRate
+			rthm.springRewardSum += record.Reward
+			rthm.springNormVarSum += record.NormalizedLoadVariance
+
+			record.RewardedEpochCount = rthm.springRewardCount
+			record.RunningAvgCrossRate = rthm.springCrossRateSum / float64(rthm.springRewardCount)
+			record.RunningAvgReward = rthm.springRewardSum / float64(rthm.springRewardCount)
+			record.RunningAvgNormVar = rthm.springNormVarSum / float64(rthm.springRewardCount)
+
 			rthm.springAppendFeedbackRecord(record)
 
 			rthm.sl.Slog.Printf(
-				"[SPRING ONLINE REWARD] epoch=%d total=%d inner=%d relay1=%d relay2=%d crossRate=%.6f rCSTR=%.6f rWLB=%.6f absDiff=%.6f normVar=%.6f reward=%.6f lambda=%.3f beta=%.3f loads=%v\n",
+				"[SPRING ONLINE REWARD] epoch=%d total=%d effective=%.1f cross=%.1f inner=%d relay1=%d relay2=%d crossRate=%.6f runCross=%.6f rCSTR=%.6f rWLB=%.6f absDiff=%.6f normVar=%.6f reward=%.6f runReward=%.6f lambda=%.3f beta=%.3f loads=%v effectiveLoads=%v\n",
 				record.Epoch,
 				record.TotalTx,
+				record.EffectiveTx,
+				record.CrossTx,
 				record.TotalInner,
 				record.TotalRelay1,
 				record.TotalRelay2,
 				record.CrossRate,
+				record.RunningAvgCrossRate,
 				record.RCSTR,
 				record.RWLB,
 				record.AbsLoadDiff,
 				record.NormalizedLoadVariance,
 				record.Reward,
+				record.RunningAvgReward,
 				record.Lambda,
 				record.Beta,
 				record.Loads,
+				record.EffectiveLoads,
 			)
 
 			if params.SpringMode == 2 && params.SpringOnlineTrain == 1 {
@@ -701,12 +809,20 @@ func (rthm *RelayCommitteeModule) springGetStat(sid uint64, back int) SpringBloc
 }
 
 func springNormalizeStateCount(v int) float64 {
-	denom := float64(params.TxBatchSize)
+	return springNormalizeStateValue(float64(v))
+}
+
+func springNormalizeStateValue(v float64) float64 {
+	denom := float64(params.MaxBlockSize_global)
+	if params.TxBatchSize > params.MaxBlockSize_global {
+		denom = float64(params.TxBatchSize)
+	}
 	if denom <= 0 {
 		denom = 100.0
 	}
 
-	x := float64(v) / denom
+	// Use a smooth log scale so relay-heavy blocks do not all collapse to 1.
+	x := math.Log1p(v) / math.Log1p(denom*4.0)
 	if x < 0 {
 		return 0
 	}
@@ -730,6 +846,178 @@ func springExtractRelatedShardFromState(state []float64) (bool, int) {
 	return false, -1
 }
 
+func springMeanInt(values []int) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+
+	sum := 0
+	for _, v := range values {
+		sum += v
+	}
+	return float64(sum) / float64(len(values))
+}
+
+func springAddressFlagFromRelatedCount(relatedCount int) float64 {
+	// The dataset does not provide a stable EOA/contract flag. As a light-weight
+	// proxy, mark highly connected addresses inside the current block as 1.
+	if relatedCount >= 4 {
+		return 1.0
+	}
+	return 0.0
+}
+
+func springLocalActionReward(
+	chosenShard int,
+	relatedKnown bool,
+	relatedShard int,
+	relatedWeight float64,
+	shardLoadBefore int,
+	loadMeanBefore float64,
+) (float64, float64) {
+	reward := 0.0
+
+	if relatedKnown {
+		if chosenShard == relatedShard {
+			reward += 1.2 * relatedWeight
+		} else {
+			reward -= 1.0 * relatedWeight
+		}
+	}
+
+	loadPenalty := 0.0
+	if loadMeanBefore > 1e-9 {
+		loadPenalty = float64(shardLoadBefore) / loadMeanBefore
+		if loadPenalty > 1.0 {
+			overload := loadPenalty - 1.0
+			reward -= 0.70 * overload
+			if loadPenalty > 1.25 {
+				reward -= 0.35 * (loadPenalty - 1.25)
+			}
+		} else {
+			reward += 0.08 * (1.0 - loadPenalty)
+		}
+	}
+
+	return reward, loadPenalty
+}
+
+func (rthm *RelayCommitteeModule) springBuildSenderPos(
+	addr string,
+	fallbackRelated utils.Address,
+	batchPlacement map[string]uint64,
+	batchRelated map[string]map[string]bool,
+) ([]float64, string, bool, int, float64, bool, int) {
+	senderPos := make([]float64, params.ShardNum)
+	relatedSet := make(map[string]bool)
+
+	if peers, ok := batchRelated[addr]; ok {
+		for peer := range peers {
+			relatedSet[peer] = true
+		}
+	}
+
+	if fallbackRelated != "" {
+		relatedSet[string(fallbackRelated)] = true
+	}
+
+	relatedKeys := make([]string, 0, len(relatedSet))
+	for peer := range relatedSet {
+		relatedKeys = append(relatedKeys, peer)
+	}
+	sort.Strings(relatedKeys)
+
+	knownCount := 0
+	relatedInCurrentBatch := false
+	shardCounts := make([]int, params.ShardNum)
+
+	for _, peer := range relatedKeys {
+		if batchPlacement != nil {
+			if sid, ok := batchPlacement[peer]; ok && int(sid) < params.ShardNum {
+				shardCounts[int(sid)]++
+				knownCount++
+				relatedInCurrentBatch = true
+				continue
+			}
+		}
+
+		if sid, ok := rthm.springAddrShard[peer]; ok && int(sid) < params.ShardNum {
+			shardCounts[int(sid)]++
+			knownCount++
+		}
+	}
+
+	majorShard := -1
+	majorCount := 0
+	for sid, count := range shardCounts {
+		if count > majorCount {
+			majorCount = count
+			majorShard = sid
+		}
+	}
+
+	relatedKnown := knownCount > 0 && majorShard >= 0
+	relatedWeight := 0.0
+	if knownCount > 0 {
+		for sid, count := range shardCounts {
+			senderPos[sid] = float64(count) / float64(knownCount)
+		}
+		relatedWeight = float64(majorCount) / float64(knownCount)
+	}
+
+	summaryKeys := relatedKeys
+	if len(summaryKeys) > 8 {
+		summaryKeys = summaryKeys[:8]
+	}
+	relatedSummary := strings.Join(summaryKeys, ",")
+	if len(relatedKeys) > len(summaryKeys) {
+		relatedSummary = relatedSummary + ",+" + intToString(len(relatedKeys)-len(summaryKeys))
+	}
+	return senderPos, relatedSummary, relatedKnown, majorShard, relatedWeight, relatedInCurrentBatch, len(relatedKeys)
+}
+
+func (rthm *RelayCommitteeModule) springBuildStateFromSenderPos(
+	senderPos []float64,
+	flag float64,
+) []float64 {
+	state := make([]float64, 0, 11*params.ShardNum+1)
+
+	for back := 4; back >= 0; back-- {
+		for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
+			st := rthm.springGetStat(sid, back)
+			state = append(state, springNormalizeStateCount(st.NumTx))
+		}
+	}
+
+	for back := 4; back >= 0; back-- {
+		for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
+			st := rthm.springGetStat(sid, back)
+			state = append(state, springNormalizeStateValue(st.CrossTx))
+		}
+	}
+
+	for sid := 0; sid < params.ShardNum; sid++ {
+		v := 0.0
+		if sid < len(senderPos) {
+			v = senderPos[sid]
+		}
+		if v < 0 {
+			v = 0
+		}
+		if v > 1 {
+			v = 1
+		}
+		state = append(state, v)
+	}
+
+	if flag != 0 {
+		flag = 1
+	}
+	state = append(state, flag)
+
+	return state
+}
+
 func (rthm *RelayCommitteeModule) springBuildState(
 	related utils.Address,
 	batchPlacement map[string]uint64,
@@ -749,7 +1037,7 @@ func (rthm *RelayCommitteeModule) springBuildState(
 	for back := 4; back >= 0; back-- {
 		for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
 			st := rthm.springGetStat(sid, back)
-			state = append(state, springNormalizeStateCount(st.CrossTx))
+			state = append(state, springNormalizeStateValue(st.CrossTx))
 		}
 	}
 

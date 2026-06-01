@@ -9,11 +9,17 @@ from config import (
     BATCH_SIZE,
     CHECKPOINT_DIR,
     CLIP_EPS,
+    ENTROPY_COEF,
+    GAE_LAMBDA,
     GAMMA,
     HIDDEN_DIM,
     LEARNING_RATE,
+    MIN_FLUSH_BATCH_SIZE,
     MODEL_PATH,
     PPO_EPOCHS,
+    REWARD_CLIP,
+    SUPERVISED_COEF,
+    VALUE_CLIP,
     state_dim,
 )
 from ppo import PPOAgent, RolloutBuffer
@@ -43,6 +49,12 @@ def safe_int(x: Any, default: int = 0) -> int:
         return default
 
 
+def clip_value(value: float, limit: float) -> float:
+    if limit <= 0:
+        return value
+    return max(-limit, min(limit, value))
+
+
 def load_update_input(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
@@ -64,6 +76,10 @@ def build_agent(shards: int, model_path: Path) -> Tuple[PPOAgent, Dict[str, Any]
         gamma=GAMMA,
         clip_eps=CLIP_EPS,
         ppo_epochs=PPO_EPOCHS,
+        gae_lambda=GAE_LAMBDA,
+        entropy_coef=ENTROPY_COEF,
+        value_clip=VALUE_CLIP,
+        supervised_coef=SUPERVISED_COEF,
         device="cpu",
     )
 
@@ -100,14 +116,24 @@ def build_buffer_from_update(data: Dict[str, Any]) -> Tuple[RolloutBuffer, Dict[
     if not isinstance(actions, list):
         raise ValueError("actions must be a list")
 
+    next_states = data.get("next_states", [])
+    if not isinstance(next_states, list):
+        next_states = []
+
     buffer = RolloutBuffer()
     skipped = 0
     action_hist = [0 for _ in range(shards)]
 
     related_known_count = 0
     same_as_related_count = 0
+    confidence_sum = 0.0
+    entropy_sum = 0.0
+    log_prob_sum = 0.0
+    local_reward_sum = 0.0
+    supervised_target_count = 0
+    supervised_weight_sum = 0.0
 
-    for item in actions:
+    for idx, item in enumerate(actions):
         if not isinstance(item, dict):
             skipped += 1
             continue
@@ -132,14 +158,40 @@ def build_buffer_from_update(data: Dict[str, Any]) -> Tuple[RolloutBuffer, Dict[
 
         clean_state = [safe_float(x, 0.0) for x in state]
 
+        raw_next_state = item.get("next_state", None)
+        if not isinstance(raw_next_state, list) and idx < len(next_states):
+            raw_next_state = next_states[idx]
+
+        if isinstance(raw_next_state, list) and len(raw_next_state) == expected_state_dim:
+            clean_next_state = [safe_float(x, 0.0) for x in raw_next_state]
+        else:
+            clean_next_state = clean_state
+
         # 关键：
         # 这里不再把 top-level batch_reward 自动塞给每个 action。
         # Go 侧已经负责设置：
         #   前面 action.reward = 0
         #   最后 action.reward = block_reward
         #   最后 action.done = true
-        item_reward = safe_float(item.get("reward", 0.0), 0.0)
+        item_reward = clip_value(
+            safe_float(item.get("reward", 0.0), 0.0),
+            REWARD_CLIP,
+        )
         item_done = bool(item.get("done", False))
+        item_confidence = safe_float(item.get("confidence", 0.0), 0.0)
+        item_entropy = safe_float(item.get("entropy", 0.0), 0.0)
+        item_local_reward = safe_float(item.get("local_reward", item_reward), item_reward)
+        item_related_known = bool(item.get("related_known", False))
+        item_related_shard = safe_int(item.get("related_shard", -1), -1)
+        item_related_weight = safe_float(item.get("related_weight", 0.0), 0.0)
+
+        target_action = -1
+        target_weight = 0.0
+        if item_related_known and 0 <= item_related_shard < shards:
+            target_action = item_related_shard
+            target_weight = max(0.05, min(1.0, item_related_weight))
+            supervised_target_count += 1
+            supervised_weight_sum += target_weight
 
         buffer.add(
             state=clean_state,
@@ -148,11 +200,18 @@ def build_buffer_from_update(data: Dict[str, Any]) -> Tuple[RolloutBuffer, Dict[
             reward=item_reward,
             done=item_done,
             value=value,
+            next_state=clean_next_state,
+            target_action=target_action,
+            target_weight=target_weight,
         )
 
         action_hist[action] += 1
+        confidence_sum += item_confidence
+        entropy_sum += item_entropy
+        log_prob_sum += log_prob
+        local_reward_sum += item_local_reward
 
-        if bool(item.get("related_known", False)):
+        if item_related_known:
             related_known_count += 1
             if bool(item.get("same_as_related", False)):
                 same_as_related_count += 1
@@ -168,6 +227,16 @@ def build_buffer_from_update(data: Dict[str, Any]) -> Tuple[RolloutBuffer, Dict[
         "action_hist": action_hist,
         "related_known_count": related_known_count,
         "same_as_related_count": same_as_related_count,
+        "action_confidence_mean": confidence_sum / float(len(buffer)) if len(buffer) else 0.0,
+        "action_entropy_mean": entropy_sum / float(len(buffer)) if len(buffer) else 0.0,
+        "action_log_prob_mean": log_prob_sum / float(len(buffer)) if len(buffer) else 0.0,
+        "local_reward_mean": local_reward_sum / float(len(buffer)) if len(buffer) else 0.0,
+        "supervised_target_count": supervised_target_count,
+        "supervised_weight_mean": (
+            supervised_weight_sum / float(supervised_target_count)
+            if supervised_target_count
+            else 0.0
+        ),
     }
 
     return buffer, meta
@@ -180,11 +249,14 @@ def buffer_to_records(buffer: RolloutBuffer) -> List[Dict[str, Any]]:
         records.append(
             {
                 "state": buffer.states[i].tolist(),
+                "next_state": buffer.next_states[i].tolist(),
                 "action": int(buffer.actions[i]),
                 "log_prob": float(buffer.log_probs[i]),
                 "reward": float(buffer.rewards[i]),
                 "done": bool(buffer.dones[i]),
                 "value": float(buffer.values[i]),
+                "target_action": int(buffer.target_actions[i]),
+                "target_weight": float(buffer.target_weights[i]),
             }
         )
 
@@ -202,6 +274,9 @@ def records_to_buffer(records: List[Dict[str, Any]], shards: int) -> RolloutBuff
         state = item.get("state", [])
         if not isinstance(state, list) or len(state) != expected_state_dim:
             continue
+        next_state = item.get("next_state", state)
+        if not isinstance(next_state, list) or len(next_state) != expected_state_dim:
+            next_state = state
 
         action = safe_int(item.get("action", -1), -1)
         if action < 0 or action >= shards:
@@ -215,11 +290,14 @@ def records_to_buffer(records: List[Dict[str, Any]], shards: int) -> RolloutBuff
 
         buffer.add(
             state=[safe_float(x, 0.0) for x in state],
+            next_state=[safe_float(x, 0.0) for x in next_state],
             action=action,
             log_prob=log_prob,
             reward=safe_float(item.get("reward", 0.0), 0.0),
             done=bool(item.get("done", False)),
             value=value,
+            target_action=safe_int(item.get("target_action", -1), -1),
+            target_weight=safe_float(item.get("target_weight", 0.0), 0.0),
         )
 
     return buffer
@@ -286,11 +364,14 @@ def append_buffer(dst: RolloutBuffer, src: RolloutBuffer) -> None:
     for i in range(len(src)):
         dst.add(
             state=src.states[i],
+            next_state=src.next_states[i],
             action=src.actions[i],
             log_prob=src.log_probs[i],
             reward=src.rewards[i],
             done=src.dones[i],
             value=src.values[i],
+            target_action=src.target_actions[i],
+            target_weight=src.target_weights[i],
         )
 
 
@@ -301,15 +382,28 @@ def rollout_stats(buffer: RolloutBuffer) -> Dict[str, Any]:
             "num_trajectories": 0,
             "reward_sum": 0.0,
             "reward_mean": 0.0,
+            "supervised_target_count": 0,
+            "supervised_weight_mean": 0.0,
         }
 
     reward_sum = float(sum(buffer.rewards))
+    supervised_weights = [
+        float(w)
+        for target, w in zip(buffer.target_actions, buffer.target_weights)
+        if target >= 0 and w > 0
+    ]
 
     return {
         "size": len(buffer),
         "num_trajectories": int(sum(1 for d in buffer.dones if d)),
         "reward_sum": reward_sum,
         "reward_mean": reward_sum / float(len(buffer)),
+        "supervised_target_count": len(supervised_weights),
+        "supervised_weight_mean": (
+            float(sum(supervised_weights)) / float(len(supervised_weights))
+            if supervised_weights
+            else 0.0
+        ),
     }
 
 
@@ -326,6 +420,7 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
     batch_id = safe_int(data.get("batch_id", 0), 0)
     feedback_epoch = safe_int(data.get("feedback_epoch", -1), -1)
     shards = safe_int(data.get("shards", 4), 4)
+    flush_update = bool(data.get("flush_update", False))
 
     new_buffer, meta = build_buffer_from_update(data)
 
@@ -361,21 +456,49 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
             if meta["related_known_count"] > 0
             else 0.0
         ),
+        "action_confidence_mean": meta["action_confidence_mean"],
+        "action_entropy_mean": meta["action_entropy_mean"],
+        "action_log_prob_mean": meta["action_log_prob_mean"],
+        "local_reward_mean": meta["local_reward_mean"],
         "pending_meta": pending_meta,
         "old_pending_size": old_pending_size,
         "pending_size": pending_stats["size"],
         "pending_num_trajectories": pending_stats["num_trajectories"],
         "pending_reward_sum": pending_stats["reward_sum"],
         "rollout_threshold": BATCH_SIZE,
+        "min_flush_threshold": MIN_FLUSH_BATCH_SIZE,
+        "entropy_coef": ENTROPY_COEF,
+        "reward_clip": REWARD_CLIP,
+        "value_clip": VALUE_CLIP,
+        "flush_update": flush_update,
+        "feedback_aggregate_count": safe_int(data.get("feedback_aggregate_count", 0), 0),
+        "feedback_first_epoch": safe_int(data.get("feedback_first_epoch", 0), 0),
+        "feedback_last_epoch": safe_int(data.get("feedback_last_epoch", 0), 0),
+        "feedback_weight_sum": safe_float(data.get("feedback_weight_sum", 0.0), 0.0),
+        "feedback_aggregate_window": safe_int(data.get("feedback_aggregate_window", 0), 0),
+        "feedback_max_matches": safe_int(data.get("feedback_max_matches", 0), 0),
         "cross_rate": safe_float(data.get("cross_rate", 0.0), 0.0),
+        "effective_tx": safe_float(data.get("effective_tx", 0.0), 0.0),
+        "cross_tx": safe_float(data.get("cross_tx", 0.0), 0.0),
         "normalized_load_variance": safe_float(
             data.get("normalized_load_variance", 0.0),
             0.0,
         ),
+        "running_avg_cross_rate": safe_float(data.get("running_avg_cross_rate", 0.0), 0.0),
+        "running_avg_reward": safe_float(data.get("running_avg_reward", 0.0), 0.0),
+        "running_avg_norm_var": safe_float(data.get("running_avg_norm_var", 0.0), 0.0),
+        "rewarded_epoch_count": safe_int(data.get("rewarded_epoch_count", 0), 0),
         "total_tx": safe_int(data.get("total_tx", 0), 0),
         "total_inner": safe_int(data.get("total_inner", 0), 0),
         "total_relay1": safe_int(data.get("total_relay1", 0), 0),
         "total_relay2": safe_int(data.get("total_relay2", 0), 0),
+        "supervised_target_count": pending_stats["supervised_target_count"],
+        "supervised_target_ratio": (
+            float(pending_stats["supervised_target_count"]) / float(pending_stats["size"])
+            if pending_stats["size"]
+            else 0.0
+        ),
+        "supervised_weight_mean": pending_stats["supervised_weight_mean"],
         "loss_info": {},
         "model_source": "",
         "message": "",
@@ -390,12 +513,19 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
 
     # 关键：不再每个 online_update 文件都更新。
     # 累计到 BATCH_SIZE=2048 条 action 后，再执行一次 PPO 更新。
-    if len(pending_buffer) < BATCH_SIZE:
+    update_threshold = BATCH_SIZE
+    if flush_update:
+        update_threshold = MIN_FLUSH_BATCH_SIZE
+
+    if len(pending_buffer) < update_threshold:
         save_pending_buffer(ROLLOUT_BUFFER_PATH, pending_buffer, shards)
 
         result["ok"] = True
         result["updated"] = False
-        result["message"] = "buffering_not_enough_samples"
+        if flush_update:
+            result["message"] = "flush_waiting_min_samples"
+        else:
+            result["message"] = "buffering_not_enough_samples"
 
         append_train_log(log_path, result)
         return result
@@ -419,6 +549,14 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
         "last_batch_reward": meta["batch_reward"],
         "last_cross_rate": result["cross_rate"],
         "last_normalized_load_variance": result["normalized_load_variance"],
+        "last_effective_tx": result["effective_tx"],
+        "last_cross_tx": result["cross_tx"],
+        "last_running_avg_cross_rate": result["running_avg_cross_rate"],
+        "last_action_confidence_mean": result["action_confidence_mean"],
+        "last_action_entropy_mean": result["action_entropy_mean"],
+        "last_local_reward_mean": result["local_reward_mean"],
+        "last_supervised_target_count": result["supervised_target_count"],
+        "last_supervised_weight_mean": result["supervised_weight_mean"],
         "last_new_actions": len(new_buffer),
         "last_pending_size_used_for_update": len(pending_buffer),
         "last_pending_num_trajectories": pending_stats["num_trajectories"],
@@ -434,7 +572,10 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
     result["updated"] = True
     result["loss_info"] = loss_info
     result["online_update_count"] = new_update_count
-    result["message"] = "updated_with_trajectory_rollout"
+    if flush_update and len(pending_buffer) < BATCH_SIZE:
+        result["message"] = "updated_with_flush_rollout"
+    else:
+        result["message"] = "updated_with_trajectory_rollout"
 
     append_train_log(log_path, result)
     return result

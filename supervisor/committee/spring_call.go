@@ -30,6 +30,7 @@ type SpringBatchInferResult struct {
 	Shard      int     `json:"shard"`
 	Source     string  `json:"source"`
 	Confidence float64 `json:"confidence"`
+	Entropy    float64 `json:"entropy"`
 
 	BatchID uint64  `json:"batch_id"`
 	LogProb float64 `json:"log_prob"`
@@ -48,6 +49,7 @@ type SpringDecisionRecord struct {
 	Shard        uint64    `json:"shard"`
 	Source       string    `json:"source"`
 	Confidence   float64   `json:"confidence"`
+	Entropy      float64   `json:"entropy"`
 	LogProb      float64   `json:"log_prob"`
 	Value        float64   `json:"value"`
 	StateDim     int       `json:"state_dim"`
@@ -76,6 +78,11 @@ type SpringOnlineTrainResult struct {
 	SameAsRelatedCount int     `json:"same_as_related_count"`
 	SameAsRelatedRatio float64 `json:"same_as_related_ratio"`
 
+	ActionConfidenceMean float64 `json:"action_confidence_mean"`
+	ActionEntropyMean    float64 `json:"action_entropy_mean"`
+	ActionLogProbMean    float64 `json:"action_log_prob_mean"`
+	LocalRewardMean      float64 `json:"local_reward_mean"`
+
 	OldPendingSize         int     `json:"old_pending_size"`
 	PendingSize            int     `json:"pending_size"`
 	PendingNumTrajectories int     `json:"pending_num_trajectories"`
@@ -83,12 +90,24 @@ type SpringOnlineTrainResult struct {
 	RolloutThreshold       int     `json:"rollout_threshold"`
 
 	CrossRate              float64 `json:"cross_rate"`
+	EffectiveTx            float64 `json:"effective_tx"`
+	CrossTx                float64 `json:"cross_tx"`
 	NormalizedLoadVariance float64 `json:"normalized_load_variance"`
+	RunningAvgCrossRate    float64 `json:"running_avg_cross_rate"`
+	RunningAvgReward       float64 `json:"running_avg_reward"`
+	RunningAvgNormVar      float64 `json:"running_avg_norm_var"`
+	RewardedEpochCount     int     `json:"rewarded_epoch_count"`
 
 	TotalTx     int `json:"total_tx"`
 	TotalInner  int `json:"total_inner"`
 	TotalRelay1 int `json:"total_relay1"`
 	TotalRelay2 int `json:"total_relay2"`
+
+	FlushUpdate           bool    `json:"flush_update"`
+	MinFlushThreshold     int     `json:"min_flush_threshold"`
+	SupervisedTargetCount int     `json:"supervised_target_count"`
+	SupervisedTargetRatio float64 `json:"supervised_target_ratio"`
+	SupervisedWeightMean  float64 `json:"supervised_weight_mean"`
 
 	InputPath string `json:"input_path"`
 	ModelPath string `json:"model_path"`
@@ -134,6 +153,7 @@ func (rthm *RelayCommitteeModule) springChooseShardPPO(addr utils.Address, relat
 				sid,
 				source,
 				output.Confidence,
+				output.Entropy,
 				output.LogProb,
 				output.Value,
 				state,
@@ -166,6 +186,7 @@ func (rthm *RelayCommitteeModule) springChooseShardPPO(addr utils.Address, relat
 		string(related),
 		fallbackSid,
 		"go_heuristic_fallback",
+		0.0,
 		0.0,
 		0.0,
 		0.0,
@@ -290,6 +311,7 @@ func (rthm *RelayCommitteeModule) springAppendDecisionRecord(
 	shard uint64,
 	source string,
 	confidence float64,
+	entropy float64,
 	logProb float64,
 	value float64,
 	state []float64,
@@ -308,6 +330,7 @@ func (rthm *RelayCommitteeModule) springAppendDecisionRecord(
 		Shard:        shard,
 		Source:       source,
 		Confidence:   confidence,
+		Entropy:      entropy,
 		LogProb:      logProb,
 		Value:        value,
 		StateDim:     len(state),
@@ -429,20 +452,28 @@ func (rthm *RelayCommitteeModule) springCallPythonOnlineUpdate(input SpringOnlin
 	// 这不是错误，说明在线训练样本正在缓存。
 	if !result.Updated {
 		rthm.sl.Slog.Printf(
-			"[SPRING ONLINE BUFFER] ok batch_id=%d epoch=%d new_actions=%d skipped=%d reward=%.6f crossRate=%.6f normVar=%.6f pending=%d/%d trajectories=%d same_related=%d/%d ratio=%.4f message=%s cost_us=%d\n",
+			"[SPRING ONLINE BUFFER] ok batch_id=%d epoch=%d new_actions=%d skipped=%d reward=%.6f crossRate=%.6f runCross=%.6f normVar=%.6f pending=%d/%d trajectories=%d flush=%v minFlush=%d same_related=%d/%d ratio=%.4f supervised=%d %.4f conf=%.4f entropy=%.4f localReward=%.4f message=%s cost_us=%d\n",
 			result.BatchID,
 			result.FeedbackEpoch,
 			result.NewActions,
 			result.Skipped,
 			result.BatchReward,
 			result.CrossRate,
+			result.RunningAvgCrossRate,
 			result.NormalizedLoadVariance,
 			result.PendingSize,
 			result.RolloutThreshold,
 			result.PendingNumTrajectories,
+			result.FlushUpdate,
+			result.MinFlushThreshold,
 			result.SameAsRelatedCount,
 			result.RelatedKnownCount,
 			result.SameAsRelatedRatio,
+			result.SupervisedTargetCount,
+			result.SupervisedWeightMean,
+			result.ActionConfidenceMean,
+			result.ActionEntropyMean,
+			result.LocalRewardMean,
 			result.Message,
 			costUs,
 		)
@@ -462,13 +493,20 @@ func (rthm *RelayCommitteeModule) springCallPythonOnlineUpdate(input SpringOnlin
 	}
 
 	rthm.sl.Slog.Printf(
-		"[SPRING ONLINE UPDATE] updated batch_id=%d epoch=%d new_actions=%d reward=%.6f crossRate=%.6f normVar=%.6f loss=%.6f policy=%.6f value=%.6f entropy=%.6f update_count=%d source=%s cost_us=%d\n",
+		"[SPRING ONLINE UPDATE] updated batch_id=%d epoch=%d new_actions=%d reward=%.6f crossRate=%.6f runCross=%.6f normVar=%.6f flush=%v supervised=%d %.4f conf=%.4f actionEntropy=%.4f localReward=%.4f loss=%.6f policy=%.6f value=%.6f entropy=%.6f update_count=%d source=%s cost_us=%d\n",
 		result.BatchID,
 		result.FeedbackEpoch,
 		result.NewActions,
 		result.BatchReward,
 		result.CrossRate,
+		result.RunningAvgCrossRate,
 		result.NormalizedLoadVariance,
+		result.FlushUpdate,
+		result.SupervisedTargetCount,
+		result.SupervisedWeightMean,
+		result.ActionConfidenceMean,
+		result.ActionEntropyMean,
+		result.LocalRewardMean,
 		loss,
 		policyLoss,
 		valueLoss,

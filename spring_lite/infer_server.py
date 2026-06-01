@@ -121,6 +121,7 @@ def safe_heuristic(item: Dict[str, Any], shards: int, reason: str, request_id: i
         "shard": int(shard),
         "source": f"python_heuristic_{reason}",
         "confidence": 0.0,
+        "entropy": 0.0,
         "batch_id": int(request_id),
         "log_prob": 0.0,
         "value": 0.0,
@@ -197,12 +198,14 @@ def infer_items(
 
             log_probs = dist.log_prob(actions)
             confidences = probs.gather(1, actions.unsqueeze(1)).squeeze(1)
+            entropies = dist.entropy()
 
             for local_idx, item_idx in enumerate(valid_indices):
                 item = items[item_idx]
 
                 shard = int(actions[local_idx].item())
                 confidence = float(confidences[local_idx].item())
+                entropy = float(entropies[local_idx].item())
                 log_prob = float(log_probs[local_idx].item())
                 value = float(values[local_idx].item())
 
@@ -216,6 +219,7 @@ def infer_items(
                     "shard": shard,
                     "source": "python_ppo",
                     "confidence": confidence,
+                    "entropy": entropy,
                     "batch_id": int(request_id),
                     "log_prob": log_prob,
                     "value": value,

@@ -60,6 +60,7 @@ def safe_heuristic(item: Dict[str, Any], shards: int, reason: str) -> Dict[str, 
         "shard": int(shard),
         "source": f"python_heuristic_{reason}",
         "confidence": 0.0,
+        "entropy": 0.0,
         # 为了让 Go 侧结构统一，启发式兜底也输出这两个字段。
         # 但后续真正训练时，只把 source == python_ppo 的动作写入 PPO 经验。
         "log_prob": 0.0,
@@ -183,12 +184,14 @@ def infer_batch(
 
             log_probs = dist.log_prob(actions)
             confidences = probs.gather(1, actions.unsqueeze(1)).squeeze(1)
+            entropies = dist.entropy()
 
             for local_idx, item_idx in enumerate(valid_indices):
                 item = items[item_idx]
 
                 shard = int(actions[local_idx].item())
                 confidence = float(confidences[local_idx].item())
+                entropy = float(entropies[local_idx].item())
                 log_prob = float(log_probs[local_idx].item())
                 value = float(values[local_idx].item())
 
@@ -196,6 +199,7 @@ def infer_batch(
                     shard = 0
                     source = "safe_default"
                     confidence = 0.0
+                    entropy = 0.0
                     log_prob = 0.0
                     value = 0.0
                 else:
@@ -207,6 +211,7 @@ def infer_batch(
                     "shard": shard,
                     "source": source,
                     "confidence": confidence,
+                    "entropy": entropy,
                     "log_prob": log_prob,
                     "value": value,
                 }

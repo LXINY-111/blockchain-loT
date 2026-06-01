@@ -16,7 +16,7 @@
 
   "Block_Interval": 5000,
 
-  "BlockSize": 2000,
+  "BlockSize": 1000,
   "BlocksizeInBytes": 200000,
   "UseBlocksizeInBytes": 0,
 

@@ -14,6 +14,7 @@ from config import (
     CLIP_EPS,
     DEFAULT_CSV_PATH,
     DEFAULT_SHARD_NUM,
+    ENTROPY_COEF,
     GAMMA,
     HIDDEN_DIM,
     LAMBDA_WEIGHT,
@@ -304,7 +305,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
     parser.add_argument("--lambda_weight", type=float, default=LAMBDA_WEIGHT)
     parser.add_argument("--beta", type=float, default=BETA)
-    parser.add_argument("--entropy_coef", type=float, default=0.01)
+    parser.add_argument("--entropy_coef", type=float, default=ENTROPY_COEF)
     parser.add_argument("--device", type=str, default="cpu")
 
     args = parser.parse_args()

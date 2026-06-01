@@ -2,7 +2,6 @@ package committee
 
 import (
 	"blockEmulator/params"
-	"blockEmulator/utils"
 	"encoding/json"
 	"math"
 	"os"
@@ -17,15 +16,18 @@ type SpringFeedbackRewardRecord struct {
 
 	Epoch int `json:"epoch"`
 
-	TotalTx     int `json:"total_tx"`
-	TotalInner  int `json:"total_inner"`
-	TotalRelay1 int `json:"total_relay1"`
-	TotalRelay2 int `json:"total_relay2"`
+	TotalTx     int     `json:"total_tx"`
+	TotalInner  int     `json:"total_inner"`
+	TotalRelay1 int     `json:"total_relay1"`
+	TotalRelay2 int     `json:"total_relay2"`
+	EffectiveTx float64 `json:"effective_tx"`
+	CrossTx     float64 `json:"cross_tx"`
 
-	Loads  []int `json:"loads"`
-	Inners []int `json:"inners"`
-	Relay1 []int `json:"relay1"`
-	Relay2 []int `json:"relay2"`
+	Loads          []int     `json:"loads"`
+	EffectiveLoads []float64 `json:"effective_loads"`
+	Inners         []int     `json:"inners"`
+	Relay1         []int     `json:"relay1"`
+	Relay2         []int     `json:"relay2"`
 
 	DecisionBatchIDs []uint64 `json:"decision_batch_ids"`
 
@@ -42,25 +44,62 @@ type SpringFeedbackRewardRecord struct {
 
 	Lambda float64 `json:"lambda"`
 	Beta   float64 `json:"beta"`
+
+	RunningAvgCrossRate float64 `json:"running_avg_cross_rate"`
+	RunningAvgReward    float64 `json:"running_avg_reward"`
+	RunningAvgNormVar   float64 `json:"running_avg_norm_var"`
+	RewardedEpochCount  int     `json:"rewarded_epoch_count"`
 }
 
 type SpringTrainAction struct {
-	BatchID uint64    `json:"batch_id"`
-	Address string    `json:"address"`
-	Related string    `json:"related"`
-	State   []float64 `json:"state"`
-	Action  int       `json:"action"`
-	LogProb float64   `json:"log_prob"`
-	Value   float64   `json:"value"`
+	BatchID    uint64    `json:"batch_id"`
+	Address    string    `json:"address"`
+	Related    string    `json:"related"`
+	State      []float64 `json:"state"`
+	Action     int       `json:"action"`
+	LogProb    float64   `json:"log_prob"`
+	Value      float64   `json:"value"`
+	Entropy    float64   `json:"entropy"`
+	Confidence float64   `json:"confidence"`
+	NextState  []float64 `json:"next_state"`
 
-	Reward float64 `json:"reward"`
-	Done   bool    `json:"done"`
+	Reward      float64 `json:"reward"`
+	Done        bool    `json:"done"`
+	LocalReward float64 `json:"local_reward"`
 
-	RelatedKnown          bool `json:"related_known"`
-	RelatedShard          int  `json:"related_shard"`
-	ChosenShard           int  `json:"chosen_shard"`
-	SameAsRelated         bool `json:"same_as_related"`
-	RelatedInCurrentBatch bool `json:"related_in_current_batch"`
+	RelatedKnown          bool      `json:"related_known"`
+	RelatedShard          int       `json:"related_shard"`
+	RelatedWeight         float64   `json:"related_weight"`
+	RelatedCount          int       `json:"related_count"`
+	SenderPos             []float64 `json:"sender_pos"`
+	ChosenShard           int       `json:"chosen_shard"`
+	SameAsRelated         bool      `json:"same_as_related"`
+	RelatedInCurrentBatch bool      `json:"related_in_current_batch"`
+	ShardLoadBefore       int       `json:"shard_load_before"`
+	ShardLoadMeanBefore   float64   `json:"shard_load_mean_before"`
+	LoadPenalty           float64   `json:"load_penalty"`
+}
+
+type SpringFeedbackAggregate struct {
+	Count      int     `json:"count"`
+	FirstEpoch int     `json:"first_epoch"`
+	LastEpoch  int     `json:"last_epoch"`
+	WeightSum  float64 `json:"weight_sum"`
+
+	RewardSum                 float64 `json:"reward_sum"`
+	CrossRateSum              float64 `json:"cross_rate_sum"`
+	EffectiveTxSum            float64 `json:"effective_tx_sum"`
+	CrossTxSum                float64 `json:"cross_tx_sum"`
+	NormalizedLoadVarianceSum float64 `json:"normalized_load_variance_sum"`
+	RCSTRSum                  float64 `json:"r_cstr_sum"`
+	RWLBSum                   float64 `json:"r_wlb_sum"`
+	AbsLoadDiffSum            float64 `json:"abs_load_diff_sum"`
+	LambdaSum                 float64 `json:"lambda_sum"`
+	BetaSum                   float64 `json:"beta_sum"`
+	TotalTxSum                float64 `json:"total_tx_sum"`
+	TotalInnerSum             float64 `json:"total_inner_sum"`
+	TotalRelay1Sum            float64 `json:"total_relay1_sum"`
+	TotalRelay2Sum            float64 `json:"total_relay2_sum"`
 }
 
 type SpringTrainBatch struct {
@@ -72,6 +111,12 @@ type SpringTrainBatch struct {
 	TxCount      int    `json:"tx_count"`
 
 	EnqueueUnixNano int64 `json:"enqueue_unix_nano"`
+	IsFinalBatch    bool  `json:"is_final_batch"`
+
+	FeedbackMatches    int                     `json:"feedback_matches"`
+	LastFeedbackEpoch  int                     `json:"last_feedback_epoch"`
+	FirstFeedbackEpoch int                     `json:"first_feedback_epoch"`
+	FeedbackAggregate  SpringFeedbackAggregate `json:"feedback_aggregate"`
 
 	Actions []SpringTrainAction `json:"actions"`
 }
@@ -97,6 +142,8 @@ type SpringOnlineUpdateInput struct {
 	Done       bool                `json:"done"`
 
 	CrossRate              float64 `json:"cross_rate"`
+	EffectiveTx            float64 `json:"effective_tx"`
+	CrossTx                float64 `json:"cross_tx"`
 	NormalizedLoadVariance float64 `json:"normalized_load_variance"`
 	RCSTR                  float64 `json:"r_cstr"`
 	RWLB                   float64 `json:"r_wlb"`
@@ -107,6 +154,137 @@ type SpringOnlineUpdateInput struct {
 	TotalInner             int     `json:"total_inner"`
 	TotalRelay1            int     `json:"total_relay1"`
 	TotalRelay2            int     `json:"total_relay2"`
+
+	RunningAvgCrossRate float64 `json:"running_avg_cross_rate"`
+	RunningAvgReward    float64 `json:"running_avg_reward"`
+	RunningAvgNormVar   float64 `json:"running_avg_norm_var"`
+	RewardedEpochCount  int     `json:"rewarded_epoch_count"`
+	FlushUpdate         bool    `json:"flush_update"`
+
+	FeedbackAggregateCount  int     `json:"feedback_aggregate_count"`
+	FeedbackFirstEpoch      int     `json:"feedback_first_epoch"`
+	FeedbackLastEpoch       int     `json:"feedback_last_epoch"`
+	FeedbackWeightSum       float64 `json:"feedback_weight_sum"`
+	FeedbackAggregateWindow int     `json:"feedback_aggregate_window"`
+	FeedbackMaxMatches      int     `json:"feedback_max_matches"`
+}
+
+const springPendingFeedbackTTL = 10
+const springFeedbackAggregateWindow = 6
+const springMaxTrainFeedbackMatches = 8
+const springFeedbackDecay = 0.85
+const springLoadPenaltyWeight = 1.25
+const springActionRewardScale = 0.1
+
+func springClampFloat64(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+func springRoundToInt(v float64) int {
+	if v <= 0 {
+		return 0
+	}
+	return int(math.Round(v))
+}
+
+func springFeedbackWeight(matchIndex int) float64 {
+	if matchIndex <= 0 {
+		return 1.0
+	}
+	return math.Pow(springFeedbackDecay, float64(matchIndex))
+}
+
+func (agg *SpringFeedbackAggregate) add(record SpringFeedbackRewardRecord, weight float64) {
+	if weight <= 0 {
+		weight = 1.0
+	}
+	if agg.Count == 0 {
+		agg.FirstEpoch = record.Epoch
+	}
+	agg.Count++
+	agg.LastEpoch = record.Epoch
+	agg.WeightSum += weight
+
+	agg.RewardSum += record.Reward * weight
+	agg.CrossRateSum += record.CrossRate * weight
+	agg.EffectiveTxSum += record.EffectiveTx * weight
+	agg.CrossTxSum += record.CrossTx * weight
+	agg.NormalizedLoadVarianceSum += record.NormalizedLoadVariance * weight
+	agg.RCSTRSum += record.RCSTR * weight
+	agg.RWLBSum += record.RWLB * weight
+	agg.AbsLoadDiffSum += record.AbsLoadDiff * weight
+	agg.LambdaSum += record.Lambda * weight
+	agg.BetaSum += record.Beta * weight
+	agg.TotalTxSum += float64(record.TotalTx) * weight
+	agg.TotalInnerSum += float64(record.TotalInner) * weight
+	agg.TotalRelay1Sum += float64(record.TotalRelay1) * weight
+	agg.TotalRelay2Sum += float64(record.TotalRelay2) * weight
+}
+
+func (agg SpringFeedbackAggregate) mean(sum float64) float64 {
+	if agg.WeightSum <= 0 {
+		return 0
+	}
+	return sum / agg.WeightSum
+}
+
+func (agg SpringFeedbackAggregate) reward() float64 {
+	return agg.mean(agg.RewardSum)
+}
+
+func (agg SpringFeedbackAggregate) crossRate() float64 {
+	return agg.mean(agg.CrossRateSum)
+}
+
+func (agg SpringFeedbackAggregate) effectiveTx() float64 {
+	return agg.mean(agg.EffectiveTxSum)
+}
+
+func (agg SpringFeedbackAggregate) crossTx() float64 {
+	return agg.mean(agg.CrossTxSum)
+}
+
+func (agg SpringFeedbackAggregate) normalizedLoadVariance() float64 {
+	return agg.mean(agg.NormalizedLoadVarianceSum)
+}
+
+func (agg SpringFeedbackAggregate) rCSTR() float64 {
+	return agg.mean(agg.RCSTRSum)
+}
+
+func (agg SpringFeedbackAggregate) rWLB() float64 {
+	return agg.mean(agg.RWLBSum)
+}
+
+func (agg SpringFeedbackAggregate) absLoadDiff() float64 {
+	return agg.mean(agg.AbsLoadDiffSum)
+}
+
+func (agg SpringFeedbackAggregate) lambda() float64 {
+	return agg.mean(agg.LambdaSum)
+}
+
+func (agg SpringFeedbackAggregate) beta() float64 {
+	return agg.mean(agg.BetaSum)
+}
+
+func springBatchReadyForTraining(batch SpringTrainBatch, currentEpoch int, flushUpdate bool) bool {
+	if batch.FeedbackAggregate.Count == 0 || batch.FeedbackAggregate.WeightSum <= 0 {
+		return false
+	}
+	if flushUpdate {
+		return true
+	}
+	if batch.FeedbackAggregate.Count >= springMaxTrainFeedbackMatches {
+		return true
+	}
+	return currentEpoch-batch.FeedbackAggregate.FirstEpoch >= springFeedbackAggregateWindow
 }
 
 // springBuildFeedbackRewardRecord 根据一个 epoch 中所有 shard 的真实出块反馈计算 reward。
@@ -135,6 +313,7 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 	eps := 1e-6
 
 	loads := make([]int, params.ShardNum)
+	effectiveLoads := make([]float64, params.ShardNum)
 	inners := make([]int, params.ShardNum)
 	relay1s := make([]int, params.ShardNum)
 	relay2s := make([]int, params.ShardNum)
@@ -143,11 +322,14 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 	totalInner := 0
 	totalRelay1 := 0
 	totalRelay2 := 0
+	effectiveTx := 0.0
+	crossTx := 0.0
 
 	for sid := 0; sid < params.ShardNum; sid++ {
 		stat := shardStats[uint64(sid)]
 
 		loads[sid] = stat.NumTx
+		effectiveLoads[sid] = stat.EffectiveTx
 		inners[sid] = stat.InnerTx
 		relay1s[sid] = stat.Relay1Tx
 		relay2s[sid] = stat.Relay2Tx
@@ -156,6 +338,8 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 		totalInner += stat.InnerTx
 		totalRelay1 += stat.Relay1Tx
 		totalRelay2 += stat.Relay2Tx
+		effectiveTx += stat.EffectiveTx
+		crossTx += stat.CrossTx
 
 		for _, bid := range stat.DecisionBatchIDs {
 			decisionBatchSet[bid] = true
@@ -174,31 +358,43 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 		return SpringFeedbackRewardRecord{}, false
 	}
 
+	if effectiveTx <= eps {
+		return SpringFeedbackRewardRecord{}, false
+	}
+
 	// crossRate = 跨片交易比例。
 	// Relay1 表示唯一跨片交易数，Relay2 是第二阶段，不重复计入。
 	crossRate := float64(totalRelay1) / float64(decisionRelatedTx)
 
+	crossRate = crossTx / effectiveTx
+	if crossRate < 0 {
+		crossRate = 0
+	}
+	if crossRate > 1 {
+		crossRate = 1
+	}
+
 	// Paper formula: r_cstr = sum(num_tx_i) / (sum(cross_tx_i) + eps).
 	// 但在 SPRING-Lite 小规模实验中，如果 cross=0，原式会非常大，导致 reward 爆炸。
 	// 所以这里使用裁剪版：保留“跨片越少越好”的方向，但限制最大值。
-	rCSTRRaw := float64(decisionRelatedTx) / (float64(totalRelay1) + eps)
-	rCSTRCap := 10.0
-	rCSTR := rCSTRRaw
-	if rCSTR > rCSTRCap {
-		rCSTR = rCSTRCap
-	}
+	// In SPRING-Lite we keep CSTR bounded. The raw inverse-CSTR term can
+	// become very large at cross=0 and encourages a single-shard collapse.
+	rCSTR := 1.0 - crossRate
 	if rCSTR < 0 {
 		rCSTR = 0
 	}
+	if rCSTR > 1 {
+		rCSTR = 1
+	}
 
 	// Paper workload-balance term: r_wlb = exp(-beta * abs_diff).
-	avgLoad := float64(totalTx) / float64(params.ShardNum)
+	avgLoad := effectiveTx / float64(params.ShardNum)
 
 	rawAbsDiff := 0.0
 	rawVar := 0.0
 
-	for _, load := range loads {
-		diff := float64(load) - avgLoad
+	for _, load := range effectiveLoads {
+		diff := load - avgLoad
 		rawAbsDiff += math.Abs(diff)
 		rawVar += diff * diff
 	}
@@ -220,11 +416,25 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 		normalizedAbsDiff = rawAbsDiff / (avgLoad + eps)
 	}
 
-	rWLB := math.Exp(-beta * normalizedAbsDiff)
+	balanceScore := 1.0 - normVar
+	if balanceScore < 0 {
+		balanceScore = 0
+	}
+	if balanceScore > 1 {
+		balanceScore = 1
+	}
+
+	rWLB := math.Exp(-beta*normalizedAbsDiff) * balanceScore
+	if rWLB < 0 {
+		rWLB = 0
+	}
+	if rWLB > 1 {
+		rWLB = 1
+	}
 
 	// SPRING-style reward:
 	// r_t = λ * r_cstr + (1 - λ) * r_wlb
-	reward := lambda*rCSTR + (1.0-lambda)*rWLB
+	reward := lambda*rCSTR + (1.0-lambda)*rWLB - springLoadPenaltyWeight*normVar
 
 	if math.IsNaN(reward) || math.IsInf(reward, 0) {
 		reward = 0.0
@@ -260,11 +470,14 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 		TotalInner:  totalInner,
 		TotalRelay1: totalRelay1,
 		TotalRelay2: totalRelay2,
+		EffectiveTx: effectiveTx,
+		CrossTx:     crossTx,
 
-		Loads:  loads,
-		Inners: inners,
-		Relay1: relay1s,
-		Relay2: relay2s,
+		Loads:          loads,
+		EffectiveLoads: effectiveLoads,
+		Inners:         inners,
+		Relay1:         relay1s,
+		Relay2:         relay2s,
 
 		DecisionBatchIDs: decisionBatchIDs,
 
@@ -313,6 +526,7 @@ func (rthm *RelayCommitteeModule) springEnqueueTrainActionsLocked(
 	txStartNonce uint64,
 	txEndNonce uint64,
 	txCount int,
+	isFinalBatch bool,
 ) {
 	if batchID == 0 || len(actions) == 0 {
 		return
@@ -324,6 +538,7 @@ func (rthm *RelayCommitteeModule) springEnqueueTrainActionsLocked(
 		TxEndNonce:      txEndNonce,
 		TxCount:         txCount,
 		EnqueueUnixNano: time.Now().UnixNano(),
+		IsFinalBatch:    isFinalBatch,
 		Actions:         actions,
 	}
 
@@ -364,10 +579,59 @@ func (rthm *RelayCommitteeModule) springEnqueueTrainActionsLocked(
 
 // 注意：这个函数默认在 rthm.springLock 已经加锁时调用。
 // 它把最早的 PPO 动作批次和当前 reward 绑定，生成一个 online_update 输入。
+func (rthm *RelayCommitteeModule) springPrunePendingTrainBatchesLocked(currentEpoch int) int {
+	if springPendingFeedbackTTL <= 0 || len(rthm.springPendingTrainBatches) == 0 {
+		return 0
+	}
+
+	kept := make([]SpringTrainBatch, 0, len(rthm.springPendingTrainBatches))
+	pruned := 0
+
+	for _, batch := range rthm.springPendingTrainBatches {
+		if rthm.springTrainedBatchIDs[batch.BatchID] {
+			pruned++
+			continue
+		}
+		if batch.FeedbackAggregate.Count > 0 &&
+			currentEpoch-batch.FeedbackAggregate.FirstEpoch > springPendingFeedbackTTL+springFeedbackAggregateWindow {
+			pruned++
+			continue
+		}
+		if batch.FeedbackAggregate.Count == 0 && currentEpoch-int(batch.BatchID) > springPendingFeedbackTTL {
+			pruned++
+			continue
+		}
+		kept = append(kept, batch)
+	}
+
+	rthm.springPendingTrainBatches = kept
+	return pruned
+}
+
+// The update input is emitted after each tx batch has collected a short
+// window of delayed feedback, so one action batch is still trained once.
 func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 	rewardRecord SpringFeedbackRewardRecord,
 ) (SpringOnlineUpdateInput, bool) {
+	flushUpdate := rthm.nowDataNum >= rthm.dataTotalNum
+
 	if len(rthm.springPendingTrainBatches) == 0 {
+		alreadyTrainedTargets := 0
+		for _, bid := range rewardRecord.DecisionBatchIDs {
+			if rthm.springTrainedBatchIDs[bid] {
+				alreadyTrainedTargets++
+			}
+		}
+		if len(rewardRecord.DecisionBatchIDs) > 0 && alreadyTrainedTargets == len(rewardRecord.DecisionBatchIDs) {
+			rthm.sl.Slog.Printf(
+				"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=all_decision_batches_already_trained decision_batches=%v trained=%d pending_batches=0 reward=%.6f\n",
+				rewardRecord.Epoch,
+				rewardRecord.DecisionBatchIDs,
+				alreadyTrainedTargets,
+				rewardRecord.Reward,
+			)
+			return SpringOnlineUpdateInput{}, false
+		}
 		rthm.sl.Slog.Printf(
 			"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=no_pending_train_batch reward=%.6f decision_batches=%v\n",
 			rewardRecord.Epoch,
@@ -377,60 +641,145 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 		return SpringOnlineUpdateInput{}, false
 	}
 
-	if len(rewardRecord.DecisionBatchIDs) == 0 {
-		rthm.sl.Slog.Printf(
-			"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=no_decision_batch_ids reward=%.6f pending_batches=%d\n",
-			rewardRecord.Epoch,
-			rewardRecord.Reward,
-			len(rthm.springPendingTrainBatches),
-		)
-		return SpringOnlineUpdateInput{}, false
-	}
-
 	targetBatchSet := make(map[uint64]bool)
+	alreadyTrainedTargets := 0
 	for _, bid := range rewardRecord.DecisionBatchIDs {
+		if rthm.springTrainedBatchIDs[bid] {
+			alreadyTrainedTargets++
+			continue
+		}
 		targetBatchSet[bid] = true
 	}
 
-	matchedBatches := make([]SpringTrainBatch, 0)
+	matchedThisEpoch := make([]uint64, 0)
+	readyBatches := make([]SpringTrainBatch, 0)
 	remainingBatches := make([]SpringTrainBatch, 0, len(rthm.springPendingTrainBatches))
 
 	for _, batch := range rthm.springPendingTrainBatches {
-		if targetBatchSet[batch.BatchID] {
-			matchedBatches = append(matchedBatches, batch)
-		} else {
-			remainingBatches = append(remainingBatches, batch)
+		if rthm.springTrainedBatchIDs[batch.BatchID] {
+			continue
 		}
+
+		if targetBatchSet[batch.BatchID] && batch.FeedbackMatches < springMaxTrainFeedbackMatches {
+			weight := springFeedbackWeight(batch.FeedbackMatches)
+			batch.FeedbackAggregate.add(rewardRecord, weight)
+			batch.LastFeedbackEpoch = rewardRecord.Epoch
+			if batch.FirstFeedbackEpoch == 0 {
+				batch.FirstFeedbackEpoch = rewardRecord.Epoch
+			}
+			batch.FeedbackMatches++
+			matchedThisEpoch = append(matchedThisEpoch, batch.BatchID)
+		}
+
+		if batch.IsFinalBatch {
+			flushUpdate = true
+		}
+
+		if springBatchReadyForTraining(batch, rewardRecord.Epoch, flushUpdate) {
+			readyBatches = append(readyBatches, batch)
+			continue
+		}
+
+		remainingBatches = append(remainingBatches, batch)
 	}
 
-	if len(matchedBatches) == 0 {
+	rthm.springPendingTrainBatches = remainingBatches
+
+	prunedPending := rthm.springPrunePendingTrainBatchesLocked(rewardRecord.Epoch)
+
+	if len(readyBatches) == 0 {
+		firstPending := uint64(0)
+		if len(rthm.springPendingTrainBatches) > 0 {
+			firstPending = rthm.springPendingTrainBatches[0].BatchID
+		}
+		if len(matchedThisEpoch) > 0 {
+			rthm.sl.Slog.Printf(
+				"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=aggregating_feedback matched_this_epoch=%v pending_batches=%d first_pending=%d pruned=%d reward=%.6f window=%d max_matches=%d\n",
+				rewardRecord.Epoch,
+				matchedThisEpoch,
+				len(rthm.springPendingTrainBatches),
+				firstPending,
+				prunedPending,
+				rewardRecord.Reward,
+				springFeedbackAggregateWindow,
+				springMaxTrainFeedbackMatches,
+			)
+			return SpringOnlineUpdateInput{}, false
+		}
+		if len(rewardRecord.DecisionBatchIDs) == 0 {
+			rthm.sl.Slog.Printf(
+				"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=no_decision_batch_ids reward=%.6f pending_batches=%d first_pending=%d pruned=%d\n",
+				rewardRecord.Epoch,
+				rewardRecord.Reward,
+				len(rthm.springPendingTrainBatches),
+				firstPending,
+				prunedPending,
+			)
+			return SpringOnlineUpdateInput{}, false
+		}
+		if len(targetBatchSet) == 0 {
+			rthm.sl.Slog.Printf(
+				"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=all_decision_batches_already_trained decision_batches=%v trained=%d pending_batches=%d first_pending=%d pruned=%d reward=%.6f\n",
+				rewardRecord.Epoch,
+				rewardRecord.DecisionBatchIDs,
+				alreadyTrainedTargets,
+				len(rthm.springPendingTrainBatches),
+				firstPending,
+				prunedPending,
+				rewardRecord.Reward,
+			)
+			return SpringOnlineUpdateInput{}, false
+		}
 		rthm.sl.Slog.Printf(
-			"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=no_matched_train_batch decision_batches=%v pending_batches=%d first_pending=%d reward=%.6f\n",
+			"[SPRING ONLINE UPDATE SKIP] epoch=%d reason=no_ready_train_batch decision_batches=%v pending_batches=%d first_pending=%d pruned=%d reward=%.6f\n",
 			rewardRecord.Epoch,
 			rewardRecord.DecisionBatchIDs,
 			len(rthm.springPendingTrainBatches),
-			rthm.springPendingTrainBatches[0].BatchID,
+			firstPending,
+			prunedPending,
 			rewardRecord.Reward,
 		)
 		return SpringOnlineUpdateInput{}, false
 	}
 
-	sort.Slice(matchedBatches, func(i, j int) bool {
-		return matchedBatches[i].BatchID < matchedBatches[j].BatchID
+	sort.Slice(readyBatches, func(i, j int) bool {
+		return readyBatches[i].BatchID < readyBatches[j].BatchID
 	})
 
-	rthm.springPendingTrainBatches = remainingBatches
-
-	matchedIDs := make([]uint64, 0, len(matchedBatches))
+	matchedIDs := make([]uint64, 0, len(readyBatches))
 	actions := make([]SpringTrainAction, 0)
 
-	txStartNonce := matchedBatches[0].TxStartNonce
-	txEndNonce := matchedBatches[0].TxEndNonce
+	txStartNonce := readyBatches[0].TxStartNonce
+	txEndNonce := readyBatches[0].TxEndNonce
 	txCount := 0
 
-	for _, batch := range matchedBatches {
-		matchedIDs = append(matchedIDs, batch.BatchID)
+	metricWeightSum := 0.0
+	rewardSum := 0.0
+	crossRateSum := 0.0
+	effectiveTxSum := 0.0
+	crossTxSum := 0.0
+	normVarSum := 0.0
+	rCSTRSum := 0.0
+	rWLBSum := 0.0
+	absLoadDiffSum := 0.0
+	lambdaSum := 0.0
+	betaSum := 0.0
+	totalTxSum := 0.0
+	totalInnerSum := 0.0
+	totalRelay1Sum := 0.0
+	totalRelay2Sum := 0.0
+	feedbackAggregateCount := 0
+	feedbackWeightSum := 0.0
+	feedbackFirstEpoch := 0
+	feedbackLastEpoch := 0
 
+	// SPRING-Lite reward propagation:
+	// keep the delayed block-level CSTR/WLB signal, but give each action an
+	// immediate shaped reward based on sender_pos and pre-action shard load.
+	const localRewardWeight = 0.65
+
+	for _, batch := range readyBatches {
+		matchedIDs = append(matchedIDs, batch.BatchID)
 		if batch.TxStartNonce < txStartNonce {
 			txStartNonce = batch.TxStartNonce
 		}
@@ -439,50 +788,111 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 		}
 
 		txCount += batch.TxCount
-		actions = append(actions, batch.Actions...)
-	}
+		if batch.IsFinalBatch {
+			flushUpdate = true
+		}
 
-	rthm.sl.Slog.Printf(
-		"[SPRING ALIGN PAIR] matched_batches=%v tx_nonce=[%d,%d] tx_count=%d actions=%d -> feedback_epoch=%d reward=%.6f crossRate=%.6f rWLB=%.6f pending_after_match=%d\n",
-		matchedIDs,
-		txStartNonce,
-		txEndNonce,
-		txCount,
-		len(actions),
-		rewardRecord.Epoch,
-		rewardRecord.Reward,
-		rewardRecord.CrossRate,
-		rewardRecord.RWLB,
-		len(rthm.springPendingTrainBatches),
-	)
+		agg := batch.FeedbackAggregate
+		metricWeight := float64(len(batch.Actions))
+		if metricWeight <= 0 {
+			metricWeight = 1.0
+		}
+		metricWeightSum += metricWeight
+
+		batchReward := agg.reward()
+		rewardSum += batchReward * metricWeight
+		crossRateSum += agg.crossRate() * metricWeight
+		effectiveTxSum += agg.effectiveTx() * metricWeight
+		crossTxSum += agg.crossTx() * metricWeight
+		normVarSum += agg.normalizedLoadVariance() * metricWeight
+		rCSTRSum += agg.rCSTR() * metricWeight
+		rWLBSum += agg.rWLB() * metricWeight
+		absLoadDiffSum += agg.absLoadDiff() * metricWeight
+		lambdaSum += agg.lambda() * metricWeight
+		betaSum += agg.beta() * metricWeight
+		totalTxSum += agg.mean(agg.TotalTxSum) * metricWeight
+		totalInnerSum += agg.mean(agg.TotalInnerSum) * metricWeight
+		totalRelay1Sum += agg.mean(agg.TotalRelay1Sum) * metricWeight
+		totalRelay2Sum += agg.mean(agg.TotalRelay2Sum) * metricWeight
+
+		feedbackAggregateCount += agg.Count
+		feedbackWeightSum += agg.WeightSum
+		if feedbackFirstEpoch == 0 || (agg.FirstEpoch > 0 && agg.FirstEpoch < feedbackFirstEpoch) {
+			feedbackFirstEpoch = agg.FirstEpoch
+		}
+		if agg.LastEpoch > feedbackLastEpoch {
+			feedbackLastEpoch = agg.LastEpoch
+		}
+
+		blockSignal := springClampFloat64(batchReward, -1.0, 1.0)
+		for _, action := range batch.Actions {
+			localSignal := springClampFloat64(action.LocalReward, -1.0, 1.0)
+			shapedReward := localRewardWeight*localSignal + (1.0-localRewardWeight)*blockSignal
+			shapedReward = springClampFloat64(shapedReward, -1.0, 1.0)
+
+			action.Reward = springActionRewardScale * shapedReward
+			action.Done = false
+			actions = append(actions, action)
+		}
+	}
 
 	if len(actions) == 0 {
 		return SpringOnlineUpdateInput{}, false
 	}
 
-	for idx := range actions {
-		actions[idx].Reward = 0.0
-		actions[idx].Done = false
-	}
-
-	// SPRING-Lite reward propagation:
-	// 仍然使用当前 feedback_epoch 的 block-level reward，
-	// 但不再只给最后一个 action，避免一个 block 内前面 action 的学习信号过弱。
-	// 这里采用平均分配，保证整个 block 的总 reward 不被放大。
-	perActionReward := rewardRecord.Reward / float64(len(actions))
-
-	for idx := range actions {
-		actions[idx].Reward = perActionReward
-		actions[idx].Done = false
+	for _, bid := range matchedIDs {
+		rthm.springTrainedBatchIDs[bid] = true
 	}
 
 	actions[len(actions)-1].Done = true
 
 	nextStates := make([][]float64, 0, len(actions))
-	for _, action := range actions {
-		nextState := rthm.springBuildState(utils.Address(action.Related), nil)
-		nextStates = append(nextStates, nextState)
+	for idx, action := range actions {
+		if idx+1 < len(actions) && len(actions[idx+1].State) > 0 {
+			nextStates = append(nextStates, actions[idx+1].State)
+		} else if len(action.NextState) > 0 {
+			nextStates = append(nextStates, action.NextState)
+		} else {
+			nextStates = append(nextStates, action.State)
+		}
 	}
+
+	avgMetric := func(sum float64) float64 {
+		if metricWeightSum <= 0 {
+			return 0
+		}
+		return sum / metricWeightSum
+	}
+
+	aggregateReward := avgMetric(rewardSum)
+	aggregateCrossRate := avgMetric(crossRateSum)
+	aggregateEffectiveTx := avgMetric(effectiveTxSum)
+	aggregateCrossTx := avgMetric(crossTxSum)
+	aggregateNormVar := avgMetric(normVarSum)
+	aggregateRCSTR := avgMetric(rCSTRSum)
+	aggregateRWLB := avgMetric(rWLBSum)
+	aggregateAbsLoadDiff := avgMetric(absLoadDiffSum)
+
+	rthm.sl.Slog.Printf(
+		"[SPRING ALIGN AGGREGATE] ready_batches=%v matched_this_epoch=%v tx_nonce=[%d,%d] tx_count=%d actions=%d -> feedback_epoch=%d feedback_window=[%d,%d] feedback_count=%d reward=%.6f crossRate=%.6f rWLB=%.6f normVar=%.6f pending_kept=%d pruned=%d flush=%v\n",
+		matchedIDs,
+		matchedThisEpoch,
+		txStartNonce,
+		txEndNonce,
+		txCount,
+		len(actions),
+		rewardRecord.Epoch,
+		feedbackFirstEpoch,
+		feedbackLastEpoch,
+		feedbackAggregateCount,
+		aggregateReward,
+		aggregateCrossRate,
+		aggregateRWLB,
+		aggregateNormVar,
+		len(rthm.springPendingTrainBatches),
+		prunedPending,
+		flushUpdate,
+	)
 
 	input := SpringOnlineUpdateInput{
 		TimeUnixNano: time.Now().UnixNano(),
@@ -501,22 +911,35 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 
 		Actions: actions,
 
-		Reward:     rewardRecord.Reward,
+		Reward:     aggregateReward,
 		NextStates: nextStates,
 
 		Done: true,
 
-		CrossRate:              rewardRecord.CrossRate,
-		NormalizedLoadVariance: rewardRecord.NormalizedLoadVariance,
-		RCSTR:                  rewardRecord.RCSTR,
-		RWLB:                   rewardRecord.RWLB,
-		AbsLoadDiff:            rewardRecord.AbsLoadDiff,
-		Lambda:                 rewardRecord.Lambda,
-		Beta:                   rewardRecord.Beta,
-		TotalTx:                rewardRecord.TotalTx,
-		TotalInner:             rewardRecord.TotalInner,
-		TotalRelay1:            rewardRecord.TotalRelay1,
-		TotalRelay2:            rewardRecord.TotalRelay2,
+		CrossRate:               aggregateCrossRate,
+		EffectiveTx:             aggregateEffectiveTx,
+		CrossTx:                 aggregateCrossTx,
+		NormalizedLoadVariance:  aggregateNormVar,
+		RCSTR:                   aggregateRCSTR,
+		RWLB:                    aggregateRWLB,
+		AbsLoadDiff:             aggregateAbsLoadDiff,
+		Lambda:                  avgMetric(lambdaSum),
+		Beta:                    avgMetric(betaSum),
+		TotalTx:                 springRoundToInt(avgMetric(totalTxSum)),
+		TotalInner:              springRoundToInt(avgMetric(totalInnerSum)),
+		TotalRelay1:             springRoundToInt(avgMetric(totalRelay1Sum)),
+		TotalRelay2:             springRoundToInt(avgMetric(totalRelay2Sum)),
+		RunningAvgCrossRate:     rewardRecord.RunningAvgCrossRate,
+		RunningAvgReward:        rewardRecord.RunningAvgReward,
+		RunningAvgNormVar:       rewardRecord.RunningAvgNormVar,
+		RewardedEpochCount:      rewardRecord.RewardedEpochCount,
+		FlushUpdate:             flushUpdate,
+		FeedbackAggregateCount:  feedbackAggregateCount,
+		FeedbackFirstEpoch:      feedbackFirstEpoch,
+		FeedbackLastEpoch:       feedbackLastEpoch,
+		FeedbackWeightSum:       feedbackWeightSum,
+		FeedbackAggregateWindow: springFeedbackAggregateWindow,
+		FeedbackMaxMatches:      springMaxTrainFeedbackMatches,
 	}
 
 	return input, true
@@ -544,13 +967,20 @@ func (rthm *RelayCommitteeModule) springWriteOnlineUpdateInput(input SpringOnlin
 	}
 
 	rthm.sl.Slog.Printf(
-		"[SPRING ONLINE UPDATE FILE] batch_id=%d epoch=%d actions=%d reward=%.6f crossRate=%.6f normVar=%.6f file=%s\n",
+		"[SPRING ONLINE UPDATE FILE] batch_id=%d epoch=%d actions=%d reward=%.6f effective=%.1f cross=%.1f crossRate=%.6f runCross=%.6f normVar=%.6f feedback_count=%d feedback_window=[%d,%d] flush=%v file=%s\n",
 		input.BatchID,
 		input.FeedbackEpoch,
 		len(input.Actions),
 		input.Reward,
+		input.EffectiveTx,
+		input.CrossTx,
 		input.CrossRate,
+		input.RunningAvgCrossRate,
 		input.NormalizedLoadVariance,
+		input.FeedbackAggregateCount,
+		input.FeedbackFirstEpoch,
+		input.FeedbackLastEpoch,
+		input.FlushUpdate,
 		path,
 	)
 }
