@@ -1,0 +1,698 @@
+S0N2: 2026/05/13 19:51:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:46 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:51:46 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:51:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:46 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:51:46 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:51:46 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:51:46 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:51:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:46 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:51:46 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:51:46 pbftInside_module.go:59: S0N2 : adding the block 1...now height = 0 
+S0N2: 2026/05/13 19:51:46 pbftInside_module.go:61: S0N2 : added the block 1... 
+S0N2: 2026/05/13 19:51:46 messageHandle.go:270: S0N2: this round of pbft 1 is end 
+S0N2: 2026/05/13 19:51:47 pbftOutside_module.go:86: S0N2 : has handled injected txs msg, txs: 60, spring placements: 130 
+S0N2: 2026/05/13 19:51:48 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 1
+S0N2: 2026/05/13 19:51:48 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:51:48 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 1
+S0N2: 2026/05/13 19:51:48 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:51:48 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 1
+S0N2: 2026/05/13 19:51:48 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:51:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:51 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:51:51 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:51:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:51 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:51:51 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:51:51 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:51:51 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:51:51 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:51:51 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:51:51 pbftInside_module.go:59: S0N2 : adding the block 2...now height = 1 
+S0N2: 2026/05/13 19:51:51 pbftInside_module.go:61: S0N2 : added the block 2... 
+S0N2: 2026/05/13 19:51:51 messageHandle.go:270: S0N2: this round of pbft 2 is end 
+S0N2: 2026/05/13 19:51:52 pbftOutside_module.go:86: S0N2 : has handled injected txs msg, txs: 38, spring placements: 127 
+S0N2: 2026/05/13 19:51:53 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 2
+S0N2: 2026/05/13 19:51:53 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:51:53 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 2
+S0N2: 2026/05/13 19:51:53 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:51:53 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 2
+S0N2: 2026/05/13 19:51:53 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:51:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:56 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:51:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:56 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:51:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:51:56 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:51:56 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:51:56 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:51:56 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:51:56 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:51:56 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:51:56 pbftInside_module.go:59: S0N2 : adding the block 3...now height = 2 
+S0N2: 2026/05/13 19:51:56 pbftInside_module.go:61: S0N2 : added the block 3... 
+S0N2: 2026/05/13 19:51:56 messageHandle.go:270: S0N2: this round of pbft 3 is end 
+S0N2: 2026/05/13 19:51:58 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 3
+S0N2: 2026/05/13 19:51:58 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:51:58 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 3
+S0N2: 2026/05/13 19:51:58 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:51:58 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 3
+S0N2: 2026/05/13 19:51:58 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:01 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:01 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:01 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:01 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:01 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:52:01 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:52:01 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:52:01 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:01 pbftInside_module.go:59: S0N2 : adding the block 4...now height = 3 
+S0N2: 2026/05/13 19:52:01 pbftInside_module.go:61: S0N2 : added the block 4... 
+S0N2: 2026/05/13 19:52:01 messageHandle.go:270: S0N2: this round of pbft 4 is end 
+S0N2: 2026/05/13 19:52:03 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 4
+S0N2: 2026/05/13 19:52:03 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:03 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 4
+S0N2: 2026/05/13 19:52:03 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:03 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 4
+S0N2: 2026/05/13 19:52:03 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:06 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:06 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:06 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:06 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:06 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:52:06 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:52:06 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:52:06 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:06 pbftInside_module.go:59: S0N2 : adding the block 5...now height = 4 
+S0N2: 2026/05/13 19:52:06 pbftInside_module.go:61: S0N2 : added the block 5... 
+S0N2: 2026/05/13 19:52:06 messageHandle.go:270: S0N2: this round of pbft 5 is end 
+S0N2: 2026/05/13 19:52:08 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 5
+S0N2: 2026/05/13 19:52:08 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:08 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 5
+S0N2: 2026/05/13 19:52:08 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:08 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 5
+S0N2: 2026/05/13 19:52:08 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:11 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:11 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:11 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:11 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:11 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:52:11 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:52:11 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:52:11 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:11 pbftInside_module.go:59: S0N2 : adding the block 6...now height = 5 
+S0N2: 2026/05/13 19:52:11 pbftInside_module.go:61: S0N2 : added the block 6... 
+S0N2: 2026/05/13 19:52:11 messageHandle.go:270: S0N2: this round of pbft 6 is end 
+S0N2: 2026/05/13 19:52:13 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 6
+S0N2: 2026/05/13 19:52:13 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:13 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 6
+S0N2: 2026/05/13 19:52:13 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:13 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 6
+S0N2: 2026/05/13 19:52:13 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:16 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:16 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:16 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:16 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:16 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:52:16 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:52:16 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:52:16 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:16 pbftInside_module.go:59: S0N2 : adding the block 7...now height = 6 
+S0N2: 2026/05/13 19:52:16 pbftInside_module.go:61: S0N2 : added the block 7... 
+S0N2: 2026/05/13 19:52:16 messageHandle.go:270: S0N2: this round of pbft 7 is end 
+S0N2: 2026/05/13 19:52:18 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 7
+S0N2: 2026/05/13 19:52:18 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:18 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 7
+S0N2: 2026/05/13 19:52:18 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:18 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 7
+S0N2: 2026/05/13 19:52:18 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:21 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:21 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:21 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:21 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:21 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:52:21 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:52:21 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:52:21 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:21 pbftInside_module.go:59: S0N2 : adding the block 8...now height = 7 
+S0N2: 2026/05/13 19:52:21 pbftInside_module.go:61: S0N2 : added the block 8... 
+S0N2: 2026/05/13 19:52:21 messageHandle.go:270: S0N2: this round of pbft 8 is end 
+S0N2: 2026/05/13 19:52:23 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 8
+S0N2: 2026/05/13 19:52:23 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:23 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 8
+S0N2: 2026/05/13 19:52:23 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:23 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 8
+S0N2: 2026/05/13 19:52:23 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:26 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:26 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:26 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:26 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:26 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:52:26 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:52:26 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:52:26 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:26 pbftInside_module.go:59: S0N2 : adding the block 9...now height = 8 
+S0N2: 2026/05/13 19:52:26 pbftInside_module.go:61: S0N2 : added the block 9... 
+S0N2: 2026/05/13 19:52:26 messageHandle.go:270: S0N2: this round of pbft 9 is end 
+S0N2: 2026/05/13 19:52:28 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 9
+S0N2: 2026/05/13 19:52:28 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:28 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 9
+S0N2: 2026/05/13 19:52:28 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:28 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 9
+S0N2: 2026/05/13 19:52:28 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:31 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:31 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:31 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:31 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:31 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:31 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:31 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:31 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:31 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:52:31 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:52:31 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:52:31 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:31 pbftInside_module.go:59: S0N2 : adding the block 10...now height = 9 
+S0N2: 2026/05/13 19:52:31 pbftInside_module.go:61: S0N2 : added the block 10... 
+S0N2: 2026/05/13 19:52:31 messageHandle.go:270: S0N2: this round of pbft 10 is end 
+S0N2: 2026/05/13 19:52:33 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 10
+S0N2: 2026/05/13 19:52:33 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:33 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 10
+S0N2: 2026/05/13 19:52:33 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:33 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 10
+S0N2: 2026/05/13 19:52:33 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:36 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:36 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:36 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:36 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:36 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:36 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:36 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:36 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:36 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:52:36 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:52:36 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:52:36 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:36 pbftInside_module.go:59: S0N2 : adding the block 11...now height = 10 
+S0N2: 2026/05/13 19:52:36 pbftInside_module.go:61: S0N2 : added the block 11... 
+S0N2: 2026/05/13 19:52:36 messageHandle.go:270: S0N2: this round of pbft 11 is end 
+S0N2: 2026/05/13 19:52:38 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 11
+S0N2: 2026/05/13 19:52:38 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:38 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 11
+S0N2: 2026/05/13 19:52:38 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:38 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 11
+S0N2: 2026/05/13 19:52:38 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:41 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:41 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:41 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:41 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:41 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:41 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:41 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:41 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:41 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:52:41 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:52:41 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:52:41 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:41 pbftInside_module.go:59: S0N2 : adding the block 12...now height = 11 
+S0N2: 2026/05/13 19:52:41 pbftInside_module.go:61: S0N2 : added the block 12... 
+S0N2: 2026/05/13 19:52:41 messageHandle.go:270: S0N2: this round of pbft 12 is end 
+S0N2: 2026/05/13 19:52:43 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 12
+S0N2: 2026/05/13 19:52:43 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:43 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 12
+S0N2: 2026/05/13 19:52:43 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:43 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 12
+S0N2: 2026/05/13 19:52:43 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:46 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:46 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:46 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:46 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:46 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:52:46 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:52:46 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:52:46 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:46 pbftInside_module.go:59: S0N2 : adding the block 13...now height = 12 
+S0N2: 2026/05/13 19:52:46 pbftInside_module.go:61: S0N2 : added the block 13... 
+S0N2: 2026/05/13 19:52:46 messageHandle.go:270: S0N2: this round of pbft 13 is end 
+S0N2: 2026/05/13 19:52:48 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 13
+S0N2: 2026/05/13 19:52:48 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:48 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 13
+S0N2: 2026/05/13 19:52:48 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:48 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 13
+S0N2: 2026/05/13 19:52:48 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:51 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:51 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:51 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:51 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:51 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:52:51 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:52:51 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:52:51 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:51 pbftInside_module.go:59: S0N2 : adding the block 14...now height = 13 
+S0N2: 2026/05/13 19:52:51 pbftInside_module.go:61: S0N2 : added the block 14... 
+S0N2: 2026/05/13 19:52:51 messageHandle.go:270: S0N2: this round of pbft 14 is end 
+S0N2: 2026/05/13 19:52:53 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 14
+S0N2: 2026/05/13 19:52:53 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:53 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 14
+S0N2: 2026/05/13 19:52:53 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:53 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 14
+S0N2: 2026/05/13 19:52:53 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:56 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:52:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:52:56 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:52:56 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:52:56 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:52:56 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:52:56 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:52:56 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:52:56 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:52:56 pbftInside_module.go:59: S0N2 : adding the block 15...now height = 14 
+S0N2: 2026/05/13 19:52:56 pbftInside_module.go:61: S0N2 : added the block 15... 
+S0N2: 2026/05/13 19:52:56 messageHandle.go:270: S0N2: this round of pbft 15 is end 
+S0N2: 2026/05/13 19:52:58 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 15
+S0N2: 2026/05/13 19:52:58 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:58 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 15
+S0N2: 2026/05/13 19:52:58 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:52:58 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 15
+S0N2: 2026/05/13 19:52:58 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:01 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:01 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:01 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:01 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:01 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:53:01 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:01 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:53:01 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:01 pbftInside_module.go:59: S0N2 : adding the block 16...now height = 15 
+S0N2: 2026/05/13 19:53:01 pbftInside_module.go:61: S0N2 : added the block 16... 
+S0N2: 2026/05/13 19:53:01 messageHandle.go:270: S0N2: this round of pbft 16 is end 
+S0N2: 2026/05/13 19:53:03 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 16
+S0N2: 2026/05/13 19:53:03 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:03 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 16
+S0N2: 2026/05/13 19:53:03 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:03 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 16
+S0N2: 2026/05/13 19:53:03 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:06 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:06 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:06 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:06 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:06 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:53:06 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:06 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:53:06 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:06 pbftInside_module.go:59: S0N2 : adding the block 17...now height = 16 
+S0N2: 2026/05/13 19:53:06 pbftInside_module.go:61: S0N2 : added the block 17... 
+S0N2: 2026/05/13 19:53:06 messageHandle.go:270: S0N2: this round of pbft 17 is end 
+S0N2: 2026/05/13 19:53:08 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 17
+S0N2: 2026/05/13 19:53:08 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:08 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 17
+S0N2: 2026/05/13 19:53:08 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:08 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 17
+S0N2: 2026/05/13 19:53:08 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:11 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:11 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:11 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:11 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:11 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:11 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:53:11 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:53:11 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:11 pbftInside_module.go:59: S0N2 : adding the block 18...now height = 17 
+S0N2: 2026/05/13 19:53:11 pbftInside_module.go:61: S0N2 : added the block 18... 
+S0N2: 2026/05/13 19:53:11 messageHandle.go:270: S0N2: this round of pbft 18 is end 
+S0N2: 2026/05/13 19:53:13 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 18
+S0N2: 2026/05/13 19:53:13 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:13 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 18
+S0N2: 2026/05/13 19:53:13 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:13 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 18
+S0N2: 2026/05/13 19:53:13 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:16 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:16 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:16 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:16 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:16 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:16 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:53:16 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:53:16 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:16 pbftInside_module.go:59: S0N2 : adding the block 19...now height = 18 
+S0N2: 2026/05/13 19:53:16 pbftInside_module.go:61: S0N2 : added the block 19... 
+S0N2: 2026/05/13 19:53:16 messageHandle.go:270: S0N2: this round of pbft 19 is end 
+S0N2: 2026/05/13 19:53:18 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 19
+S0N2: 2026/05/13 19:53:18 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:18 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 19
+S0N2: 2026/05/13 19:53:18 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:18 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 19
+S0N2: 2026/05/13 19:53:18 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:21 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:21 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:21 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:21 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:21 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:53:21 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:21 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:53:21 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:21 pbftInside_module.go:59: S0N2 : adding the block 20...now height = 19 
+S0N2: 2026/05/13 19:53:21 pbftInside_module.go:61: S0N2 : added the block 20... 
+S0N2: 2026/05/13 19:53:21 messageHandle.go:270: S0N2: this round of pbft 20 is end 
+S0N2: 2026/05/13 19:53:23 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 20
+S0N2: 2026/05/13 19:53:23 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:23 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 20
+S0N2: 2026/05/13 19:53:23 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:23 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 20
+S0N2: 2026/05/13 19:53:23 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:26 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:26 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:26 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:26 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:26 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:53:26 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:53:26 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:26 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:26 pbftInside_module.go:59: S0N2 : adding the block 21...now height = 20 
+S0N2: 2026/05/13 19:53:26 pbftInside_module.go:61: S0N2 : added the block 21... 
+S0N2: 2026/05/13 19:53:26 messageHandle.go:270: S0N2: this round of pbft 21 is end 
+S0N2: 2026/05/13 19:53:28 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 21
+S0N2: 2026/05/13 19:53:28 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:28 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 21
+S0N2: 2026/05/13 19:53:28 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:28 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 21
+S0N2: 2026/05/13 19:53:28 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:31 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:31 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:31 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:31 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:31 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:31 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:31 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:31 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:31 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:31 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:53:31 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:53:31 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:31 pbftInside_module.go:59: S0N2 : adding the block 22...now height = 21 
+S0N2: 2026/05/13 19:53:31 pbftInside_module.go:61: S0N2 : added the block 22... 
+S0N2: 2026/05/13 19:53:31 messageHandle.go:270: S0N2: this round of pbft 22 is end 
+S0N2: 2026/05/13 19:53:33 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 22
+S0N2: 2026/05/13 19:53:33 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:33 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 22
+S0N2: 2026/05/13 19:53:33 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:33 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 22
+S0N2: 2026/05/13 19:53:33 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:36 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:36 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:36 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:36 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:36 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:36 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:36 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:36 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:36 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:36 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:53:36 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:53:36 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:36 pbftInside_module.go:59: S0N2 : adding the block 23...now height = 22 
+S0N2: 2026/05/13 19:53:36 pbftInside_module.go:61: S0N2 : added the block 23... 
+S0N2: 2026/05/13 19:53:36 messageHandle.go:270: S0N2: this round of pbft 23 is end 
+S0N2: 2026/05/13 19:53:38 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 23
+S0N2: 2026/05/13 19:53:38 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:38 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 23
+S0N2: 2026/05/13 19:53:38 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:38 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 23
+S0N2: 2026/05/13 19:53:38 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:41 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:41 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:41 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:41 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:41 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:41 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:41 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:41 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:41 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:53:41 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:53:41 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:41 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:41 pbftInside_module.go:59: S0N2 : adding the block 24...now height = 23 
+S0N2: 2026/05/13 19:53:41 pbftInside_module.go:61: S0N2 : added the block 24... 
+S0N2: 2026/05/13 19:53:41 messageHandle.go:270: S0N2: this round of pbft 24 is end 
+S0N2: 2026/05/13 19:53:43 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 24
+S0N2: 2026/05/13 19:53:43 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:43 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 24
+S0N2: 2026/05/13 19:53:43 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:43 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 24
+S0N2: 2026/05/13 19:53:43 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:46 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:46 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:46 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:46 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:46 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:46 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:53:46 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:53:46 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:46 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:46 pbftInside_module.go:59: S0N2 : adding the block 25...now height = 24 
+S0N2: 2026/05/13 19:53:46 pbftInside_module.go:61: S0N2 : added the block 25... 
+S0N2: 2026/05/13 19:53:46 messageHandle.go:270: S0N2: this round of pbft 25 is end 
+S0N2: 2026/05/13 19:53:48 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 25
+S0N2: 2026/05/13 19:53:48 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:48 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 25
+S0N2: 2026/05/13 19:53:48 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:48 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 25
+S0N2: 2026/05/13 19:53:48 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:51 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:51 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:51 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:51 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:51 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:51 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:53:51 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:51 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:53:51 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:51 pbftInside_module.go:59: S0N2 : adding the block 26...now height = 25 
+S0N2: 2026/05/13 19:53:51 pbftInside_module.go:61: S0N2 : added the block 26... 
+S0N2: 2026/05/13 19:53:51 messageHandle.go:270: S0N2: this round of pbft 26 is end 
+S0N2: 2026/05/13 19:53:53 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 26
+S0N2: 2026/05/13 19:53:53 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:53 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 26
+S0N2: 2026/05/13 19:53:53 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:53 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 26
+S0N2: 2026/05/13 19:53:53 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:56 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:53:56 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:53:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:56 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:53:56 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:53:56 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:53:56 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:53:56 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:53:56 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:53:56 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:53:56 pbftInside_module.go:59: S0N2 : adding the block 27...now height = 26 
+S0N2: 2026/05/13 19:53:56 pbftInside_module.go:61: S0N2 : added the block 27... 
+S0N2: 2026/05/13 19:53:56 messageHandle.go:270: S0N2: this round of pbft 27 is end 
+S0N2: 2026/05/13 19:53:58 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 27
+S0N2: 2026/05/13 19:53:58 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:58 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 27
+S0N2: 2026/05/13 19:53:58 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:53:58 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 27
+S0N2: 2026/05/13 19:53:58 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:01 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:54:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:01 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:54:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:01 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:01 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:54:01 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:54:01 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:54:01 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:54:01 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:54:01 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:54:01 pbftInside_module.go:59: S0N2 : adding the block 28...now height = 27 
+S0N2: 2026/05/13 19:54:01 pbftInside_module.go:61: S0N2 : added the block 28... 
+S0N2: 2026/05/13 19:54:01 messageHandle.go:270: S0N2: this round of pbft 28 is end 
+S0N2: 2026/05/13 19:54:03 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 28
+S0N2: 2026/05/13 19:54:03 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:03 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 28
+S0N2: 2026/05/13 19:54:03 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:03 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 28
+S0N2: 2026/05/13 19:54:03 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:06 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:54:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:06 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:54:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:06 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:06 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:54:06 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:54:06 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:54:06 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:54:06 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:54:06 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:54:06 pbftInside_module.go:59: S0N2 : adding the block 29...now height = 28 
+S0N2: 2026/05/13 19:54:06 pbftInside_module.go:61: S0N2 : added the block 29... 
+S0N2: 2026/05/13 19:54:06 messageHandle.go:270: S0N2: this round of pbft 29 is end 
+S0N2: 2026/05/13 19:54:08 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 29
+S0N2: 2026/05/13 19:54:08 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:08 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 29
+S0N2: 2026/05/13 19:54:08 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:08 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 29
+S0N2: 2026/05/13 19:54:08 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:11 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:54:11 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:54:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:11 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:54:11 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:11 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:54:11 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:54:11 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:54:11 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:54:11 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:54:11 pbftInside_module.go:59: S0N2 : adding the block 30...now height = 29 
+S0N2: 2026/05/13 19:54:11 pbftInside_module.go:61: S0N2 : added the block 30... 
+S0N2: 2026/05/13 19:54:11 messageHandle.go:270: S0N2: this round of pbft 30 is end 
+S0N2: 2026/05/13 19:54:13 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 30
+S0N2: 2026/05/13 19:54:13 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:13 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 30
+S0N2: 2026/05/13 19:54:13 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:13 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 30
+S0N2: 2026/05/13 19:54:13 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:16 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:54:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:16 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:54:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:16 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:16 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:54:16 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:54:16 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:54:16 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:54:16 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:54:16 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:54:16 pbftInside_module.go:59: S0N2 : adding the block 31...now height = 30 
+S0N2: 2026/05/13 19:54:16 pbftInside_module.go:61: S0N2 : added the block 31... 
+S0N2: 2026/05/13 19:54:16 messageHandle.go:270: S0N2: this round of pbft 31 is end 
+S0N2: 2026/05/13 19:54:18 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 31
+S0N2: 2026/05/13 19:54:18 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:18 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 31
+S0N2: 2026/05/13 19:54:18 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:18 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 31
+S0N2: 2026/05/13 19:54:18 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:21 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:54:21 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:54:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:21 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:54:21 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:21 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:54:21 messageHandle.go:233: S0N2 received the Commit from ...0
+S0N2: 2026/05/13 19:54:21 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:54:21 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:54:21 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:54:21 pbftInside_module.go:59: S0N2 : adding the block 32...now height = 31 
+S0N2: 2026/05/13 19:54:21 pbftInside_module.go:61: S0N2 : added the block 32... 
+S0N2: 2026/05/13 19:54:21 messageHandle.go:270: S0N2: this round of pbft 32 is end 
+S0N2: 2026/05/13 19:54:23 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 32
+S0N2: 2026/05/13 19:54:23 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:23 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 32
+S0N2: 2026/05/13 19:54:23 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:23 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 32
+S0N2: 2026/05/13 19:54:23 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:26 pbftInside_module.go:42: S0N2 : the pre-prepare message is correct, putting it into the RequestPool. 
+S0N2: 2026/05/13 19:54:26 messageHandle.go:141: S0N2 : has broadcast the prepare message 
+S0N2: 2026/05/13 19:54:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:26 messageHandle.go:152: S0N2 : received the Prepare ...
+S0N2: 2026/05/13 19:54:26 messageHandle.go:188: S0N2 : is going to commit
+S0N2: 2026/05/13 19:54:26 messageHandle.go:203: S0N2 : commit is broadcast
+S0N2: 2026/05/13 19:54:26 messageHandle.go:233: S0N2 received the Commit from ...2
+S0N2: 2026/05/13 19:54:26 messageHandle.go:233: S0N2 received the Commit from ...1
+S0N2: 2026/05/13 19:54:26 messageHandle.go:233: S0N2 received the Commit from ...3
+S0N2: 2026/05/13 19:54:26 messageHandle.go:241: S0N2 : has received 2f + 1 commits ... 
+S0N2: 2026/05/13 19:54:26 pbftInside_module.go:59: S0N2 : adding the block 33...now height = 32 
+S0N2: 2026/05/13 19:54:26 pbftInside_module.go:61: S0N2 : added the block 33... 
+S0N2: 2026/05/13 19:54:26 messageHandle.go:270: S0N2: this round of pbft 33 is end 
+S0N2: 2026/05/13 19:54:28 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 1, the senderSeq is 33
+S0N2: 2026/05/13 19:54:28 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:28 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 2, the senderSeq is 33
+S0N2: 2026/05/13 19:54:28 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:28 pbftOutside_module.go:37: S0N2 : has received relay txs from shard 3, the senderSeq is 33
+S0N2: 2026/05/13 19:54:28 pbftOutside_module.go:42: S0N2 : has handled relay txs msg
+S0N2: 2026/05/13 19:54:29 pbft.go:252: handling stop message
+S0N2: 2026/05/13 19:54:29 pbft.go:257: handled stop message in TCPListen Routine
+S0N2: 2026/05/13 19:54:29 messageHandle.go:81: S0N2 get stopSignal in Propose Routine, now stop...

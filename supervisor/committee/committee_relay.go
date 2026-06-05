@@ -303,8 +303,18 @@ func springBuildBatchRelatedMap(txlist []*core.Transaction) map[string]map[strin
 		if tx == nil {
 			continue
 		}
-		add(tx.Sender, tx.Recipient)
-		add(tx.Recipient, tx.Sender)
+
+		switch params.SpringSenderPosMode {
+		case 1:
+			// Paper-like sender_pos: for a recipient, count senders in the
+			// current A-Shard block that are already placed.
+			add(tx.Recipient, tx.Sender)
+		default:
+			// Existing SPRING-Lite behavior: use the bidirectional relation
+			// graph built from the current TxBatch.
+			add(tx.Sender, tx.Recipient)
+			add(tx.Recipient, tx.Sender)
+		}
 	}
 
 	return related
@@ -344,13 +354,29 @@ func (rthm *RelayCommitteeModule) springPreparePlacementPPOBatch(
 	// action within the current A-Shard block.
 	trainActions := make([]SpringTrainAction, 0)
 
-	for _, tx := range txlist {
-		if action, ok := rthm.springPlaceAddressPPOSequential(tx.Sender, tx.Recipient, batchPlacement, batchRelated); ok {
-			trainActions = append(trainActions, action)
+	if params.SpringSenderPosMode == 1 {
+		// Put senders first, then recipients. This makes recipient sender_pos
+		// closer to the SPRING paper definition: distribution of related
+		// senders' shards in the current block.
+		for _, tx := range txlist {
+			if action, ok := rthm.springPlaceAddressPPOSequential(tx.Sender, "", batchPlacement, batchRelated); ok {
+				trainActions = append(trainActions, action)
+			}
 		}
+		for _, tx := range txlist {
+			if action, ok := rthm.springPlaceAddressPPOSequential(tx.Recipient, tx.Sender, batchPlacement, batchRelated); ok {
+				trainActions = append(trainActions, action)
+			}
+		}
+	} else {
+		for _, tx := range txlist {
+			if action, ok := rthm.springPlaceAddressPPOSequential(tx.Sender, tx.Recipient, batchPlacement, batchRelated); ok {
+				trainActions = append(trainActions, action)
+			}
 
-		if action, ok := rthm.springPlaceAddressPPOSequential(tx.Recipient, tx.Sender, batchPlacement, batchRelated); ok {
-			trainActions = append(trainActions, action)
+			if action, ok := rthm.springPlaceAddressPPOSequential(tx.Recipient, tx.Sender, batchPlacement, batchRelated); ok {
+				trainActions = append(trainActions, action)
+			}
 		}
 	}
 
@@ -917,7 +943,7 @@ func (rthm *RelayCommitteeModule) springBuildSenderPos(
 		}
 	}
 
-	if fallbackRelated != "" {
+	if fallbackRelated != "" && (params.SpringSenderPosMode != 1 || len(relatedSet) == 0) {
 		relatedSet[string(fallbackRelated)] = true
 	}
 

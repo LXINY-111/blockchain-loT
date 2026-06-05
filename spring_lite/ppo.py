@@ -76,6 +76,8 @@ class PPOAgent:
         value_coef: float = 0.5,
         value_clip: float = 0.2,
         supervised_coef: float = 0.0,
+        argmax_balance_coef: float = 0.0,
+        argmax_balance_temperature: float = 0.20,
         device: str = "cpu",
     ):
         self.state_dim = state_dim
@@ -88,6 +90,8 @@ class PPOAgent:
         self.value_coef = value_coef
         self.value_clip = value_clip
         self.supervised_coef = supervised_coef
+        self.argmax_balance_coef = argmax_balance_coef
+        self.argmax_balance_temperature = max(1e-3, float(argmax_balance_temperature))
         self.device = torch.device(device)
 
         self.net = ActorCritic(state_dim, action_dim, hidden_dim).to(self.device)
@@ -213,10 +217,18 @@ class PPOAgent:
         last_approx_kl = 0.0
         last_clip_fraction = 0.0
         last_supervised_loss = 0.0
+        last_argmax_balance_loss = 0.0
+        last_policy_prob_dist = [0.0 for _ in range(self.action_dim)]
+        last_sharp_prob_dist = [0.0 for _ in range(self.action_dim)]
 
         for _ in range(self.ppo_epochs):
             log_probs, entropy, values = self.net.evaluate_actions(states, actions)
             logits, _ = self.net(states)
+            probs = torch.softmax(logits, dim=-1)
+            sharp_probs = torch.softmax(
+                logits / self.argmax_balance_temperature,
+                dim=-1,
+            )
 
             ratio = torch.exp(log_probs - old_log_probs)
             with torch.no_grad():
@@ -224,6 +236,12 @@ class PPOAgent:
                 last_clip_fraction = float(
                     ((ratio - 1.0).abs() > self.clip_eps).float().mean().item()
                 )
+                last_policy_prob_dist = [
+                    float(x) for x in probs.mean(dim=0).detach().cpu().tolist()
+                ]
+                last_sharp_prob_dist = [
+                    float(x) for x in sharp_probs.mean(dim=0).detach().cpu().tolist()
+                ]
 
             unclipped = ratio * advantages
             clipped = torch.clamp(
@@ -249,6 +267,11 @@ class PPOAgent:
                 value_loss = F.mse_loss(values, returns)
             entropy_loss = -entropy.mean()
             supervised_loss = torch.tensor(0.0, dtype=torch.float32, device=self.device)
+            argmax_balance_loss = torch.tensor(
+                0.0,
+                dtype=torch.float32,
+                device=self.device,
+            )
 
             if supervised_target_count > 0 and self.supervised_coef > 0:
                 supervised_ce = F.cross_entropy(
@@ -260,11 +283,32 @@ class PPOAgent:
                     supervised_ce * target_weights[supervised_mask]
                 ).sum() / (target_weights[supervised_mask].sum() + 1e-8)
 
+            if self.argmax_balance_coef > 0 and len(buffer) > 1:
+                uniform = torch.full(
+                    (self.action_dim,),
+                    1.0 / float(self.action_dim),
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+                # Use sharpened probabilities as a differentiable proxy for the
+                # argmax action histogram. This catches cases where entropy is
+                # high, but the same shard label is still barely the top action
+                # for most states.
+                argmax_balance_loss = F.mse_loss(sharp_probs.mean(dim=0), uniform)
+                argmax_balance_loss = argmax_balance_loss * float(self.action_dim)
+
             loss = (
                 policy_loss
                 + self.value_coef * value_loss
                 + self.entropy_coef * entropy_loss
                 + self.supervised_coef * supervised_loss
+                + self.argmax_balance_coef * argmax_balance_loss
+            )
+            value_loss_weighted = self.value_coef * value_loss
+            entropy_loss_weighted = self.entropy_coef * entropy_loss
+            supervised_loss_weighted = self.supervised_coef * supervised_loss
+            argmax_balance_loss_weighted = (
+                self.argmax_balance_coef * argmax_balance_loss
             )
 
             self.optimizer.zero_grad()
@@ -272,13 +316,18 @@ class PPOAgent:
             torch.nn.utils.clip_grad_norm_(self.net.parameters(), 0.5)
             self.optimizer.step()
             last_supervised_loss = float(supervised_loss.item())
+            last_argmax_balance_loss = float(argmax_balance_loss.item())
 
             last_loss = {
                 "loss": float(loss.item()),
                 "policy_loss": float(policy_loss.item()),
+                "policy_loss_weighted": float(policy_loss.item()),
                 "value_loss": float(value_loss.item()),
+                "value_loss_weighted": float(value_loss_weighted.item()),
                 "value_clip": float(self.value_clip),
                 "entropy": float(entropy.mean().item()),
+                "entropy_loss": float(entropy_loss.item()),
+                "entropy_loss_weighted": float(entropy_loss_weighted.item()),
                 "entropy_coef": float(self.entropy_coef),
                 "approx_kl": last_approx_kl,
                 "clip_fraction": last_clip_fraction,
@@ -290,8 +339,17 @@ class PPOAgent:
                 "adv_std_before_norm": adv_std_before_norm,
                 "reward_sum": float(sum(buffer.rewards)),
                 "supervised_loss": last_supervised_loss,
+                "supervised_loss_weighted": float(supervised_loss_weighted.item()),
                 "supervised_target_count": supervised_target_count,
                 "supervised_weight_mean": supervised_weight_mean,
+                "argmax_balance_loss": last_argmax_balance_loss,
+                "argmax_balance_loss_weighted": float(
+                    argmax_balance_loss_weighted.item()
+                ),
+                "argmax_balance_coef": float(self.argmax_balance_coef),
+                "argmax_balance_temperature": float(self.argmax_balance_temperature),
+                "policy_prob_dist": last_policy_prob_dist,
+                "sharp_prob_dist": last_sharp_prob_dist,
             }
 
         return last_loss

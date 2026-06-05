@@ -59,6 +59,12 @@ var (
 	// 论文默认 β = 0.1。
 	SpringRewardBeta = 0.1
 
+	// SpringSenderPosMode:
+	// 0 = bidirectional TxBatch relation graph.
+	// 1 = paper-like recipient -> senders sender_pos.
+	// 2 = reserved for temporal-neighbor enhanced sender_pos.
+	SpringSenderPosMode = 1
+
 	ExpDataRootDir     = "expTest"                     // The root dir where the experimental data should locate.
 	DataWrite_path     = ExpDataRootDir + "/result/"   // Measurement data result output path
 	LogWrite_path      = ExpDataRootDir + "/log"       // Log output path
@@ -87,6 +93,8 @@ type globalConfig struct {
 
 	SpringRewardLambda float64 `json:"SpringRewardLambda"`
 	SpringRewardBeta   float64 `json:"SpringRewardBeta"`
+
+	SpringSenderPosMode *int `json:"SpringSenderPosMode"`
 
 	SpringEvalSample int `json:"SpringEvalSample"`
 
@@ -145,6 +153,13 @@ func ReadConfigFile() {
 	SpringRewardBeta = config.SpringRewardBeta
 	if SpringRewardBeta <= 0 {
 		SpringRewardBeta = 0.1
+	}
+
+	if config.SpringSenderPosMode != nil {
+		SpringSenderPosMode = *config.SpringSenderPosMode
+	}
+	if SpringSenderPosMode < 0 || SpringSenderPosMode > 2 {
+		SpringSenderPosMode = 1
 	}
 
 	PbftViewChangeTimeOut = config.PbftViewChangeTimeOut

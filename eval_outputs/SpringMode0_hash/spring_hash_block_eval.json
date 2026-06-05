@@ -1,0 +1,84 @@
+{
+  "result_zip": "expTest\\result.zip",
+  "spring_io_zip": "spring_io.zip",
+  "log": "C:\\Users\\HONOR\\.codex\\attachments\\dd352518-75bf-4aa6-970b-267c63d9937e\\pasted-text.txt",
+  "shards": 4,
+  "periods": {
+    "all_active": {
+      "name": "all_active",
+      "first_epoch": 1,
+      "last_epoch": 175,
+      "epoch_count": 175,
+      "effective_total": 300000.0,
+      "normal_total": 74230.0,
+      "relay1_total": 225770.0,
+      "relay2_total": 225770.0,
+      "cross_total": 225770.0,
+      "weighted_cross_ratio": 0.7525666666666667,
+      "avg_confirm_latency_sec": 239.2524869240651,
+      "wall_tps": 344.5986459570538,
+      "mean_epoch_tps": 862.8926554627466,
+      "median_epoch_tps": 955.129268937755,
+      "mean_load_variance": 22840.5,
+      "median_load_variance": 20271.796875,
+      "p95_load_variance": 50469.296875
+    },
+    "main_injection": {
+      "name": "main_injection",
+      "first_epoch": 1,
+      "last_epoch": 157,
+      "epoch_count": 157,
+      "effective_total": 291364.0,
+      "normal_total": 74230.0,
+      "relay1_total": 225770.0,
+      "relay2_total": 208498.0,
+      "cross_total": 217134.0,
+      "weighted_cross_ratio": 0.7452327672601968,
+      "avg_confirm_latency_sec": 211.72198427512126,
+      "wall_tps": 372.4701117804072,
+      "mean_epoch_tps": 844.0908571087674,
+      "median_epoch_tps": 953.9781913673885,
+      "mean_load_variance": 20392.800358280256,
+      "median_load_variance": 16790.3125,
+      "p95_load_variance": 50541.546875
+    },
+    "capacity_like": {
+      "name": "capacity_like",
+      "first_epoch": 1,
+      "last_epoch": 122,
+      "epoch_count": 122,
+      "effective_total": 260518.0,
+      "normal_total": 67207.0,
+      "relay1_total": 206250.0,
+      "relay2_total": 180372.0,
+      "cross_total": 193311.0,
+      "weighted_cross_ratio": 0.7420255030362586,
+      "avg_confirm_latency_sec": 176.0384752222623,
+      "wall_tps": 429.02477302781637,
+      "mean_epoch_tps": 970.589099225787,
+      "median_epoch_tps": 1022.512710302665,
+      "mean_load_variance": 12347.69825819672,
+      "median_load_variance": 1889.984375,
+      "p95_load_variance": 41994.5625
+    }
+  },
+  "decisions": {},
+  "send_log": {
+    "send_batch_count": 0,
+    "tx_placement_totals": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "tx_placement_dist": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "mean_batch_max_share": 0.0,
+    "p95_batch_max_share": 0.0,
+    "extreme_batch_count_ge_0_8": 0
+  }
+}

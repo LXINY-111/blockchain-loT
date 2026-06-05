@@ -12,7 +12,14 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from torch.distributions import Categorical
 
-from config import HIDDEN_DIM, MODEL_PATH, state_dim
+from action_select import tie_aware_argmax
+from config import (
+    ARGMAX_TIE_BREAK,
+    ARGMAX_TIE_EPS,
+    HIDDEN_DIM,
+    MODEL_PATH,
+    state_dim,
+)
 from heuristic import heuristic_from_state
 from ppo import PPOAgent
 
@@ -194,7 +201,22 @@ def infer_items(
             if sample:
                 actions = dist.sample()
             else:
-                actions = torch.argmax(probs, dim=-1)
+                action_ids = []
+                for local_idx, item_idx in enumerate(valid_indices):
+                    item = items[item_idx]
+                    action_ids.append(
+                        tie_aware_argmax(
+                            probs[local_idx].detach().cpu().tolist(),
+                            key=f"{item.get('address', '')}|{item.get('related', '')}",
+                            tie_eps=ARGMAX_TIE_EPS,
+                            enable_tie_break=bool(ARGMAX_TIE_BREAK),
+                        )
+                    )
+                actions = torch.tensor(
+                    action_ids,
+                    dtype=torch.long,
+                    device=agent.device,
+                )
 
             log_probs = dist.log_prob(actions)
             confidences = probs.gather(1, actions.unsqueeze(1)).squeeze(1)

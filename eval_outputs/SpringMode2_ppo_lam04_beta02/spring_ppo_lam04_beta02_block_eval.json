@@ -1,0 +1,124 @@
+{
+  "result_zip": "expTest\\result.zip",
+  "spring_io_zip": ".\\spring_io.zip",
+  "log": ".\\expTest\\log\\Supervisor.log",
+  "shards": 4,
+  "periods": {
+    "all_active": {
+      "name": "all_active",
+      "first_epoch": 1,
+      "last_epoch": 124,
+      "epoch_count": 124,
+      "effective_total": 300000.0,
+      "normal_total": 211056.0,
+      "relay1_total": 88944.0,
+      "relay2_total": 88944.0,
+      "cross_total": 88944.0,
+      "weighted_cross_ratio": 0.29648,
+      "avg_confirm_latency_sec": 94.24561056695528,
+      "wall_tps": 488.8804149616962,
+      "mean_epoch_tps": 1293.9183655570966,
+      "median_epoch_tps": 1340.0649545341505,
+      "mean_load_variance": 55891.93775201613,
+      "median_load_variance": 46875.0,
+      "p95_load_variance": 134563.546875
+    },
+    "main_injection": {
+      "name": "main_injection",
+      "first_epoch": 1,
+      "last_epoch": 117,
+      "epoch_count": 117,
+      "effective_total": 296538.0,
+      "normal_total": 211056.0,
+      "relay1_total": 88944.0,
+      "relay2_total": 82020.0,
+      "cross_total": 85482.0,
+      "weighted_cross_ratio": 0.28826659652388564,
+      "avg_confirm_latency_sec": 88.75393217826412,
+      "wall_tps": 511.0565364630458,
+      "mean_epoch_tps": 1293.9183655570966,
+      "median_epoch_tps": 1340.0649545341505,
+      "mean_load_variance": 56489.99599358974,
+      "median_load_variance": 44063.046875,
+      "p95_load_variance": 134659.171875
+    },
+    "capacity_like": {
+      "name": "capacity_like",
+      "first_epoch": 2,
+      "last_epoch": 114,
+      "epoch_count": 113,
+      "effective_total": 293713.0,
+      "normal_total": 209572.0,
+      "relay1_total": 88219.0,
+      "relay2_total": 80063.0,
+      "cross_total": 84141.0,
+      "weighted_cross_ratio": 0.2864735302829633,
+      "avg_confirm_latency_sec": 86.98242656273635,
+      "wall_tps": 522.6423857204121,
+      "mean_epoch_tps": 1308.7543036240866,
+      "median_epoch_tps": 1345.514681459283,
+      "mean_load_variance": 56266.5453539823,
+      "median_load_variance": 41793.375,
+      "p95_load_variance": 134659.171875
+    }
+  },
+  "decisions": {
+    "decision_count": 54403,
+    "action_hist": [
+      27683,
+      6531,
+      10170,
+      10019
+    ],
+    "action_dist": [
+      0.5088506148557984,
+      0.12004852673565795,
+      0.18693822031873242,
+      0.18416263808981123
+    ],
+    "confidence_mean": 0.34032226410787153,
+    "entropy_mean": 1.3532049042787249,
+    "source_hist": {
+      "python_ppo": 54403
+    },
+    "sender_pos_nonzero_ratio": 0.840302924471077,
+    "related_shard_hist": [
+      15819,
+      6180,
+      14735,
+      8981
+    ],
+    "same_related_by_shard": [
+      14620,
+      6139,
+      8078,
+      8978
+    ],
+    "related_follow_by_shard": [
+      0.9242050698527088,
+      0.9933656957928803,
+      0.5482185273159145,
+      0.9996659614742234
+    ],
+    "same_as_related_ratio": 0.8271902001531226,
+    "min_related_follow_ratio": 0.5482185273159145
+  },
+  "send_log": {
+    "send_batch_count": 300,
+    "tx_placement_totals": [
+      87532,
+      36927,
+      76100,
+      99441
+    ],
+    "tx_placement_dist": [
+      0.29177333333333333,
+      0.12309,
+      0.25366666666666665,
+      0.33147
+    ],
+    "mean_batch_max_share": 0.60311,
+    "p95_batch_max_share": 0.976,
+    "extreme_batch_count_ge_0_8": 79
+  }
+}

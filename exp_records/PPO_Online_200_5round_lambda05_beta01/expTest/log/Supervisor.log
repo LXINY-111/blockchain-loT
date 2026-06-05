@@ -1,0 +1,429 @@
+Supervisor: 2026/05/13 18:58:19 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=1 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:21 spring_call.go:267: [SPRING PPO BATCH] batch_id=1 items=130 results=130 cost_us=4584295
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=32be343b94f860124dc4fee278fdcbd38c102d88 shard=1 related=104994f45d9d697ca104e5704a7b77d7fec3537c source=python_ppo confidence=0.261657 totalPlaced=1
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=104994f45d9d697ca104e5704a7b77d7fec3537c shard=1 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.261657 totalPlaced=2
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=147184ef469ce9bba3d08af16f0b6d31cac35ac8 shard=1 related=695055f1ea55c36ec7e3bd43d1736511ac8dab61 source=python_ppo confidence=0.261657 totalPlaced=3
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=695055f1ea55c36ec7e3bd43d1736511ac8dab61 shard=1 related=147184ef469ce9bba3d08af16f0b6d31cac35ac8 source=python_ppo confidence=0.261657 totalPlaced=4
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=06c69f734a0240cb31678412f04eb0ce8f39258b shard=2 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.247198 totalPlaced=5
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=5410c4c59a719eef345869c204ec8dcac2dfd718 shard=1 related=a795b4ddbf17570f2c8f5e75a13ef94db6757f32 source=python_ppo confidence=0.261657 totalPlaced=6
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a795b4ddbf17570f2c8f5e75a13ef94db6757f32 shard=2 related=5410c4c59a719eef345869c204ec8dcac2dfd718 source=python_ppo confidence=0.247198 totalPlaced=7
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=ea674fdde714fd979de3edf0f56aa9716b898ec8 shard=0 related=8d0e7c2c82970c9d1b7d598be20f2ba0f13e6537 source=python_ppo confidence=0.238803 totalPlaced=8
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=8d0e7c2c82970c9d1b7d598be20f2ba0f13e6537 shard=0 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.238803 totalPlaced=9
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a5cebfe4acc8d63b3257ac7f33677b987693072a shard=3 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.252341 totalPlaced=10
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=ba562f24005910e25dfaf2a42fea4c0bf8a2d1c5 shard=2 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.247198 totalPlaced=11
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=cfc4ec1faa4f91f6e917e9e556320c841da8588d shard=2 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.247198 totalPlaced=12
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a533d38472d609f932d37544cd0b73999b21644c shard=3 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.252341 totalPlaced=13
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f85b0da81868e5d65dac5099e9cf4fca346eb330 shard=1 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.261657 totalPlaced=14
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=c127baf2d17391333212a793581978af3d26dc82 shard=3 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.252341 totalPlaced=15
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=bef52af092fa2349279f7a2b10779fe810785688 shard=3 related=24f21c22f0e641e2371f04a7bb8d713f89f53550 source=python_ppo confidence=0.252341 totalPlaced=16
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=24f21c22f0e641e2371f04a7bb8d713f89f53550 shard=1 related=bef52af092fa2349279f7a2b10779fe810785688 source=python_ppo confidence=0.261657 totalPlaced=17
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f05c1b271d12b7ecb3b37122730c085ec2c0b552 shard=0 related=4fdf5371f7ffa04866f696882db659fe38f52559 source=python_ppo confidence=0.238803 totalPlaced=18
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=4fdf5371f7ffa04866f696882db659fe38f52559 shard=2 related=f05c1b271d12b7ecb3b37122730c085ec2c0b552 source=python_ppo confidence=0.247198 totalPlaced=19
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=8975dbc1b8f25ec994815626d070899dda896511 shard=1 related=b2e3732c0b0ec387962f76fa4f1bb9325089c5e0 source=python_ppo confidence=0.261657 totalPlaced=20
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b2e3732c0b0ec387962f76fa4f1bb9325089c5e0 shard=3 related=8975dbc1b8f25ec994815626d070899dda896511 source=python_ppo confidence=0.252341 totalPlaced=21
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=17d294f910c9891ee648575b1caff2d59bcf2c1d shard=1 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.261657 totalPlaced=22
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=4bb96091ee9d802ed039c4d1a5f6216f90f81b01 shard=2 related=f5aee728e007c16cb640e38e0161cfeaf783f0c4 source=python_ppo confidence=0.247198 totalPlaced=23
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f5aee728e007c16cb640e38e0161cfeaf783f0c4 shard=0 related=4bb96091ee9d802ed039c4d1a5f6216f90f81b01 source=python_ppo confidence=0.238803 totalPlaced=24
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=91337a300e0361bddb2e377dd4e88ccb7796663d shard=1 related=7c28cfe0c542bb08e35f37690d0d595818891d8b source=python_ppo confidence=0.261657 totalPlaced=25
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=7c28cfe0c542bb08e35f37690d0d595818891d8b shard=3 related=91337a300e0361bddb2e377dd4e88ccb7796663d source=python_ppo confidence=0.252341 totalPlaced=26
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=74e8013fc55e6a554717109c60294d014d2fa0a3 shard=0 related=af2a5e433f8eec5ba30c9fe2d9180674a825cccf source=python_ppo confidence=0.238803 totalPlaced=27
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=af2a5e433f8eec5ba30c9fe2d9180674a825cccf shard=3 related=74e8013fc55e6a554717109c60294d014d2fa0a3 source=python_ppo confidence=0.252341 totalPlaced=28
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=173b690319e89cfcfc8ab0138383342333889e40 shard=3 related=9b0473a5f682b1458d15a59dc066432e010136dc source=python_ppo confidence=0.252341 totalPlaced=29
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=9b0473a5f682b1458d15a59dc066432e010136dc shard=2 related=173b690319e89cfcfc8ab0138383342333889e40 source=python_ppo confidence=0.247198 totalPlaced=30
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=7596875a7e07615327c24b522fd03d2e65e0ac29 shard=0 related=e0ef58a3ba21d314549ddb4ddef85b442a5920c0 source=python_ppo confidence=0.238803 totalPlaced=31
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e0ef58a3ba21d314549ddb4ddef85b442a5920c0 shard=3 related=7596875a7e07615327c24b522fd03d2e65e0ac29 source=python_ppo confidence=0.252341 totalPlaced=32
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=33557ec22c62da680eda607746bba1c6ae99f2c4 shard=3 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.252341 totalPlaced=33
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=d9d3cfe5bc9df83081042f4ad51083155461a40e shard=2 related=ac32bd17f703665dc4aa4909251a11dc02c264d6 source=python_ppo confidence=0.247198 totalPlaced=34
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=ac32bd17f703665dc4aa4909251a11dc02c264d6 shard=0 related=d9d3cfe5bc9df83081042f4ad51083155461a40e source=python_ppo confidence=0.238803 totalPlaced=35
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=c16b86bf94dd5a21c5362c6952c5f51ad11d1890 shard=3 related=7061505a28939fd66a9aaca335d577362b5796f7 source=python_ppo confidence=0.252341 totalPlaced=36
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=7061505a28939fd66a9aaca335d577362b5796f7 shard=0 related=c16b86bf94dd5a21c5362c6952c5f51ad11d1890 source=python_ppo confidence=0.238803 totalPlaced=37
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=72a2d14ea5196eda2e300d379ce15690f7ef4ec0 shard=3 related=b0510a5640f8a2f13b3239a3596c3ca8c346c721 source=python_ppo confidence=0.252341 totalPlaced=38
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b0510a5640f8a2f13b3239a3596c3ca8c346c721 shard=1 related=72a2d14ea5196eda2e300d379ce15690f7ef4ec0 source=python_ppo confidence=0.261657 totalPlaced=39
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=37bcb554e0fbe385411baa54491b6be22a79f446 shard=1 related=f1606f07230c2106e39a70eeb9603ab39bfbb22a source=python_ppo confidence=0.261657 totalPlaced=40
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f1606f07230c2106e39a70eeb9603ab39bfbb22a shard=0 related=37bcb554e0fbe385411baa54491b6be22a79f446 source=python_ppo confidence=0.238803 totalPlaced=41
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=d9071b2534cdb57ada2c093e6b3d41bd422acafc shard=0 related=4bb96091ee9d802ed039c4d1a5f6216f90f81b01 source=python_ppo confidence=0.238803 totalPlaced=42
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=01738c87fe7028989a93ebb5d62d70762714fe21 shard=3 related=4bb96091ee9d802ed039c4d1a5f6216f90f81b01 source=python_ppo confidence=0.252341 totalPlaced=43
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=8e200f04896c2326d3020d83c9c2dbb639bb970e shard=2 related=91337a300e0361bddb2e377dd4e88ccb7796663d source=python_ppo confidence=0.247198 totalPlaced=44
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=63c2a24d6f4e89fce2da3aa2a6113ce36a7c5b17 shard=3 related=d07908aac7e1bdb3788e7efed9569622172e98ee source=python_ppo confidence=0.252341 totalPlaced=45
+Supervisor: 2026/05/13 18:58:21 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=d07908aac7e1bdb3788e7efed9569622172e98ee shard=0 related=63c2a24d6f4e89fce2da3aa2a6113ce36a7c5b17 source=python_ppo confidence=0.238803 totalPlaced=46
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b2930b35844a230f00e51431acae96fe543a0347 shard=1 related=bb6a6fc40b8ce01964daf618115cb4433ee38b2d source=python_ppo confidence=0.261657 totalPlaced=47
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=bb6a6fc40b8ce01964daf618115cb4433ee38b2d shard=1 related=b2930b35844a230f00e51431acae96fe543a0347 source=python_ppo confidence=0.261657 totalPlaced=48
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f288f5cf2ef9e9a3083834e30e1dbf09a1e93743 shard=0 related=b2930b35844a230f00e51431acae96fe543a0347 source=python_ppo confidence=0.238803 totalPlaced=49
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e1cd086fae61364c6d58db6f05e80929426788bd shard=2 related=afa907a69895898d42370354a7d7e5e1fab654c2 source=python_ppo confidence=0.247198 totalPlaced=50
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=afa907a69895898d42370354a7d7e5e1fab654c2 shard=1 related=e1cd086fae61364c6d58db6f05e80929426788bd source=python_ppo confidence=0.261657 totalPlaced=51
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=5707738b3a4c083bcfcd192c140759662b8c9774 shard=2 related=b2930b35844a230f00e51431acae96fe543a0347 source=python_ppo confidence=0.247198 totalPlaced=52
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=4655e26af6f139702fdc120bbfdae72172f73f76 shard=2 related=b2930b35844a230f00e51431acae96fe543a0347 source=python_ppo confidence=0.247198 totalPlaced=53
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=96fc4553a00c117c5b0bed950dd625d1c16dc894 shard=2 related=ae6a5d8fd17aef3ed99757d85541deee7c254ad5 source=python_ppo confidence=0.247198 totalPlaced=54
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=ae6a5d8fd17aef3ed99757d85541deee7c254ad5 shard=0 related=96fc4553a00c117c5b0bed950dd625d1c16dc894 source=python_ppo confidence=0.238803 totalPlaced=55
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=de3d760d4c12ab97023d0019643474ed809cd937 shard=2 related=b2930b35844a230f00e51431acae96fe543a0347 source=python_ppo confidence=0.247198 totalPlaced=56
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e77f55ea0c862c78dd02dcf8828e5046c98ef97c shard=1 related=a0e16b328c9a24f9a1aa61e1d18370d240ec694b source=python_ppo confidence=0.261657 totalPlaced=57
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a0e16b328c9a24f9a1aa61e1d18370d240ec694b shard=1 related=e77f55ea0c862c78dd02dcf8828e5046c98ef97c source=python_ppo confidence=0.261657 totalPlaced=58
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=2bad16ee6f2f29bbed06457e4e3d3e25ac7385c4 shard=2 related=b2930b35844a230f00e51431acae96fe543a0347 source=python_ppo confidence=0.247198 totalPlaced=59
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=3b2504ebc14f016b4e9aacd3f48ed525d69f9c64 shard=2 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.247198 totalPlaced=60
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=191c7c38a02611827cef05b0dde9e4fc3e8ddcfc shard=0 related=4fdf5371f7ffa04866f696882db659fe38f52559 source=python_ppo confidence=0.238803 totalPlaced=61
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=8b2232c5006a7c9bcb7b52d07ad429bb71ae2c1c shard=2 related=d9b8e8ad1083a6f83438039bff0d74dc06006722 source=python_ppo confidence=0.247198 totalPlaced=62
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=d9b8e8ad1083a6f83438039bff0d74dc06006722 shard=3 related=8b2232c5006a7c9bcb7b52d07ad429bb71ae2c1c source=python_ppo confidence=0.252341 totalPlaced=63
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=fd37429749ff5c8227ab0fa17c6c393fed2d5347 shard=1 related=6ecd3fd8469ada2b53a0c5cac4b3c989e93e1d50 source=python_ppo confidence=0.261657 totalPlaced=64
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=6ecd3fd8469ada2b53a0c5cac4b3c989e93e1d50 shard=3 related=fd37429749ff5c8227ab0fa17c6c393fed2d5347 source=python_ppo confidence=0.252341 totalPlaced=65
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b3893adbc654da573dd0f4b3bcc5ad8754dc516c shard=3 related=b2930b35844a230f00e51431acae96fe543a0347 source=python_ppo confidence=0.252341 totalPlaced=66
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=11ccd1dc284f8465bb2487836a821566b903adfd shard=0 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.238803 totalPlaced=67
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=0df594950d2e2fdd690d762733312e6ae94ab909 shard=1 related=b2930b35844a230f00e51431acae96fe543a0347 source=python_ppo confidence=0.261657 totalPlaced=68
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=ef0dfce0b957e114f71b358fc943352341d2a3d8 shard=2 related=06dec4c199a2229b21300bff368dd3a1fda2a5cf source=python_ppo confidence=0.247198 totalPlaced=69
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=06dec4c199a2229b21300bff368dd3a1fda2a5cf shard=0 related=ef0dfce0b957e114f71b358fc943352341d2a3d8 source=python_ppo confidence=0.238803 totalPlaced=70
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=89b6f59566036a24f109276fd1de5e19853b2bd9 shard=3 related=a1a9da3220b35ebb80c99007c1b735ef7c5a5ba9 source=python_ppo confidence=0.252341 totalPlaced=71
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a1a9da3220b35ebb80c99007c1b735ef7c5a5ba9 shard=1 related=89b6f59566036a24f109276fd1de5e19853b2bd9 source=python_ppo confidence=0.261657 totalPlaced=72
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a06aa59d7b921213eeb85b9028fa8a33e1b78f9f shard=1 related=4bb96091ee9d802ed039c4d1a5f6216f90f81b01 source=python_ppo confidence=0.261657 totalPlaced=73
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=219853b83021fa5de70dfc5d9ce3d261270f5bef shard=1 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.261657 totalPlaced=74
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=3da406d6899b185d8a74a9927423dce824a51840 shard=0 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.238803 totalPlaced=75
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=2e27164e8329a9374b367c1f59ed3ae42b95c2c3 shard=3 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.252341 totalPlaced=76
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=0f76b33f1bcb7cc0cf07c419fc6345aadcc90fe2 shard=0 related=d02a85287bbc5e2bc06b75fe450450c9e9dab1f0 source=python_ppo confidence=0.238803 totalPlaced=77
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=d02a85287bbc5e2bc06b75fe450450c9e9dab1f0 shard=3 related=0f76b33f1bcb7cc0cf07c419fc6345aadcc90fe2 source=python_ppo confidence=0.252341 totalPlaced=78
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=6ab10df61ce7db8553894ec61564fe304626c63d shard=0 related=c5532281adb64d4d757d5d1c9d0c1673e06335a8 source=python_ppo confidence=0.238803 totalPlaced=79
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=c5532281adb64d4d757d5d1c9d0c1673e06335a8 shard=0 related=6ab10df61ce7db8553894ec61564fe304626c63d source=python_ppo confidence=0.238803 totalPlaced=80
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=fe079c89c32bec01cea5d748ce8ea60bb3040801 shard=0 related=b0510a5640f8a2f13b3239a3596c3ca8c346c721 source=python_ppo confidence=0.238803 totalPlaced=81
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=1595c383f52e474b28b5e6b4b8f72e92c1461474 shard=3 related=17d294f910c9891ee648575b1caff2d59bcf2c1d source=python_ppo confidence=0.252341 totalPlaced=82
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=9e6316f44baeeee5d41a1070516cc5fa47baf227 shard=2 related=c0e1d3e75bedec0d7fe567487282265b4cbc6ff4 source=python_ppo confidence=0.247198 totalPlaced=83
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=c0e1d3e75bedec0d7fe567487282265b4cbc6ff4 shard=1 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.261657 totalPlaced=84
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=cf747349305dca9aef7a030ba408796acda0de15 shard=1 related=b3b7e16c94e5a8d67e4f1e539497715be9e746fe source=python_ppo confidence=0.261657 totalPlaced=85
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b3b7e16c94e5a8d67e4f1e539497715be9e746fe shard=3 related=cf747349305dca9aef7a030ba408796acda0de15 source=python_ppo confidence=0.252341 totalPlaced=86
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=147af46ae9ccd18bb35ca01b353b51990e49dce1 shard=2 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.247198 totalPlaced=87
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=2a05fee80e4e19227d2c2a63fe26db1073934acc shard=2 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.247198 totalPlaced=88
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=55f284ae9425b26d8795877645aac813aba5f083 shard=1 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.261657 totalPlaced=89
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=62c3a118f997b152ae6c7027ea7bf133cc27d6e3 shard=0 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.238803 totalPlaced=90
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=678808033b4fa7ff76c8e75cb366a21d2820c3d2 shard=3 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.252341 totalPlaced=91
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=74efa55ae03c85f3d6914bc88f5066c0982eb7fc shard=2 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.247198 totalPlaced=92
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=8df0ba51c558b8a999e9a44409dabcf78d06111d shard=3 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.252341 totalPlaced=93
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=17f02b1d0ad41c4f62562580c39f5e1fe76afb3f shard=2 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.247198 totalPlaced=94
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=71cd0c2fa3d10e2defaff06db7d93b0fadcd7a7a shard=2 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.247198 totalPlaced=95
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=023c575f15e3b01f30fdac48874326ca6ad1882a shard=3 related=f9ba47a8dc743c5160784dbff396a5ac840d952e source=python_ppo confidence=0.252341 totalPlaced=96
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f9ba47a8dc743c5160784dbff396a5ac840d952e shard=1 related=023c575f15e3b01f30fdac48874326ca6ad1882a source=python_ppo confidence=0.261657 totalPlaced=97
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=267be1c1d684f78cb4f6a176c4911b741e4ffdc0 shard=1 related=9f5c05531a5c52fa5de5d2712c39e6bf24ad4db3 source=python_ppo confidence=0.261657 totalPlaced=98
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=9f5c05531a5c52fa5de5d2712c39e6bf24ad4db3 shard=3 related=267be1c1d684f78cb4f6a176c4911b741e4ffdc0 source=python_ppo confidence=0.252341 totalPlaced=99
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=d80932d7fbc7bc619a57d3378684132b8e97974d shard=3 related=267be1c1d684f78cb4f6a176c4911b741e4ffdc0 source=python_ppo confidence=0.252341 totalPlaced=100
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b31cbda079bb74d3f45b9a6b119b73460ef42d35 shard=1 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.261657 totalPlaced=101
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=7010056dd23bb124b2cd36e44ce00271028312de shard=2 related=7b565af6bbba09840e96f412d8a08c8dbf603c43 source=python_ppo confidence=0.247198 totalPlaced=102
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=7b565af6bbba09840e96f412d8a08c8dbf603c43 shard=3 related=7010056dd23bb124b2cd36e44ce00271028312de source=python_ppo confidence=0.252341 totalPlaced=103
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e3363aed0fcfcd74995cc70c2982d633505afebe shard=3 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.252341 totalPlaced=104
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=c54dc52c928b2860856994f7080746a37ebcd27b shard=3 related=4fdf5371f7ffa04866f696882db659fe38f52559 source=python_ppo confidence=0.252341 totalPlaced=105
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=9d6ca0cf108b8fd65efa5a213fe1c9dfb2ba361d shard=0 related=d748bc8090dc8b0aac521e4867de082c576ebd54 source=python_ppo confidence=0.238803 totalPlaced=106
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=d748bc8090dc8b0aac521e4867de082c576ebd54 shard=0 related=9d6ca0cf108b8fd65efa5a213fe1c9dfb2ba361d source=python_ppo confidence=0.238803 totalPlaced=107
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=69f2f25de9f7a0cfea7922f33f5a05d8b92066d5 shard=3 related=4e1ed5663ee585683533f7768e7b700e5332fb96 source=python_ppo confidence=0.252341 totalPlaced=108
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=4e1ed5663ee585683533f7768e7b700e5332fb96 shard=1 related=69f2f25de9f7a0cfea7922f33f5a05d8b92066d5 source=python_ppo confidence=0.261657 totalPlaced=109
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=387ebdfb9228ec3bdf8311539e5749f9e7f95ff6 shard=3 related=74043593765bf159d8ffab1dc975f8277cbaa92f source=python_ppo confidence=0.252341 totalPlaced=110
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=74043593765bf159d8ffab1dc975f8277cbaa92f shard=3 related=387ebdfb9228ec3bdf8311539e5749f9e7f95ff6 source=python_ppo confidence=0.252341 totalPlaced=111
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=c67436cf5168bb432a4f7b9228e258c207ce7ca0 shard=0 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.238803 totalPlaced=112
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=d9b9c9673a8bf89a4f23eb33bb4de0a2f1230cd5 shard=0 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.238803 totalPlaced=113
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=db6eaefdc566c4bacfc8681a4fe874d788e3a909 shard=1 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.261657 totalPlaced=114
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=ddd59020c9fcaca6eccbb6b167980f2c148121a5 shard=3 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.252341 totalPlaced=115
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e57a1084fcdf1dd1528063bebe51b45b45e5969f shard=3 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.252341 totalPlaced=116
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e6ac0b7e91ef3ba62fbd72554bced382083b4506 shard=0 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.238803 totalPlaced=117
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e7ba7fa587eb908c7985810cdfedc23996747313 shard=0 related=4bb96091ee9d802ed039c4d1a5f6216f90f81b01 source=python_ppo confidence=0.238803 totalPlaced=118
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=ec9ec16cd0725cdbfe3f6d9e449d7eadd50b6aee shard=3 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.252341 totalPlaced=119
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=fbb1b73c4f0bda4f67dca266ce6ef42f520fbb98 shard=1 related=43f15331d2fc81e179f29b1ba9bacdf55c3b92a5 source=python_ppo confidence=0.261657 totalPlaced=120
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=43f15331d2fc81e179f29b1ba9bacdf55c3b92a5 shard=3 related=fbb1b73c4f0bda4f67dca266ce6ef42f520fbb98 source=python_ppo confidence=0.252341 totalPlaced=121
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=c597a5d92f5dc1137d847db733cfe02c6d209f13 shard=1 related=e75566ffb05e901fd7f9bdb8684c98a5f7ca683c source=python_ppo confidence=0.261657 totalPlaced=122
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e75566ffb05e901fd7f9bdb8684c98a5f7ca683c shard=3 related=c597a5d92f5dc1137d847db733cfe02c6d209f13 source=python_ppo confidence=0.252341 totalPlaced=123
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=10c386e51225267a41d6a00069b2495746e4d11a shard=1 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.261657 totalPlaced=124
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=2e75223efde2893cf0bcb9c841cd5206f508fa64 shard=0 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.238803 totalPlaced=125
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=cd88e0e0c455345833ce31c5452c1c37f4b4c438 shard=2 related=e0065a419a663b8d619be620b7800575a5810668 source=python_ppo confidence=0.247198 totalPlaced=126
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e0065a419a663b8d619be620b7800575a5810668 shard=1 related=cd88e0e0c455345833ce31c5452c1c37f4b4c438 source=python_ppo confidence=0.261657 totalPlaced=127
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=cf184c7c0941c660c9a8f5d37583a082a75564f8 shard=2 related=4bb96091ee9d802ed039c4d1a5f6216f90f81b01 source=python_ppo confidence=0.247198 totalPlaced=128
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e41047717f92ca72bc7e109cebbf911feda4e59e shard=1 related=e8180243de37a6964298492f78e2e10ee8d77937 source=python_ppo confidence=0.261657 totalPlaced=129
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e8180243de37a6964298492f78e2e10ee8d77937 shard=3 related=e41047717f92ca72bc7e109cebbf911feda4e59e source=python_ppo confidence=0.252341 totalPlaced=130
+Supervisor: 2026/05/13 18:58:22 spring_train.go:282: [SPRING ONLINE ACTIONS] enqueue batch_id=1 actions=130 pending_batches=1
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:397: [SPRING SEND] nowData=100 txlistLen=100 idx=100 counts=[32 40 16 12] placementSize=130
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=1 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=1 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=1 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:22 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=1 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:58:24 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=2 body=32 inner=8 relay1=24 relay2=0
+Supervisor: 2026/05/13 18:58:26 spring_call.go:267: [SPRING PPO BATCH] batch_id=2 items=104 results=104 cost_us=3619955
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=7ed1e469fcb3ee19c0366d829e291451be638e59 shard=2 related=f8b1a8be179fc6f2c811d94c085db929f61ba76c source=python_ppo confidence=0.247198 totalPlaced=131
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f8b1a8be179fc6f2c811d94c085db929f61ba76c shard=2 related=7ed1e469fcb3ee19c0366d829e291451be638e59 source=python_ppo confidence=0.247198 totalPlaced=132
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=297e3293a35f15135f29e970385d5a26af901f5b shard=1 related=4f168d3fdcb9af00f6c17b536e4b00cdb91831ac source=python_ppo confidence=0.261657 totalPlaced=133
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=4f168d3fdcb9af00f6c17b536e4b00cdb91831ac shard=2 related=297e3293a35f15135f29e970385d5a26af901f5b source=python_ppo confidence=0.247198 totalPlaced=134
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e4776c92c5465c1b276f6a3770684f81db1fa630 shard=2 related=1f2100d0695be69323f60bd6a68268ae7b5aa10e source=python_ppo confidence=0.247198 totalPlaced=135
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=1f2100d0695be69323f60bd6a68268ae7b5aa10e shard=1 related=e4776c92c5465c1b276f6a3770684f81db1fa630 source=python_ppo confidence=0.261657 totalPlaced=136
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=0cf7fca1be53a8a67137b0b2e541e0003273ac34 shard=1 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.263141 totalPlaced=137
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=6ed22027b50247f72927e4b1dc64a7ef73df21ca shard=3 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.249741 totalPlaced=138
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=145297270e945a1077870f7733ace57a2430c727 shard=1 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.263141 totalPlaced=139
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=d12cd8a37f074e7eafae618c986ff825666198bd shard=3 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.249741 totalPlaced=140
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=99cdb23aee5ec2affbaa3b1c31ea8231b84e2b1c shard=3 related=f9eb387e84255d0d8ab47af42a7a26a5f07103b0 source=python_ppo confidence=0.252341 totalPlaced=141
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f9eb387e84255d0d8ab47af42a7a26a5f07103b0 shard=1 related=99cdb23aee5ec2affbaa3b1c31ea8231b84e2b1c source=python_ppo confidence=0.261657 totalPlaced=142
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=3d4ae280d7aefd0961231b4f006412868d392a16 shard=0 related=fbb1b73c4f0bda4f67dca266ce6ef42f520fbb98 source=python_ppo confidence=0.230681 totalPlaced=143
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=2b73684bd8d145a914cbf4f4eed2ff66893ca210 shard=1 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.268090 totalPlaced=144
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=2e8fa9a1d752ab87eef1af5d4f0ab517019131eb shard=0 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.232379 totalPlaced=145
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=900be6fd4812dad739be7ee466cd6aa1ce6ae7f4 shard=0 related=8f057bb3e5bcba8dafa15ee7f0c7644146c7b350 source=python_ppo confidence=0.238803 totalPlaced=146
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=8f057bb3e5bcba8dafa15ee7f0c7644146c7b350 shard=2 related=900be6fd4812dad739be7ee466cd6aa1ce6ae7f4 source=python_ppo confidence=0.247198 totalPlaced=147
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=8308fbb97e623442f9649fbde272e67ef5a64c08 shard=0 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.238140 totalPlaced=148
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=3d3c1eb26c0e8033c0e1f3a1090f4251a7792638 shard=0 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.238140 totalPlaced=149
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=57b174839cbd0a503b9dfcb655e4f4b1b47b3296 shard=3 related=389464d6f0b914b3c8128e4e835cdf3655f76de8 source=python_ppo confidence=0.252341 totalPlaced=150
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=389464d6f0b914b3c8128e4e835cdf3655f76de8 shard=3 related=57b174839cbd0a503b9dfcb655e4f4b1b47b3296 source=python_ppo confidence=0.252341 totalPlaced=151
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=90418a9a755193234b9041f6bb39537ad4032358 shard=0 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.230681 totalPlaced=152
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e68d2582d54cd865c8fecd9733525d60be68af67 shard=2 related=7b565af6bbba09840e96f412d8a08c8dbf603c43 source=python_ppo confidence=0.253703 totalPlaced=153
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=83c8f4733520cb336f8a332537db44c234bbd17e shard=1 related=6e5f2cae525afa4fffa88db226b0ecf70b6e10b7 source=python_ppo confidence=0.261657 totalPlaced=154
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=6e5f2cae525afa4fffa88db226b0ecf70b6e10b7 shard=0 related=83c8f4733520cb336f8a332537db44c234bbd17e source=python_ppo confidence=0.238803 totalPlaced=155
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=9c67e141c0472115aa1b98bd0088418be68fd249 shard=0 related=e0065a419a663b8d619be620b7800575a5810668 source=python_ppo confidence=0.230681 totalPlaced=156
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=ec11362cec810985d0ebbd7b73451444985b369f shard=0 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.238140 totalPlaced=157
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=eeb39e2c2554211f3e7591d2893572a61a13c885 shard=2 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.240314 totalPlaced=158
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=6bf4181db31ed1c38500284215c6712c643122a4 shard=3 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.254317 totalPlaced=159
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a501f0fd8b8e893acc0a5d6f0ab09bd9d9a046fc shard=3 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.249741 totalPlaced=160
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=3b438ec5395b3732b4eb58efa5574f97c6f986cc shard=0 related=7b565af6bbba09840e96f412d8a08c8dbf603c43 source=python_ppo confidence=0.244592 totalPlaced=161
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f674a9819bbeb8435784535df62a3ff210c2fb45 shard=1 related=e478b855311e7ec8c9b8e4557d1fe6c66d5ff4b9 source=python_ppo confidence=0.261657 totalPlaced=162
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e478b855311e7ec8c9b8e4557d1fe6c66d5ff4b9 shard=2 related=f674a9819bbeb8435784535df62a3ff210c2fb45 source=python_ppo confidence=0.247198 totalPlaced=163
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b1ba44e7963af779a6e530e8a5d22e606af86921 shard=2 related=145297270e945a1077870f7733ace57a2430c727 source=python_ppo confidence=0.247198 totalPlaced=164
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f5da5c86a10dc17837b639c3c2d89a5dbb0d535d shard=0 related=b1ba44e7963af779a6e530e8a5d22e606af86921 source=python_ppo confidence=0.238803 totalPlaced=165
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=2a65aca4d5fc5b5c859090a6c34d164135398226 shard=3 related=ff3a453d43f58d399be85586f67644593f1401b9 source=python_ppo confidence=0.252341 totalPlaced=166
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=ff3a453d43f58d399be85586f67644593f1401b9 shard=2 related=2a65aca4d5fc5b5c859090a6c34d164135398226 source=python_ppo confidence=0.247198 totalPlaced=167
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b0a76d2d3c957a8cf13357335ef392073dc43edc shard=0 related=91337a300e0361bddb2e377dd4e88ccb7796663d source=python_ppo confidence=0.230681 totalPlaced=168
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=584af0cb03b72f0f062923dda1b0d3f5c9ae6533 shard=0 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.232379 totalPlaced=169
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f1c4dcd49d6b93a85193881ad750b1b7f04d4a2e shard=1 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.267229 totalPlaced=170
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b547066fac376add628f7d4bac4087a6bd796271 shard=1 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.268090 totalPlaced=171
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=10d6aaf03ee3503a4442445f915a001bcf9daa5e shard=3 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.254317 totalPlaced=172
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=7a2a625519a7f9db0792bcd5a5e475e226de30d8 shard=0 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.238140 totalPlaced=173
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=bf979ccbd1bdf771b3d9645e26cce8eccfe7a29e shard=2 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.252516 totalPlaced=174
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=deb75f8cbc85c835e3cf3a1253e147bb49690992 shard=1 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.268090 totalPlaced=175
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f1b3a4b523895f1b6bea37068ca2be87d08861c4 shard=0 related=ea674fdde714fd979de3edf0f56aa9716b898ec8 source=python_ppo confidence=0.232379 totalPlaced=176
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a091beb3a8b26178dfd2c01feb34af17d5730a6d shard=0 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.238140 totalPlaced=177
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=c509e9b11cc9e64f2130ccb40ee0a1bfd084cb3b shard=2 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.240314 totalPlaced=178
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=0b72549a29623f75b1cbbfa3f1955cb02297f861 shard=1 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.267229 totalPlaced=179
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f935ec73cfd8f4d3750d16af43f11bb5fae9cc51 shard=0 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.238140 totalPlaced=180
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=ae8f71b2aaddf1d94c99d1db8c5bd1b560031b68 shard=0 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.238140 totalPlaced=181
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=378cb9e434d7cb91fbeb1fc8d4e8a5a8b501e656 shard=3 related=7b565af6bbba09840e96f412d8a08c8dbf603c43 source=python_ppo confidence=0.254549 totalPlaced=182
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a4f7e6316550691045051589af8e5c190d69cde2 shard=3 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.254317 totalPlaced=183
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=cb86edbc8bbb1f9131022be649565ebdb09e32a1 shard=1 related=0a6563f3c64633a6749c82a338c3cadc0909fd78 source=python_ppo confidence=0.261657 totalPlaced=184
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=0a6563f3c64633a6749c82a338c3cadc0909fd78 shard=3 related=cb86edbc8bbb1f9131022be649565ebdb09e32a1 source=python_ppo confidence=0.252341 totalPlaced=185
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=97283a563d1f99317ee37e4cf9453cee0de44c00 shard=3 related=b728946f414d0b56ce20fd3ff077462649281f98 source=python_ppo confidence=0.252341 totalPlaced=186
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b728946f414d0b56ce20fd3ff077462649281f98 shard=1 related=97283a563d1f99317ee37e4cf9453cee0de44c00 source=python_ppo confidence=0.261657 totalPlaced=187
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=61042b80fd6095d1b87be2f00f109fabafd157a6 shard=2 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.256437 totalPlaced=188
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=8ad0aa66f3cd7eb9d63234f21caa91d4a0ef6e64 shard=3 related=fbb1b73c4f0bda4f67dca266ce6ef42f520fbb98 source=python_ppo confidence=0.249741 totalPlaced=189
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=afcba9dde20f3db050174dc8e42ce486a978de80 shard=1 related=fbb1b73c4f0bda4f67dca266ce6ef42f520fbb98 source=python_ppo confidence=0.263141 totalPlaced=190
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=2babf26b24efc0af1a8278fadcd5cd8859fcd698 shard=0 related=e478b855311e7ec8c9b8e4557d1fe6c66d5ff4b9 source=python_ppo confidence=0.238803 totalPlaced=191
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e526f197334cbda2131bfb3ddff13740c83cf3cb shard=3 related=577275750abeb7521231c2eb163973bd633f7418 source=python_ppo confidence=0.252341 totalPlaced=192
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=577275750abeb7521231c2eb163973bd633f7418 shard=2 related=e526f197334cbda2131bfb3ddff13740c83cf3cb source=python_ppo confidence=0.247198 totalPlaced=193
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=bfbdbe80674c5fe7fd16765230e70fb3af3da654 shard=3 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.249741 totalPlaced=194
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=88c2516a7cdb09a6276d7297d30f5a4db1e84b86 shard=1 related=d96768edd0479771d28c0262d60af7607d522d15 source=python_ppo confidence=0.261657 totalPlaced=195
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=d96768edd0479771d28c0262d60af7607d522d15 shard=2 related=88c2516a7cdb09a6276d7297d30f5a4db1e84b86 source=python_ppo confidence=0.247198 totalPlaced=196
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=28cd151bbfff7c3ac2380e826899b6065a4645cb shard=1 related=fb92eea9deff60dd91759dbf9e0ce4801c8d8f82 source=python_ppo confidence=0.261657 totalPlaced=197
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=fb92eea9deff60dd91759dbf9e0ce4801c8d8f82 shard=2 related=28cd151bbfff7c3ac2380e826899b6065a4645cb source=python_ppo confidence=0.247198 totalPlaced=198
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=c7059c1758810146a584cbf763225046dbb9ec80 shard=1 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.263141 totalPlaced=199
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=78a1b65fe2f4efe721600a6cfd45e5cf479014a0 shard=0 related=a1f848d50478905b4e01d92b3eeaee0ff50d7487 source=python_ppo confidence=0.238803 totalPlaced=200
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a1f848d50478905b4e01d92b3eeaee0ff50d7487 shard=3 related=78a1b65fe2f4efe721600a6cfd45e5cf479014a0 source=python_ppo confidence=0.252341 totalPlaced=201
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=aa8984dd601577a5350d3daebaae52838ffc166b shard=2 related=3272f018cdb5660d2a707b17df4a4e922d0c3ea8 source=python_ppo confidence=0.247198 totalPlaced=202
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=3272f018cdb5660d2a707b17df4a4e922d0c3ea8 shard=0 related=aa8984dd601577a5350d3daebaae52838ffc166b source=python_ppo confidence=0.238803 totalPlaced=203
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=20c84f7167649452bfd72efd5b14af29d697558d shard=2 related=4bb96091ee9d802ed039c4d1a5f6216f90f81b01 source=python_ppo confidence=0.240314 totalPlaced=204
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=0a49c387823515e22c13be4d44f41d7f8931de83 shard=2 related=91337a300e0361bddb2e377dd4e88ccb7796663d source=python_ppo confidence=0.256437 totalPlaced=205
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=3419357d61d3d16333e27b303b08882d4ba4e98d shard=0 related=3272f018cdb5660d2a707b17df4a4e922d0c3ea8 source=python_ppo confidence=0.238803 totalPlaced=206
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=5160bddeed433407cfa1013991979ae77c69c939 shard=1 related=71cd0c2fa3d10e2defaff06db7d93b0fadcd7a7a source=python_ppo confidence=0.267229 totalPlaced=207
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=0102287369d05dcdedd13aeb9e9231b672e54046 shard=1 related=1ddfabf20b036cda79e57db09452c048140f192a source=python_ppo confidence=0.261657 totalPlaced=208
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=1ddfabf20b036cda79e57db09452c048140f192a shard=3 related=0102287369d05dcdedd13aeb9e9231b672e54046 source=python_ppo confidence=0.252341 totalPlaced=209
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a90bdd81b274fc7a171c6e774602f042a723c0fd shard=3 related=8975dbc1b8f25ec994815626d070899dda896511 source=python_ppo confidence=0.249741 totalPlaced=210
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=5d1c00c6954f6b543599f533000cb0b7083cfb3d shard=1 related=8bf62e00076131f384ae427fe9a503721384d445 source=python_ppo confidence=0.261657 totalPlaced=211
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=8bf62e00076131f384ae427fe9a503721384d445 shard=1 related=5d1c00c6954f6b543599f533000cb0b7083cfb3d source=python_ppo confidence=0.261657 totalPlaced=212
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a0f5578094e713c58b901ec43fb58bbbd7a63372 shard=1 related=3f4bc55de6fdf5cf4ce7e2520bcd5ec8ade502b5 source=python_ppo confidence=0.261657 totalPlaced=213
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=3f4bc55de6fdf5cf4ce7e2520bcd5ec8ade502b5 shard=0 related=a0f5578094e713c58b901ec43fb58bbbd7a63372 source=python_ppo confidence=0.238803 totalPlaced=214
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=5a1f05dd810616543e06bf4a9deb613573e959da shard=3 related=24f21c22f0e641e2371f04a7bb8d713f89f53550 source=python_ppo confidence=0.249741 totalPlaced=215
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=ef76e1e48b407db3cc98fd0bfdef7cc4c6f33fb5 shard=1 related=2e8a34d4c3de1e30d8c4895cc189d6cdcb3f3142 source=python_ppo confidence=0.261657 totalPlaced=216
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=2e8a34d4c3de1e30d8c4895cc189d6cdcb3f3142 shard=2 related=ef76e1e48b407db3cc98fd0bfdef7cc4c6f33fb5 source=python_ppo confidence=0.247198 totalPlaced=217
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f5b53f832cb258c287bfb85b71b30f649115729e shard=3 related=33fa6276180de1834313321a765c5b67c95cad8d source=python_ppo confidence=0.252341 totalPlaced=218
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=33fa6276180de1834313321a765c5b67c95cad8d shard=2 related=f5b53f832cb258c287bfb85b71b30f649115729e source=python_ppo confidence=0.247198 totalPlaced=219
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=5154e5817d88b3a66058a3e435d3469d7a7782dc shard=3 related=2a65aca4d5fc5b5c859090a6c34d164135398226 source=python_ppo confidence=0.252341 totalPlaced=220
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=cbc6e69cb3f0477f9c0c05005750d8f441a17054 shard=2 related=663e8165e752b830b0ad31380f678e3547d6a095 source=python_ppo confidence=0.247198 totalPlaced=221
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=663e8165e752b830b0ad31380f678e3547d6a095 shard=1 related=cbc6e69cb3f0477f9c0c05005750d8f441a17054 source=python_ppo confidence=0.261657 totalPlaced=222
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=3f405a70720660338fe0abb8fc069763088ab7e8 shard=1 related=2a65aca4d5fc5b5c859090a6c34d164135398226 source=python_ppo confidence=0.261657 totalPlaced=223
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=f38c0c16c616f0d79fd50b765bc7be8d0eb3d5fd shard=3 related=2a65aca4d5fc5b5c859090a6c34d164135398226 source=python_ppo confidence=0.252341 totalPlaced=224
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=a7356436564c50d34ff8fcc20c9caf3107f93386 shard=2 related=5d1c00c6954f6b543599f533000cb0b7083cfb3d source=python_ppo confidence=0.247198 totalPlaced=225
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b6859b03a7a00832df386eadcd06347044fb4643 shard=1 related=cd88e0e0c455345833ce31c5452c1c37f4b4c438 source=python_ppo confidence=0.267229 totalPlaced=226
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=6d065a924ab1af42bc6b39c8d65c8e97076a3c82 shard=0 related=b0ee30e53122729f72e8d0a3dbc1284da4da550f source=python_ppo confidence=0.238803 totalPlaced=227
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=b0ee30e53122729f72e8d0a3dbc1284da4da550f shard=3 related=6d065a924ab1af42bc6b39c8d65c8e97076a3c82 source=python_ppo confidence=0.252341 totalPlaced=228
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e55a813611e8f8f47eea0c411a2abc874decf2c5 shard=3 related=2a65aca4d5fc5b5c859090a6c34d164135398226 source=python_ppo confidence=0.252341 totalPlaced=229
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=0bcb7e587ac7b6fc5f107f518c2ae7d15a02768b shard=0 related=2a65aca4d5fc5b5c859090a6c34d164135398226 source=python_ppo confidence=0.238803 totalPlaced=230
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=45d803c38f1bf8ca9cf2154f66a3e4ee4ad1a44c shard=2 related=9e6316f44baeeee5d41a1070516cc5fa47baf227 source=python_ppo confidence=0.240314 totalPlaced=231
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=dcdd4d3e22be6e1f5c8875b922139bbf6aee7afb shard=1 related=2a65aca4d5fc5b5c859090a6c34d164135398226 source=python_ppo confidence=0.261657 totalPlaced=232
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=3c56234ef0c38345d69531a706b0f8d554939775 shard=3 related=267be1c1d684f78cb4f6a176c4911b741e4ffdc0 source=python_ppo confidence=0.249741 totalPlaced=233
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:355: [SPRING PPO BATCH PLACE] mode=2 addr=e64f6fbede49dff39eae40503047e75633c5126d shard=0 related=32be343b94f860124dc4fee278fdcbd38c102d88 source=python_ppo confidence=0.230681 totalPlaced=234
+Supervisor: 2026/05/13 18:58:26 spring_train.go:282: [SPRING ONLINE ACTIONS] enqueue batch_id=2 actions=104 pending_batches=2
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:397: [SPRING SEND] nowData=200 txlistLen=100 idx=100 counts=[19 36 31 14] placementSize=127
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=2 body=46 inner=8 relay1=32 relay2=6
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=2 body=34 inner=2 relay1=14 relay2=18
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=2 body=43 inner=1 relay1=11 relay2=31
+Supervisor: 2026/05/13 18:58:26 committee_relay.go:539: [SPRING ONLINE REWARD] epoch=2 total=155 inner=19 relay1=81 relay2=55 crossRate=0.810000 rCSTR=0.190000 rWLB=0.100259 absDiff=23.000000 normVar=0.022579 reward=0.145129 lambda=0.500 beta=0.100 loads=[32 46 34 43]
+Supervisor: 2026/05/13 18:58:26 spring_train.go:371: [SPRING ONLINE UPDATE FILE] batch_id=1 epoch=2 actions=130 reward=0.145129 crossRate=0.810000 normVar=0.022579 file=spring_io\online_update_batch_1_epoch_2.json
+Supervisor: 2026/05/13 18:58:30 spring_call.go:432: [SPRING ONLINE UPDATE] ok batch_id=1 epoch=2 actions=130 reward=0.145129 crossRate=0.810000 normVar=0.022579 loss=0.048581 policy=0.062387 value=0.000091 entropy=1.385175 update_count=22 source=loaded_model cost_us=3295990
+Supervisor: 2026/05/13 18:58:30 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=3 body=31 inner=6 relay1=13 relay2=12
+Supervisor: 2026/05/13 18:58:30 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=3 body=50 inner=6 relay1=30 relay2=14
+Supervisor: 2026/05/13 18:58:31 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=3 body=49 inner=5 relay1=26 relay2=18
+Supervisor: 2026/05/13 18:58:31 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=3 body=38 inner=5 relay1=9 relay2=24
+Supervisor: 2026/05/13 18:58:31 committee_relay.go:539: [SPRING ONLINE REWARD] epoch=3 total=168 inner=22 relay1=78 relay2=68 crossRate=0.780000 rCSTR=0.220000 rWLB=0.049787 absDiff=30.000000 normVar=0.034218 reward=0.134894 lambda=0.500 beta=0.100 loads=[31 50 49 38]
+Supervisor: 2026/05/13 18:58:31 spring_train.go:371: [SPRING ONLINE UPDATE FILE] batch_id=2 epoch=3 actions=104 reward=0.134894 crossRate=0.780000 normVar=0.034218 file=spring_io\online_update_batch_2_epoch_3.json
+Supervisor: 2026/05/13 18:58:34 spring_call.go:432: [SPRING ONLINE UPDATE] ok batch_id=2 epoch=3 actions=104 reward=0.134894 crossRate=0.780000 normVar=0.034218 loss=-0.021125 policy=-0.007317 value=0.000061 entropy=1.383816 update_count=23 source=loaded_model cost_us=3089641
+Supervisor: 2026/05/13 18:58:34 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=4 body=19 inner=0 relay1=0 relay2=19
+Supervisor: 2026/05/13 18:58:35 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=4 body=13 inner=0 relay1=0 relay2=13
+Supervisor: 2026/05/13 18:58:36 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=4 body=4 inner=0 relay1=0 relay2=4
+Supervisor: 2026/05/13 18:58:36 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=4 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:36 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=4 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:58:39 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=5 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:40 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=5 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:41 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=5 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:41 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=5 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:41 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=5 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:58:44 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=6 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:45 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=6 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:46 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=6 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:46 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=6 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:46 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=6 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:58:49 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=7 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:50 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=7 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:51 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=7 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:51 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=7 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:51 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=7 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:58:54 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=8 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:55 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=8 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:56 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=8 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:56 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=8 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:58:56 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=8 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:58:59 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=9 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:00 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=9 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:01 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=9 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:01 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=9 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:01 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=9 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:04 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=10 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:05 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=10 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:06 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=10 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:06 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=10 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:06 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=10 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:09 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=11 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:10 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=11 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:11 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=11 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:11 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=11 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:11 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=11 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:14 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=12 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:15 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=12 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:16 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=12 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:16 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=12 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:16 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=12 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:19 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=13 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:20 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=13 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:21 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=13 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:21 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=13 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:21 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=13 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:24 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=14 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:25 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=14 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:26 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=14 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:26 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=14 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:26 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=14 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:29 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=15 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:30 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=15 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:31 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=15 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:31 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=15 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:31 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=15 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:34 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=16 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:35 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=16 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:36 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=16 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:36 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=16 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:36 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=16 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:39 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=17 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:40 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=17 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:41 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=17 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:41 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=17 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:41 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=17 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:44 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=18 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:45 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=18 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:46 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=18 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:46 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=18 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:46 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=18 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:49 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=19 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:50 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=19 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:51 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=19 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:51 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=19 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:51 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=19 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:54 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=20 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:55 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=20 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:56 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=20 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:56 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=20 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 18:59:56 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=20 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 18:59:59 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=21 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:00 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=21 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:01 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=21 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:01 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=21 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:01 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=21 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:04 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=22 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:05 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=22 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:06 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=22 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:06 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=22 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:06 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=22 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:09 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=23 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:10 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=23 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:11 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=23 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:11 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=23 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:11 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=23 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:14 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=24 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:15 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=24 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:16 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=24 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:16 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=24 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:16 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=24 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:19 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=25 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:20 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=25 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:21 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=25 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:21 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=25 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:21 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=25 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:24 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=26 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:25 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=26 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:26 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=26 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:26 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=26 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:26 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=26 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:29 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=27 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:30 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=27 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:31 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=27 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:31 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=27 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:31 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=27 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:34 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=28 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:35 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=28 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:36 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=28 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:36 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=28 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:36 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=28 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:39 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=29 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:40 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=29 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:41 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=29 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:41 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=29 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:41 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=29 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:44 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=30 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:45 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=30 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:46 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=30 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:46 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=30 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:46 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=30 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:49 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=31 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:50 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=31 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:51 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=31 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:51 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=31 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:51 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=31 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:54 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=32 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:55 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=32 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:56 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=32 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:56 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=32 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:00:56 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=32 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:00:59 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=33 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:01:00 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=33 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:01:01 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=33 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:01:01 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=33 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:01:01 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=33 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:01:04 committee_relay.go:494: [BLOCK INFO] shard=0 epoch=34 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:01:05 committee_relay.go:494: [BLOCK INFO] shard=1 epoch=34 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:01:06 committee_relay.go:494: [BLOCK INFO] shard=2 epoch=34 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:01:06 committee_relay.go:494: [BLOCK INFO] shard=3 epoch=34 body=0 inner=0 relay1=0 relay2=0
+Supervisor: 2026/05/13 19:01:06 committee_relay.go:576: [SPRING ONLINE REWARD SKIP] epoch=34 reason=empty_or_relay2_only
+Supervisor: 2026/05/13 19:01:06 supervisor.go:130: Supervisor: now sending cstop message to all nodes
+Supervisor: 2026/05/13 19:01:06 supervisor.go:139: Supervisor: now Closing
+Supervisor: 2026/05/13 19:01:06 supervisor.go:196: Closing...
+Supervisor: 2026/05/13 19:01:06 supervisor.go:198: Average_TPS
+Supervisor: 2026/05/13 19:01:06 supervisor.go:199: [NaN NaN 49.59417994626841 53.919073826960755 12.02386817992837] 2.168404344971009e-08
+Supervisor: 2026/05/13 19:01:06 supervisor.go:198: Transaction_Confirm_Latency
+Supervisor: 2026/05/13 19:01:06 supervisor.go:199: [NaN NaN 7.453535002298852 9.027921866315788 24.385185933333346] 9.725217346500001
+Supervisor: 2026/05/13 19:01:06 supervisor.go:198: CrossTransaction_ratio
+Supervisor: 2026/05/13 19:01:06 supervisor.go:199: [NaN NaN 0.7816091954022989 0.7684210526315789 1 200 159] 0.795
+Supervisor: 2026/05/13 19:01:06 supervisor.go:198: Tx_number
+Supervisor: 2026/05/13 19:01:06 supervisor.go:199: [0 0 87 95 18] 200
+Supervisor: 2026/05/13 19:01:06 supervisor.go:198: Shard_Load_Variance
+Supervisor: 2026/05/13 19:01:06 supervisor.go:199: [0 0 11.1875 15.3125 13.875] 8.075
+Supervisor: 2026/05/13 19:01:06 supervisor.go:198: Tx_Details
+Supervisor: 2026/05/13 19:01:06 supervisor.go:199: [] 0

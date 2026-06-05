@@ -3,12 +3,13 @@
 
   "SpringMode": 2,
 
-  "SpringOnlineTrain": 1,
+  "SpringOnlineTrain": 0,
 
-  "SpringEvalSample": 1,
+  "SpringEvalSample": 0,
 
-  "SpringRewardLambda": 0.5,
-  "SpringRewardBeta": 0.1,
+  "SpringRewardLambda": 0.4,
+  "SpringRewardBeta": 0.2,
+  "SpringSenderPosMode": 1,
   
   "PbftViewChangeTimeOut":600000,
 

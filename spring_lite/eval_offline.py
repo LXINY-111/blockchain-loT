@@ -1,0 +1,467 @@
+import argparse
+import json
+import random
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import torch
+from torch.distributions import Categorical
+
+from config import (
+    ACTION_REWARD_SCALE,
+    ACTIVE_SHARD_BONUS_WEIGHT,
+    ARGMAX_TIE_BREAK,
+    ARGMAX_TIE_EPS,
+    BACKLOG_PENALTY_WEIGHT,
+    BETA,
+    CAPACITY_BACKLOG_MODE,
+    DEFAULT_CSV_PATH,
+    DEFAULT_SENDER_POS_MODE,
+    DEFAULT_SHARD_NUM,
+    HIDDEN_DIM,
+    HOTSPOT_PENALTY_WEIGHT,
+    HOTSPOT_THRESHOLD,
+    LAMBDA_WEIGHT,
+    LOAD_PENALTY_WEIGHT,
+    LOCAL_REWARD_WEIGHT,
+    MIN_ACTIVE_LOAD_SHARE,
+    MODEL_PATH,
+    REWARD_MODE,
+    state_dim,
+)
+from action_select import tie_aware_argmax
+from heuristic import addr2shard, heuristic_from_state
+from offline_env import (
+    BatchMetrics,
+    PolicyOutput,
+    SenderPosInfo,
+    SpringOfflineEnv,
+    iter_batches,
+    load_transactions,
+)
+from ppo import PPOAgent
+
+
+def new_summary(shards: int) -> Dict[str, object]:
+    return {
+        "batches": 0,
+        "tx_count": 0,
+        "action_count": 0,
+        "effective_tx": 0.0,
+        "cross_tx": 0.0,
+        "reward_sum": 0.0,
+        "norm_var_sum": 0.0,
+        "r_cstr_sum": 0.0,
+        "r_wlb_sum": 0.0,
+        "active_shards_sum": 0.0,
+        "active_shard_ratio_sum": 0.0,
+        "max_load_share_sum": 0.0,
+        "hotspot_penalty_sum": 0.0,
+        "load_aware_bonus_sum": 0.0,
+        "backlog_penalty_sum": 0.0,
+        "related_known_count": 0,
+        "same_as_related_count": 0,
+        "related_shard_hist": [0 for _ in range(shards)],
+        "same_related_by_shard": [0 for _ in range(shards)],
+        "confidence_sum": 0.0,
+        "entropy_sum": 0.0,
+        "action_hist": [0 for _ in range(shards)],
+        "loads": [0 for _ in range(shards)],
+        "effective_loads": [0.0 for _ in range(shards)],
+        "reward_loads": [0.0 for _ in range(shards)],
+        "committed_loads": [0.0 for _ in range(shards)],
+        "pending_loads": [0.0 for _ in range(shards)],
+    }
+
+
+def update_summary(summary: Dict[str, object], metrics: BatchMetrics) -> None:
+    summary["batches"] = int(summary["batches"]) + 1
+    summary["tx_count"] = int(summary["tx_count"]) + metrics.tx_count
+    summary["action_count"] = int(summary["action_count"]) + metrics.action_count
+    summary["effective_tx"] = float(summary["effective_tx"]) + metrics.effective_tx
+    summary["cross_tx"] = float(summary["cross_tx"]) + metrics.cross_tx
+    summary["reward_sum"] = float(summary["reward_sum"]) + metrics.reward
+    summary["norm_var_sum"] = float(summary["norm_var_sum"]) + metrics.normalized_load_variance
+    summary["r_cstr_sum"] = float(summary["r_cstr_sum"]) + metrics.r_cstr
+    summary["r_wlb_sum"] = float(summary["r_wlb_sum"]) + metrics.r_wlb
+    summary["active_shards_sum"] = float(summary["active_shards_sum"]) + metrics.active_shards
+    summary["active_shard_ratio_sum"] = (
+        float(summary["active_shard_ratio_sum"]) + metrics.active_shard_ratio
+    )
+    summary["max_load_share_sum"] = float(summary["max_load_share_sum"]) + metrics.max_load_share
+    summary["hotspot_penalty_sum"] = (
+        float(summary["hotspot_penalty_sum"]) + metrics.hotspot_penalty
+    )
+    summary["load_aware_bonus_sum"] = (
+        float(summary["load_aware_bonus_sum"]) + metrics.load_aware_bonus
+    )
+    summary["backlog_penalty_sum"] = (
+        float(summary["backlog_penalty_sum"]) + metrics.backlog_penalty
+    )
+    summary["related_known_count"] = int(summary["related_known_count"]) + metrics.related_known_count
+    summary["same_as_related_count"] = int(summary["same_as_related_count"]) + metrics.same_as_related_count
+    related_shard_hist = summary["related_shard_hist"]
+    same_related_by_shard = summary["same_related_by_shard"]
+    assert isinstance(related_shard_hist, list)
+    assert isinstance(same_related_by_shard, list)
+    for sid, count in enumerate(metrics.related_shard_hist):
+        related_shard_hist[sid] += count
+    for sid, count in enumerate(metrics.same_related_by_shard):
+        same_related_by_shard[sid] += count
+    summary["confidence_sum"] = float(summary["confidence_sum"]) + (
+        metrics.confidence_mean * metrics.action_count
+    )
+    summary["entropy_sum"] = float(summary["entropy_sum"]) + (
+        metrics.entropy_mean * metrics.action_count
+    )
+
+    action_hist = summary["action_hist"]
+    loads = summary["loads"]
+    effective_loads = summary["effective_loads"]
+    reward_loads = summary["reward_loads"]
+    committed_loads = summary["committed_loads"]
+    pending_loads = summary["pending_loads"]
+    assert isinstance(action_hist, list)
+    assert isinstance(loads, list)
+    assert isinstance(effective_loads, list)
+    assert isinstance(reward_loads, list)
+    assert isinstance(committed_loads, list)
+    assert isinstance(pending_loads, list)
+
+    for sid, count in enumerate(metrics.action_hist):
+        action_hist[sid] += count
+    for sid, count in enumerate(metrics.loads):
+        loads[sid] += count
+    for sid, value in enumerate(metrics.effective_loads):
+        effective_loads[sid] += value
+    for sid, value in enumerate(metrics.reward_loads):
+        reward_loads[sid] += value
+    for sid, value in enumerate(metrics.committed_loads):
+        committed_loads[sid] += value
+    for sid, value in enumerate(metrics.pending_loads):
+        pending_loads[sid] = value
+
+
+def summary_view(summary: Dict[str, object]) -> Dict[str, object]:
+    batches = max(1, int(summary["batches"]))
+    actions = max(1, int(summary["action_count"]))
+    effective_tx = float(summary["effective_tx"])
+    related_known = int(summary["related_known_count"])
+
+    action_hist = list(summary["action_hist"])
+    action_total = sum(action_hist)
+    action_dist = [count / action_total if action_total else 0.0 for count in action_hist]
+    related_shard_hist = list(summary["related_shard_hist"])
+    same_related_by_shard = list(summary["same_related_by_shard"])
+    related_follow_by_shard = [
+        (
+            same_related_by_shard[sid] / related_shard_hist[sid]
+            if related_shard_hist[sid]
+            else 0.0
+        )
+        for sid in range(len(related_shard_hist))
+    ]
+    observed_related_follow = [
+        related_follow_by_shard[sid]
+        for sid in range(len(related_shard_hist))
+        if related_shard_hist[sid] > 0
+    ]
+    min_related_follow_ratio = (
+        min(observed_related_follow) if observed_related_follow else 0.0
+    )
+
+    loads = list(summary["loads"])
+    effective_loads = list(summary["effective_loads"])
+    load_total = sum(effective_loads)
+    load_dist = [value / load_total if load_total else 0.0 for value in effective_loads]
+    reward_loads = list(summary["reward_loads"])
+    reward_load_total = sum(reward_loads)
+    reward_load_dist = [
+        value / reward_load_total if reward_load_total else 0.0
+        for value in reward_loads
+    ]
+    committed_loads = list(summary["committed_loads"])
+    committed_load_total = sum(committed_loads)
+    committed_load_dist = [
+        value / committed_load_total if committed_load_total else 0.0
+        for value in committed_loads
+    ]
+    pending_loads = list(summary["pending_loads"])
+
+    return {
+        "batches": int(summary["batches"]),
+        "tx_count": int(summary["tx_count"]),
+        "action_count": int(summary["action_count"]),
+        "effective_tx": effective_tx,
+        "cross_tx": float(summary["cross_tx"]),
+        "cross_ratio": float(summary["cross_tx"]) / effective_tx if effective_tx > 0 else 0.0,
+        "reward_mean": float(summary["reward_sum"]) / batches,
+        "norm_var_mean": float(summary["norm_var_sum"]) / batches,
+        "r_cstr_mean": float(summary["r_cstr_sum"]) / batches,
+        "r_wlb_mean": float(summary["r_wlb_sum"]) / batches,
+        "active_shards_mean": float(summary["active_shards_sum"]) / batches,
+        "active_shard_ratio_mean": float(summary["active_shard_ratio_sum"]) / batches,
+        "max_load_share_mean": float(summary["max_load_share_sum"]) / batches,
+        "hotspot_penalty_mean": float(summary["hotspot_penalty_sum"]) / batches,
+        "load_aware_bonus_mean": float(summary["load_aware_bonus_sum"]) / batches,
+        "backlog_penalty_mean": float(summary["backlog_penalty_sum"]) / batches,
+        "same_as_related_ratio": (
+            int(summary["same_as_related_count"]) / related_known if related_known else 0.0
+        ),
+        "related_known_count": related_known,
+        "same_as_related_count": int(summary["same_as_related_count"]),
+        "related_shard_hist": related_shard_hist,
+        "same_related_by_shard": same_related_by_shard,
+        "related_follow_by_shard": related_follow_by_shard,
+        "min_related_follow_ratio": min_related_follow_ratio,
+        "confidence_mean": float(summary["confidence_sum"]) / actions,
+        "entropy_mean": float(summary["entropy_sum"]) / actions,
+        "action_hist": action_hist,
+        "action_dist": action_dist,
+        "loads": loads,
+        "effective_loads": effective_loads,
+        "load_dist": load_dist,
+        "reward_loads": reward_loads,
+        "reward_load_dist": reward_load_dist,
+        "committed_loads": committed_loads,
+        "committed_load_dist": committed_load_dist,
+        "pending_loads": pending_loads,
+    }
+
+
+def load_agent(args: argparse.Namespace) -> Optional[PPOAgent]:
+    if args.policy != "ppo":
+        return None
+
+    model_path = Path(args.model)
+    if not model_path.exists():
+        raise FileNotFoundError(f"model not found: {model_path}")
+
+    agent = PPOAgent(
+        state_dim=state_dim(args.shards),
+        action_dim=args.shards,
+        hidden_dim=args.hidden_dim,
+        device=args.device,
+    )
+    payload = agent.load(model_path)
+    ckpt_state_dim = int(payload.get("state_dim", -1))
+    ckpt_action_dim = int(payload.get("action_dim", -1))
+    if ckpt_state_dim != state_dim(args.shards) or ckpt_action_dim != args.shards:
+        raise ValueError(
+            "checkpoint dimension mismatch: "
+            f"state_dim={ckpt_state_dim}, action_dim={ckpt_action_dim}"
+        )
+    agent.net.eval()
+    return agent
+
+
+def make_policy(args: argparse.Namespace, agent: Optional[PPOAgent]):
+    rng = random.Random(args.seed)
+
+    def ppo_policy(
+        state: List[float],
+        _address: str,
+        _related: str,
+        _info: SenderPosInfo,
+    ) -> PolicyOutput:
+        assert agent is not None
+        state_t = torch.tensor(state, dtype=torch.float32, device=agent.device).unsqueeze(0)
+        with torch.no_grad():
+            logits, value = agent.net(state_t)
+            dist = Categorical(logits=logits)
+            probs = torch.softmax(logits, dim=-1)
+            if args.sample:
+                action = dist.sample()
+            else:
+                action_id = tie_aware_argmax(
+                    probs.squeeze(0).detach().cpu().tolist(),
+                    key=f"{_address}|{_related}",
+                    tie_eps=args.argmax_tie_eps,
+                    enable_tie_break=bool(args.argmax_tie_break),
+                )
+                action = torch.tensor([action_id], dtype=torch.long, device=agent.device)
+            log_prob = dist.log_prob(action)
+            confidence = probs.gather(1, action.unsqueeze(1)).squeeze(1)
+            entropy = dist.entropy()
+        return PolicyOutput(
+            action=int(action.item()),
+            log_prob=float(log_prob.item()),
+            value=float(value.item()),
+            confidence=float(confidence.item()),
+            entropy=float(entropy.item()),
+            source="python_ppo",
+        )
+
+    def heuristic_policy(
+        state: List[float],
+        _address: str,
+        _related: str,
+        _info: SenderPosInfo,
+    ) -> PolicyOutput:
+        return PolicyOutput(action=heuristic_from_state(state, args.shards), source="heuristic")
+
+    def hash_policy(
+        _state: List[float],
+        address: str,
+        _related: str,
+        _info: SenderPosInfo,
+    ) -> PolicyOutput:
+        return PolicyOutput(action=addr2shard(address, args.shards), source="hash")
+
+    def random_policy(
+        _state: List[float],
+        _address: str,
+        _related: str,
+        _info: SenderPosInfo,
+    ) -> PolicyOutput:
+        return PolicyOutput(action=rng.randrange(args.shards), source="random")
+
+    if args.policy == "ppo":
+        return ppo_policy
+    if args.policy == "heuristic":
+        return heuristic_policy
+    if args.policy == "hash":
+        return hash_policy
+    if args.policy == "random":
+        return random_policy
+    raise ValueError(f"unsupported policy: {args.policy}")
+
+
+def write_jsonl(path: str, record: Dict[str, object]) -> None:
+    if not path:
+        return
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def evaluate(args: argparse.Namespace) -> Dict[str, object]:
+    csv_path = Path(args.csv)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"CSV not found: {csv_path}")
+
+    txs = load_transactions(csv_path, max_txs=args.max_txs)
+    if not txs:
+        raise RuntimeError(f"no valid transactions loaded from {csv_path}")
+
+    agent = load_agent(args)
+    policy = make_policy(args, agent)
+    env = SpringOfflineEnv(
+        shards=args.shards,
+        tx_batch_size=args.tx_batch_size,
+        max_block_size=args.max_block_size,
+        lambda_weight=args.lambda_weight,
+        beta=args.beta,
+        sender_pos_mode=args.sender_pos_mode,
+        temporal_top_k=args.temporal_top_k,
+        local_reward_weight=args.local_reward_weight,
+        action_reward_scale=args.action_reward_scale,
+        load_penalty_weight=args.load_penalty_weight,
+        active_shard_bonus_weight=args.active_shard_bonus_weight,
+        hotspot_penalty_weight=args.hotspot_penalty_weight,
+        hotspot_threshold=args.hotspot_threshold,
+        min_active_load_share=args.min_active_load_share,
+        capacity_backlog_mode=args.capacity_backlog_mode,
+        backlog_penalty_weight=args.backlog_penalty_weight,
+        reward_mode=args.reward_mode,
+    )
+
+    summary = new_summary(args.shards)
+    for batch_idx, batch in enumerate(iter_batches(txs, args.tx_batch_size), start=1):
+        _actions, metrics = env.run_batch(batch, policy)
+        update_summary(summary, metrics)
+
+        if args.log_interval_batches > 0 and batch_idx % args.log_interval_batches == 0:
+            view = summary_view(summary)
+            print(
+                "[EVAL] "
+                f"batch={batch_idx} tx={view['tx_count']} "
+                f"cross={view['cross_ratio']:.4f} "
+                f"normVar={view['norm_var_mean']:.4f} "
+                f"hotspot={view['max_load_share_mean']:.4f} "
+                f"active={view['active_shards_mean']:.2f} "
+                f"backlog={view['backlog_penalty_mean']:.4f} "
+                f"conf={view['confidence_mean']:.4f} "
+                f"polEnt={view['entropy_mean']:.4f} "
+                f"same_related={view['same_as_related_ratio']:.4f} "
+                f"relMin={view['min_related_follow_ratio']:.4f}"
+            )
+
+    result = {
+        "policy": args.policy,
+        "sample": bool(args.sample),
+        "model": str(args.model) if args.policy == "ppo" else "",
+        "csv": str(csv_path),
+        "loaded_txs": len(txs),
+        "shards": args.shards,
+        "tx_batch_size": args.tx_batch_size,
+        "max_block_size": args.max_block_size,
+        "sender_pos_mode": args.sender_pos_mode,
+        "reward_mode": args.reward_mode,
+        "lambda_weight": args.lambda_weight,
+        "beta": args.beta,
+        "load_penalty_weight": args.load_penalty_weight,
+        "local_reward_weight": args.local_reward_weight,
+        "action_reward_scale": args.action_reward_scale,
+        "active_shard_bonus_weight": args.active_shard_bonus_weight,
+        "hotspot_penalty_weight": args.hotspot_penalty_weight,
+        "hotspot_threshold": args.hotspot_threshold,
+        "min_active_load_share": args.min_active_load_share,
+        "capacity_backlog_mode": args.capacity_backlog_mode,
+        "backlog_penalty_weight": args.backlog_penalty_weight,
+        "argmax_tie_break": args.argmax_tie_break,
+        "argmax_tie_eps": args.argmax_tie_eps,
+        "summary": summary_view(summary),
+    }
+    write_jsonl(args.log_jsonl, result)
+    return result
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--csv", type=str, default=str(DEFAULT_CSV_PATH))
+    parser.add_argument("--model", type=str, default=str(MODEL_PATH))
+    parser.add_argument("--policy", choices=["ppo", "heuristic", "hash", "random"], default="ppo")
+    parser.add_argument("--sample", action="store_true")
+    parser.add_argument("--shards", type=int, default=DEFAULT_SHARD_NUM)
+    parser.add_argument("--max_txs", type=int, default=300000)
+    parser.add_argument("--tx_batch_size", type=int, default=1000)
+    parser.add_argument("--max_block_size", type=int, default=1000)
+    parser.add_argument("--sender_pos_mode", type=int, default=DEFAULT_SENDER_POS_MODE)
+    parser.add_argument("--temporal_top_k", type=int, default=8)
+    parser.add_argument("--reward_mode", choices=["paper", "enhanced"], default=REWARD_MODE)
+    parser.add_argument("--lambda_weight", type=float, default=LAMBDA_WEIGHT)
+    parser.add_argument("--beta", type=float, default=BETA)
+    parser.add_argument("--load_penalty_weight", type=float, default=LOAD_PENALTY_WEIGHT)
+    parser.add_argument("--local_reward_weight", type=float, default=LOCAL_REWARD_WEIGHT)
+    parser.add_argument("--action_reward_scale", type=float, default=ACTION_REWARD_SCALE)
+    parser.add_argument(
+        "--active_shard_bonus_weight",
+        type=float,
+        default=ACTIVE_SHARD_BONUS_WEIGHT,
+    )
+    parser.add_argument(
+        "--hotspot_penalty_weight",
+        type=float,
+        default=HOTSPOT_PENALTY_WEIGHT,
+    )
+    parser.add_argument("--hotspot_threshold", type=float, default=HOTSPOT_THRESHOLD)
+    parser.add_argument("--min_active_load_share", type=float, default=MIN_ACTIVE_LOAD_SHARE)
+    parser.add_argument("--capacity_backlog_mode", type=int, default=CAPACITY_BACKLOG_MODE)
+    parser.add_argument("--backlog_penalty_weight", type=float, default=BACKLOG_PENALTY_WEIGHT)
+    parser.add_argument("--argmax_tie_break", type=int, default=ARGMAX_TIE_BREAK)
+    parser.add_argument("--argmax_tie_eps", type=float, default=ARGMAX_TIE_EPS)
+    parser.add_argument("--hidden_dim", type=int, default=HIDDEN_DIM)
+    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--log_interval_batches", type=int, default=0)
+    parser.add_argument("--log_jsonl", type=str, default="")
+
+    args = parser.parse_args()
+    result = evaluate(args)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
