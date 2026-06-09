@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 )
 
 var (
@@ -65,6 +66,15 @@ var (
 	// 2 = reserved for temporal-neighbor enhanced sender_pos.
 	SpringSenderPosMode = 1
 
+	// SpringIOTMode:
+	// 0 = 普通 SPRING MDP（45 维，4 分片时）
+	// 1 = IoT MDP（51 维，4 分片时）：读取 sidecar 并追加 6 个场景特征。
+	SpringIOTMode = 0
+
+	SpringIOTFeatureDim  = 6
+	SpringIOTSidecarFile = ""
+	SpringModelFile      = "spring_lite/checkpoints/spring_ppo.pt"
+
 	ExpDataRootDir     = "expTest"                     // The root dir where the experimental data should locate.
 	DataWrite_path     = ExpDataRootDir + "/result/"   // Measurement data result output path
 	LogWrite_path      = ExpDataRootDir + "/log"       // Log output path
@@ -97,6 +107,11 @@ type globalConfig struct {
 	SpringSenderPosMode *int `json:"SpringSenderPosMode"`
 
 	SpringEvalSample int `json:"SpringEvalSample"`
+
+	SpringIOTMode        int    `json:"SpringIOTMode"`
+	SpringIOTFeatureDim  int    `json:"SpringIOTFeatureDim"`
+	SpringIOTSidecarFile string `json:"SpringIOTSidecarFile"`
+	SpringModelFile      string `json:"SpringModelFile"`
 
 	PbftViewChangeTimeOut int `json:"PbftViewChangeTimeOut"`
 
@@ -160,6 +175,21 @@ func ReadConfigFile() {
 	}
 	if SpringSenderPosMode < 0 || SpringSenderPosMode > 2 {
 		SpringSenderPosMode = 1
+	}
+
+	SpringIOTMode = config.SpringIOTMode
+	if SpringIOTMode != 1 {
+		SpringIOTMode = 0
+	}
+
+	if config.SpringIOTFeatureDim > 0 {
+		SpringIOTFeatureDim = config.SpringIOTFeatureDim
+	}
+	if strings.TrimSpace(config.SpringIOTSidecarFile) != "" {
+		SpringIOTSidecarFile = config.SpringIOTSidecarFile
+	}
+	if strings.TrimSpace(config.SpringModelFile) != "" {
+		SpringModelFile = config.SpringModelFile
 	}
 
 	PbftViewChangeTimeOut = config.PbftViewChangeTimeOut

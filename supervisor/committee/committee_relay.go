@@ -105,6 +105,10 @@ type RelayCommitteeModule struct {
 
 	// SPRING: 真实 TxBatch 编号，用于核对 PPO action 和 block reward 是否对齐
 	springTxBatchSeq uint64
+
+	// IoT MDP: tx_index -> sidecar 特征。打开 SpringIOTMode 后，
+	// Supervisor 会把原始交易地址映射为“状态对象账户 -> 设备锚点账户”。
+	springIOTByTxIndex map[uint64]SpringIOTTxFeature
 }
 
 func NewRelayCommitteeModule(Ip_nodeTable map[uint64]map[uint64]string, Ss *signal.StopSignal, slog *supervisor_log.SupervisorLog, csvFilePath string, dataNum, batchNum int) *RelayCommitteeModule {
@@ -112,7 +116,7 @@ func NewRelayCommitteeModule(Ip_nodeTable map[uint64]map[uint64]string, Ss *sign
 	for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
 		springStats[sid] = make([]SpringBlockStat, 0, 5)
 	}
-	return &RelayCommitteeModule{
+	rthm := &RelayCommitteeModule{
 		csvPath:      csvFilePath,
 		dataTotalNum: dataNum,
 		batchDataNum: batchNum,
@@ -128,6 +132,25 @@ func NewRelayCommitteeModule(Ip_nodeTable map[uint64]map[uint64]string, Ss *sign
 		springRewardedEpoch:   make(map[int]bool),
 		springTrainedBatchIDs: make(map[uint64]bool),
 	}
+
+	if springIOTEnabled() {
+		features, err := springLoadIOTSidecar(params.SpringIOTSidecarFile)
+		if err != nil {
+			log.Panicf("load IoT sidecar failed: %v", err)
+		}
+		rthm.springIOTByTxIndex = features
+		if rthm.sl != nil {
+			rthm.sl.Slog.Printf(
+				"[IOT MDP] loaded sidecar=%s rows=%d feature_dim=%d model=%s\n",
+				params.SpringIOTSidecarFile,
+				len(features),
+				params.SpringIOTFeatureDim,
+				params.SpringModelFile,
+			)
+		}
+	}
+
+	return rthm
 }
 
 // transfrom, data to transaction
@@ -186,6 +209,62 @@ func (rthm *RelayCommitteeModule) springEnsurePlaced(
 	)
 
 	return sid
+}
+
+func (rthm *RelayCommitteeModule) springEnsurePlacedWithBatchRelated(
+	addr utils.Address,
+	related utils.Address,
+	batchPlacement map[string]uint64,
+	batchRelated map[string]map[string]bool,
+) uint64 {
+	if sid, ok := rthm.springAddrShard[string(addr)]; ok {
+		return sid
+	}
+
+	senderPos, _, relatedKnown, _, _, _, _ := rthm.springBuildSenderPos(
+		string(addr),
+		related,
+		batchPlacement,
+		batchRelated,
+	)
+
+	var sid uint64
+	if relatedKnown {
+		sid = rthm.springChooseShardFromSenderPos(addr, senderPos)
+	} else {
+		sid = rthm.springChooseShard(addr, related)
+	}
+
+	rthm.springAddrShard[string(addr)] = sid
+	rthm.springShardLoad[sid]++
+	batchPlacement[string(addr)] = sid
+	return sid
+}
+
+func (rthm *RelayCommitteeModule) springChooseShardFromSenderPos(
+	addr utils.Address,
+	senderPos []float64,
+) uint64 {
+	hashSid := uint64(utils.Addr2Shard(addr))
+	bestSid := uint64(0)
+	bestScore := math.Inf(-1)
+
+	for sid := 0; sid < params.ShardNum; sid++ {
+		relatedScore := 0.0
+		if sid < len(senderPos) {
+			relatedScore = senderPos[sid]
+		}
+		score := relatedScore*1000.0 - float64(rthm.springShardLoad[sid])
+		if uint64(sid) == hashSid {
+			score += 0.001
+		}
+		if score > bestScore {
+			bestScore = score
+			bestSid = uint64(sid)
+		}
+	}
+
+	return bestSid
 }
 
 // SPRING 第一版简单策略：
@@ -248,6 +327,17 @@ func (rthm *RelayCommitteeModule) springPreparePlacement(
 		return batchPlacement
 
 	case 1:
+		if springIOTEnabled() {
+			// IoT heuristic baseline：设备账户是外部锚点，先用 hash（哈希）
+			// 固定到分片；heuristic（启发式）基于多锚点 sender_pos 放置通信状态对象账户。
+			batchRelated := rthm.springBuildIOTBatchRelatedMap(txlist)
+			rthm.springSeedIOTAnchorShards(txlist, batchPlacement)
+			for _, tx := range txlist {
+				rthm.springEnsurePlacedWithBatchRelated(tx.Sender, tx.Recipient, batchPlacement, batchRelated)
+			}
+			rthm.springFillTouchedPlacement(txlist, batchPlacement)
+			return batchPlacement
+		}
 		for _, tx := range txlist {
 			rthm.springEnsurePlaced(tx.Sender, tx.Recipient, batchPlacement)
 			rthm.springEnsurePlaced(tx.Recipient, tx.Sender, batchPlacement)
@@ -354,7 +444,22 @@ func (rthm *RelayCommitteeModule) springPreparePlacementPPOBatch(
 	// action within the current A-Shard block.
 	trainActions := make([]SpringTrainAction, 0)
 
-	if params.SpringSenderPosMode == 1 {
+	if springIOTEnabled() {
+		// IoT MDP：PPO 只放置通信状态对象账户；设备账户作为外部锚点先稳定哈希分片。
+		batchRelated = rthm.springBuildIOTBatchRelatedMap(txlist)
+		rthm.springSeedIOTAnchorShards(txlist, batchPlacement)
+		for _, tx := range txlist {
+			if action, ok := rthm.springPlaceAddressPPOSequential(
+				tx.Sender,
+				tx.Recipient,
+				batchPlacement,
+				batchRelated,
+				rthm.springIOTFeaturesForTx(tx),
+			); ok {
+				trainActions = append(trainActions, action)
+			}
+		}
+	} else if params.SpringSenderPosMode == 1 {
 		// Put senders first, then recipients. This makes recipient sender_pos
 		// closer to the SPRING paper definition: distribution of related
 		// senders' shards in the current block.
@@ -407,6 +512,7 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 	related utils.Address,
 	batchPlacement map[string]uint64,
 	batchRelated map[string]map[string]bool,
+	iotFeatures ...[]float64,
 ) (SpringTrainAction, bool) {
 	key := string(addr)
 	if key == "" {
@@ -448,7 +554,11 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 	relatedKnown = aggRelatedKnown
 	relatedShard = aggRelatedShard
 	relatedInCurrentBatch = aggRelatedInCurrentBatch
-	state = rthm.springBuildStateFromSenderPos(senderPos, springAddressFlagFromRelatedCount(relatedCount))
+	var extraFeatures []float64
+	if len(iotFeatures) > 0 {
+		extraFeatures = iotFeatures[0]
+	}
+	state = rthm.springBuildStateFromSenderPos(senderPos, springAddressFlagFromRelatedCount(relatedCount), extraFeatures)
 
 	item := SpringBatchInferItem{
 		Address: key,
@@ -477,8 +587,13 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 			source = "python_ppo"
 		}
 	} else {
-		sid = rthm.springChooseShard(addr, related)
-		source = "go_heuristic_sequential_fallback"
+		if aggRelatedKnown {
+			sid = rthm.springChooseShardFromSenderPos(addr, senderPos)
+			source = "go_multi_anchor_heuristic_sequential_fallback"
+		} else {
+			sid = rthm.springChooseShard(addr, related)
+			source = "go_heuristic_sequential_fallback"
+		}
 	}
 
 	// sequential 语义的关键：
@@ -509,7 +624,7 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 		batchPlacement,
 		batchRelated,
 	)
-	nextState := rthm.springBuildStateFromSenderPos(nextSenderPos, springAddressFlagFromRelatedCount(nextRelatedCount))
+	nextState := rthm.springBuildStateFromSenderPos(nextSenderPos, springAddressFlagFromRelatedCount(nextRelatedCount), extraFeatures)
 
 	rthm.springAppendDecisionRecord(
 		result.BatchID,
@@ -674,6 +789,9 @@ func (rthm *RelayCommitteeModule) MsgSendingControl() {
 			log.Panic(err)
 		}
 		if tx, ok := data2tx(data, uint64(rthm.nowDataNum)); ok {
+			if springIOTEnabled() && !rthm.springApplyIOTTxIdentity(tx) {
+				log.Panicf("IoT sidecar missing for tx_index=%d", tx.Nonce)
+			}
 			txlist = append(txlist, tx)
 			rthm.nowDataNum++
 		}
@@ -859,8 +977,8 @@ func springNormalizeStateValue(v float64) float64 {
 }
 
 func springExtractRelatedShardFromState(state []float64) (bool, int) {
-	base := len(state) - 1 - params.ShardNum
-	if base < 0 {
+	base := 10 * params.ShardNum
+	if len(state) < base+params.ShardNum {
 		return false, -1
 	}
 
@@ -1005,8 +1123,14 @@ func (rthm *RelayCommitteeModule) springBuildSenderPos(
 func (rthm *RelayCommitteeModule) springBuildStateFromSenderPos(
 	senderPos []float64,
 	flag float64,
+	iotFeatures ...[]float64,
 ) []float64 {
-	state := make([]float64, 0, 11*params.ShardNum+1)
+	extraFeatures := []float64(nil)
+	if len(iotFeatures) > 0 {
+		extraFeatures = iotFeatures[0]
+	}
+
+	state := make([]float64, 0, 11*params.ShardNum+1+len(extraFeatures))
 
 	for back := 4; back >= 0; back-- {
 		for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
@@ -1040,6 +1164,10 @@ func (rthm *RelayCommitteeModule) springBuildStateFromSenderPos(
 		flag = 1
 	}
 	state = append(state, flag)
+
+	for _, feature := range extraFeatures {
+		state = append(state, springClamp(feature, 0.0, 1.0))
+	}
 
 	return state
 }

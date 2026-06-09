@@ -20,8 +20,9 @@ type SpringBatchInferItem struct {
 }
 
 type SpringBatchInferInput struct {
-	Shards int                    `json:"shards"`
-	Items  []SpringBatchInferItem `json:"items"`
+	Shards        int                    `json:"shards"`
+	IOTFeatureDim int                    `json:"iot_feature_dim,omitempty"`
+	Items         []SpringBatchInferItem `json:"items"`
 }
 
 type SpringBatchInferResult struct {
@@ -118,6 +119,23 @@ type SpringOnlineTrainResult struct {
 	ModelSource       string `json:"model_source"`
 	Message           string `json:"message"`
 	OnlineUpdateCount int    `json:"online_update_count"`
+}
+
+func springConfiguredModelPath() string {
+	if params.SpringModelFile != "" {
+		return params.SpringModelFile
+	}
+	return filepath.Join("spring_lite", "checkpoints", "spring_ppo.pt")
+}
+
+func springConfiguredIOTFeatureDim() int {
+	if params.SpringIOTMode != 1 {
+		return 0
+	}
+	if params.SpringIOTFeatureDim <= 0 {
+		return 6
+	}
+	return params.SpringIOTFeatureDim
 }
 
 // springChooseShardPPO 保留为单地址调试入口。
@@ -240,8 +258,9 @@ func (rthm *RelayCommitteeModule) springCallPythonBatch(items []SpringBatchInfer
 		outputPath = filepath.Join("spring_io", fmt.Sprintf("batch_action_%d.json", reqID))
 
 		input := SpringBatchInferInput{
-			Shards: params.ShardNum,
-			Items:  items,
+			Shards:        params.ShardNum,
+			IOTFeatureDim: springConfiguredIOTFeatureDim(),
+			Items:         items,
 		}
 
 		inputBytes, err := json.Marshal(input)
@@ -256,16 +275,18 @@ func (rthm *RelayCommitteeModule) springCallPythonBatch(items []SpringBatchInfer
 		}
 	}
 
-	modelPath := filepath.Join("spring_lite", "checkpoints", "spring_ppo.pt")
+	modelPath := springConfiguredModelPath()
 
 	start := time.Now()
 
 	resp, err := springCallInferServer(springInferServerRequest{
-		RequestID: reqID,
-		Shards:    params.ShardNum,
-		Sample:    sampleMode,
-		Model:     modelPath,
-		Items:     items,
+		RequestID:      reqID,
+		Shards:         params.ShardNum,
+		IOTFeatureDim:  springConfiguredIOTFeatureDim(),
+		AllowModelInit: params.SpringOnlineTrain == 1,
+		Sample:         sampleMode,
+		Model:          modelPath,
+		Items:          items,
 	})
 
 	inferCostUs := time.Since(start).Microseconds()
@@ -391,7 +412,7 @@ func (rthm *RelayCommitteeModule) springCallPythonOnlineUpdate(input SpringOnlin
 		}
 	}
 
-	modelPath := filepath.Join("spring_lite", "checkpoints", "spring_ppo.pt")
+	modelPath := springConfiguredModelPath()
 	logPath := filepath.Join("spring_io", "online_train_log.jsonl")
 
 	start := time.Now()

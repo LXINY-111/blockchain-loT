@@ -1,0 +1,95 @@
+import argparse
+import csv
+import sys
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from config import IOT_FEATURE_DIM, state_dim  # noqa: E402
+from train_offline import agent_state_dim, load_training_transactions  # noqa: E402
+
+
+class IoTTrainEntryTest(unittest.TestCase):
+    def test_agent_state_dim_uses_iot_feature_dim_only_in_iot_mode(self):
+        spring_args = argparse.Namespace(mdp_mode="spring")
+        iot_args = argparse.Namespace(mdp_mode="iot")
+
+        self.assertEqual(agent_state_dim(spring_args, 4), state_dim(4))
+        self.assertEqual(agent_state_dim(iot_args, 4), state_dim(4, IOT_FEATURE_DIM))
+
+    def test_load_training_transactions_uses_sidecar_in_iot_mode(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tx_csv = root / "tx.csv"
+            sidecar_csv = root / "sidecar.csv"
+            from_addr = "0x" + "1" * 40
+            to_addr = "0x" + "2" * 40
+
+            with tx_csv.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                for _ in range(2):
+                    row = [""] * 18
+                    row[3] = from_addr
+                    row[4] = to_addr
+                    row[6] = "0"
+                    row[7] = "0"
+                    row[8] = "1"
+                    writer.writerow(row)
+
+            fieldnames = [
+                "tx_index",
+                "device_label",
+                "device_mac",
+                "srcIp",
+                "dstIp",
+                "srcPort",
+                "dstPort",
+                "protocol",
+                "srcNumPackets",
+                "dstNumPackets",
+                "srcPayloadSize",
+                "dstPayloadSize",
+                "from_address",
+                "to_address",
+                "distance",
+                "link_quality",
+            ]
+            with sidecar_csv.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                for idx in range(2):
+                    writer.writerow(
+                        {
+                            "tx_index": idx,
+                            "device_label": "TPLinkSmartPlug",
+                            "device_mac": "50:c7:bf:00:56:39",
+                            "srcIp": "192.168.1.227",
+                            "dstIp": "54.254.250.149",
+                            "srcPort": "40000",
+                            "dstPort": "443",
+                            "protocol": "tls",
+                            "srcNumPackets": "2",
+                            "dstNumPackets": "2",
+                            "srcPayloadSize": "100",
+                            "dstPayloadSize": "200",
+                            "from_address": from_addr,
+                            "to_address": to_addr,
+                            "distance": "25",
+                            "link_quality": "0.5",
+                        }
+                    )
+
+            args = argparse.Namespace(mdp_mode="iot", sidecar=str(sidecar_csv), max_txs=2)
+            txs = load_training_transactions(args, tx_csv)
+
+            self.assertEqual(len(txs), 2)
+            self.assertEqual(txs[0].sender, txs[1].sender)
+            self.assertEqual(txs[0].sender, to_addr)
+            self.assertEqual(txs[0].recipient, from_addr)
+
+
+if __name__ == "__main__":
+    unittest.main()

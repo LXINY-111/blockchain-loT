@@ -29,11 +29,12 @@ class AgentCache:
         self.agent: Optional[PPOAgent] = None
         self.shards: int = -1
         self.state_dim: int = -1
+        self.model_path: str = ""
         self.model_mtime_ns: int = -1
 
-    def _create_fresh_agent(self, shards: int) -> PPOAgent:
+    def _create_fresh_agent(self, shards: int, iot_feature_dim: int = 0) -> PPOAgent:
         return PPOAgent(
-            state_dim=state_dim(shards),
+            state_dim=state_dim(shards, iot_feature_dim),
             action_dim=shards,
             hidden_dim=HIDDEN_DIM,
             device="cpu",
@@ -44,15 +45,23 @@ class AgentCache:
             return -1
         return int(model_path.stat().st_mtime_ns)
 
-    def get_agent(self, shards: int, model_path: Path) -> Tuple[Optional[PPOAgent], str]:
-        expected_dim = state_dim(shards)
+    def get_agent(
+        self,
+        shards: int,
+        model_path: Path,
+        iot_feature_dim: int = 0,
+        allow_model_init: bool = True,
+    ) -> Tuple[Optional[PPOAgent], str]:
+        expected_dim = state_dim(shards, iot_feature_dim)
         current_mtime = self._model_mtime(model_path)
+        model_path_key = str(model_path)
 
         # 如果模型已经加载，且模型文件没有变化，就直接复用内存里的 agent。
         if (
             self.agent is not None
             and self.shards == shards
             and self.state_dim == expected_dim
+            and self.model_path == model_path_key
             and self.model_mtime_ns == current_mtime
         ):
             self.agent.net.eval()
@@ -62,50 +71,50 @@ class AgentCache:
 
         # 如果模型不存在，创建一个随机初始化的 PPO 模型，保证不会回退 heuristic。
         if not model_path.exists():
-            agent = self._create_fresh_agent(shards)
+            if not allow_model_init:
+                return None, "no_model"
+
+            agent = self._create_fresh_agent(shards, iot_feature_dim)
             agent.save(
                 model_path,
                 extra={
                     "model_source": "init_by_infer_server",
                     "online_update_count": 0,
+                    "iot_feature_dim": int(iot_feature_dim),
                 },
             )
             self.agent = agent
             self.shards = shards
             self.state_dim = expected_dim
+            self.model_path = model_path_key
             self.model_mtime_ns = self._model_mtime(model_path)
             agent.net.eval()
             return agent, "python_ppo"
 
         # 如果模型存在，加载模型。
-        agent = self._create_fresh_agent(shards)
+        agent = self._create_fresh_agent(shards, iot_feature_dim)
 
         try:
-            payload = agent.load(model_path)
+            payload = torch.load(model_path, map_location=agent.device)
             ckpt_state_dim = int(payload.get("state_dim", -1))
             ckpt_action_dim = int(payload.get("action_dim", -1))
 
             if ckpt_state_dim != expected_dim or ckpt_action_dim != shards:
-                raise ValueError(
+                return None, (
                     f"model_dim_mismatch: ckpt_state_dim={ckpt_state_dim}, "
                     f"ckpt_action_dim={ckpt_action_dim}, expected_dim={expected_dim}, shards={shards}"
                 )
 
+            agent.net.load_state_dict(payload["model_state_dict"])
+
         except Exception as exc:
             # 模型损坏或维度不匹配时，直接重置成新模型。
-            agent = self._create_fresh_agent(shards)
-            agent.save(
-                model_path,
-                extra={
-                    "model_source": "reset_by_infer_server",
-                    "online_update_count": 0,
-                    "reset_reason": str(exc),
-                },
-            )
+            return None, f"load_failed:{exc}"
 
         self.agent = agent
         self.shards = shards
         self.state_dim = expected_dim
+        self.model_path = model_path_key
         self.model_mtime_ns = self._model_mtime(model_path)
         agent.net.eval()
         return agent, "python_ppo"
@@ -166,9 +175,18 @@ def infer_items(
     sample: bool,
     request_id: int,
     model_path: Path,
+    iot_feature_dim: int = 0,
+    allow_model_init: bool = True,
+    cache: Optional[AgentCache] = None,
 ) -> List[Dict[str, Any]]:
-    expected_dim = state_dim(shards)
-    agent, model_status = CACHE.get_agent(shards, model_path)
+    expected_dim = state_dim(shards, iot_feature_dim)
+    agent_cache = cache or CACHE
+    agent, model_status = agent_cache.get_agent(
+        shards,
+        model_path,
+        iot_feature_dim,
+        allow_model_init,
+    )
 
     if agent is None:
         return [safe_heuristic(item, shards, model_status, request_id) for item in items]
@@ -260,6 +278,8 @@ def infer_items(
 def handle_request(req: Dict[str, Any]) -> Dict[str, Any]:
     request_id = int(req.get("request_id", 0))
     shards = int(req.get("shards", 4))
+    iot_feature_dim = max(0, int(req.get("iot_feature_dim", 0)))
+    allow_model_init = bool(req.get("allow_model_init", True))
     sample = bool(req.get("sample", False))
     model_path = Path(str(req.get("model", MODEL_PATH)))
 
@@ -277,6 +297,8 @@ def handle_request(req: Dict[str, Any]) -> Dict[str, Any]:
         sample=sample,
         request_id=request_id,
         model_path=model_path,
+        iot_feature_dim=iot_feature_dim,
+        allow_model_init=allow_model_init,
     )
 
     return {

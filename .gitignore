@@ -1,0 +1,15 @@
+# IoT dataset files
+data_iot/**/*.csv
+data_iot/*.csv
+
+# experiment outputs
+spring_io/
+expTest/
+
+# model checkpoints and rollout buffers
+spring_lite/checkpoints/*.pt
+spring_lite/checkpoints/*.json
+
+# cache
+__pycache__/
+*.pyc

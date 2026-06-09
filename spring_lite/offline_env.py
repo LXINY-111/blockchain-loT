@@ -1,9 +1,10 @@
 import csv
+import ipaddress
 import math
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Deque, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Deque, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from config import (
     ACTION_REWARD_SCALE,
@@ -15,6 +16,11 @@ from config import (
     EPS,
     HOTSPOT_PENALTY_WEIGHT,
     HOTSPOT_THRESHOLD,
+    IOT_BALANCE_WEIGHT,
+    IOT_COMM_COST_WEIGHT,
+    IOT_CSTR_WEIGHT,
+    IOT_FEATURE_DIM,
+    IOT_HOTSPOT_WEIGHT,
     LAMBDA_WEIGHT,
     LOAD_PENALTY_WEIGHT,
     LOCAL_REWARD_WEIGHT,
@@ -29,6 +35,10 @@ from heuristic import addr2shard
 class Tx:
     sender: str
     recipient: str
+    related_addresses: Tuple[str, ...] = field(default_factory=tuple)
+    related_weights: Tuple[float, ...] = field(default_factory=tuple)
+    iot_features: Tuple[float, ...] = field(default_factory=tuple)
+    communication_cost_weight: float = 0.0
 
 
 @dataclass
@@ -102,6 +112,7 @@ class BatchMetrics:
     hotspot_penalty: float
     load_aware_bonus: float
     backlog_penalty: float
+    communication_cost: float
     reward: float
     loads: List[int]
     effective_loads: List[float]
@@ -145,6 +156,7 @@ class BatchMetrics:
             "hotspot_penalty": self.hotspot_penalty,
             "load_aware_bonus": self.load_aware_bonus,
             "backlog_penalty": self.backlog_penalty,
+            "communication_cost": self.communication_cost,
             "reward": self.reward,
             "loads": self.loads,
             "effective_loads": self.effective_loads,
@@ -216,6 +228,272 @@ def load_transactions(csv_path: Path, max_txs: int = 0) -> List[Tx]:
             if max_txs > 0 and len(txs) >= max_txs:
                 break
     return txs
+
+
+def load_iot_transactions(
+    csv_path: Path,
+    sidecar_path: Path,
+    max_txs: int = 0,
+) -> List[Tx]:
+    """读取 IoT 交易和 sidecar，把 flow 映射为通信状态对象。
+
+    普通 CSV 仍提供 BlockEmulator 需要的交易顺序；sidecar 提供设备、
+    状态对象账户、协议、距离和链路质量等 IoT 场景特征。full 数据集
+    已经把 to_address 做成通信状态对象账户，因此这里优先直接使用
+    sidecar 的 to_address/state_object_key，避免训练代码再构造另一套 key。
+    """
+    raw_txs = load_transactions(csv_path, max_txs=max_txs)
+    if not raw_txs:
+        return []
+
+    sidecar_rows: List[Dict[str, str]] = []
+    with Path(sidecar_path).open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            sidecar_rows.append(dict(row))
+            if max_txs > 0 and len(sidecar_rows) >= len(raw_txs):
+                break
+
+    if len(sidecar_rows) < len(raw_txs):
+        raise ValueError(
+            f"sidecar row count mismatch: txs={len(raw_txs)}, sidecar={len(sidecar_rows)}"
+        )
+
+    txs: List[Tx] = []
+    device_protocol_seen: Counter = Counter()
+    for idx, tx in enumerate(raw_txs):
+        row = sidecar_rows[idx]
+        state_key = iot_state_object_key(row)
+        anchor_key = iot_anchor_key(row)
+        related_addresses, related_weights = iot_related_anchors(row, anchor_key)
+        protocol = normalized_iot_protocol(row)
+        device_protocol_key = f"{anchor_key}|{protocol}"
+        prior_frequency = device_protocol_seen[device_protocol_key]
+        device_protocol_seen[device_protocol_key] += 1
+
+        features = iot_feature_vector(row, prior_frequency)
+        txs.append(
+            Tx(
+                sender=state_key,
+                recipient=anchor_key,
+                related_addresses=related_addresses,
+                related_weights=related_weights,
+                iot_features=tuple(features),
+                communication_cost_weight=iot_communication_cost_weight(row),
+            )
+        )
+
+    return txs
+
+
+def iot_state_object_key(row: Mapping[str, str]) -> str:
+    """通信状态对象。
+
+    full 数据集里 to_address 已经是 state_object_key 的稳定地址，所以
+    优先使用 to_address。state_object_key 保留为人类可读标签；旧数据缺
+    地址字段时才回退到原来的 device + peer/service + protocol 构造。
+    """
+    state_address = clean_iot_cell(row.get("to_address", ""))
+    if state_address:
+        return state_address
+
+    readable_key = clean_iot_cell(row.get("state_object_key", ""))
+    if readable_key:
+        return readable_key
+
+    return "|".join(
+        [
+            "iot_state:" + iot_device_key(row),
+            iot_peer_key(row),
+            normalized_iot_protocol(row),
+        ]
+    )
+
+
+def iot_anchor_key(row: Mapping[str, str]) -> str:
+    """设备锚点账户。
+
+    full 数据集里 from_address 是设备账户；PPO（近端策略优化）放置
+    to_address 表示的状态对象，from_address 只作为相关对象分片锚点。
+    """
+    device_address = clean_iot_cell(row.get("from_address", ""))
+    if device_address:
+        return device_address
+    return "iot_device:" + iot_device_key(row)
+
+
+def iot_related_anchors(row: Mapping[str, str], primary_anchor: str) -> Tuple[Tuple[str, ...], Tuple[float, ...]]:
+    """Parse multi-anchor（多锚点）关系，旧 sidecar 自动回退到单锚点。"""
+    raw_addresses = split_iot_list(clean_iot_cell(row.get("anchor_addresses", "")))
+    raw_weights = [numeric_iot_cell(value) for value in split_iot_list(row.get("anchor_weights", ""))]
+
+    ordered: List[str] = []
+    weights: List[float] = []
+    seen: Set[str] = set()
+
+    def add(anchor: str, weight: float) -> None:
+        clean_anchor = clean_iot_cell(anchor)
+        if not clean_anchor or clean_anchor in seen:
+            return
+        seen.add(clean_anchor)
+        ordered.append(clean_anchor)
+        weights.append(max(0.0, float(weight)))
+
+    if raw_addresses:
+        for idx, anchor in enumerate(raw_addresses):
+            weight = raw_weights[idx] if idx < len(raw_weights) else 1.0
+            add(anchor, weight)
+        add(primary_anchor, 1.0)
+    else:
+        add(primary_anchor, 1.0)
+
+    total = sum(weights)
+    if total <= EPS and ordered:
+        weights = [1.0 / float(len(ordered)) for _anchor in ordered]
+    elif total > EPS:
+        weights = [weight / total for weight in weights]
+    return tuple(ordered), tuple(weights)
+
+
+def split_iot_list(value: object) -> List[str]:
+    text = clean_iot_cell(value)
+    if not text:
+        return []
+    return [part.strip() for part in text.split(";") if part.strip()]
+
+
+def iot_device_key(row: Mapping[str, str]) -> str:
+    label = clean_iot_cell(row.get("device_label", "")) or "unknown_device"
+    mac = clean_iot_cell(row.get("device_mac", "")).lower() or "unknown_mac"
+    return f"{label.lower()}:{mac}"
+
+
+def iot_peer_key(row: Mapping[str, str]) -> str:
+    peer = choose_iot_peer(row)
+    protocol = normalized_iot_protocol(row)
+    dst_port = clean_iot_cell(row.get("dstPort", ""))
+    service = dst_port if dst_port else "any"
+    return f"iot_peer:{peer}|service:{service}|proto:{protocol}"
+
+
+def choose_iot_peer(row: Mapping[str, str]) -> str:
+    src_ip = clean_iot_cell(row.get("srcIp", ""))
+    dst_ip = clean_iot_cell(row.get("dstIp", ""))
+    if is_private_iot_ip(src_ip) and not is_private_iot_ip(dst_ip):
+        return normalize_iot_endpoint(dst_ip)
+    if is_private_iot_ip(dst_ip) and not is_private_iot_ip(src_ip):
+        return normalize_iot_endpoint(src_ip)
+    if dst_ip:
+        return normalize_iot_endpoint(dst_ip)
+    if src_ip:
+        return normalize_iot_endpoint(src_ip)
+    return clean_iot_cell(row.get("to_address", "")) or "unknown_peer"
+
+
+def normalize_iot_endpoint(value: str) -> str:
+    text = clean_iot_cell(value).lower()
+    return text if text else "unknown_peer"
+
+
+def normalized_iot_protocol(row: Mapping[str, str]) -> str:
+    protocol = clean_iot_cell(row.get("protocol", "")).lower()
+    return protocol if protocol else "none"
+
+
+def iot_feature_vector(row: Mapping[str, str], prior_frequency: int) -> List[float]:
+    payload = numeric_iot_cell(row.get("srcPayloadSize", "")) + numeric_iot_cell(
+        row.get("dstPayloadSize", "")
+    )
+    packets = numeric_iot_cell(row.get("srcNumPackets", "")) + numeric_iot_cell(
+        row.get("dstNumPackets", "")
+    )
+    distance = numeric_iot_cell(row.get("distance", ""))
+    link_quality = numeric_iot_cell(row.get("link_quality", ""))
+    protocol = normalized_iot_protocol(row)
+
+    return [
+        log_normalize(payload, 1_000_000.0),
+        log_normalize(packets, 10_000.0),
+        clamp(distance / 60.0, 0.0, 1.0),
+        clamp(1.0 - link_quality, 0.0, 1.0),
+        log_normalize(float(prior_frequency), 1000.0),
+        protocol_score(protocol),
+    ]
+
+
+def iot_communication_cost_weight(row: Mapping[str, str]) -> float:
+    distance = clamp(numeric_iot_cell(row.get("distance", "")) / 60.0, 0.0, 1.0)
+    link_loss = clamp(1.0 - numeric_iot_cell(row.get("link_quality", "")), 0.0, 1.0)
+    payload = numeric_iot_cell(row.get("srcPayloadSize", "")) + numeric_iot_cell(
+        row.get("dstPayloadSize", "")
+    )
+    traffic_weight = max(0.05, log_normalize(payload, 1_000_000.0))
+    return clamp(distance * link_loss * traffic_weight, 0.0, 1.0)
+
+
+def tx_related_addresses(tx: Tx) -> Tuple[str, ...]:
+    if tx.related_addresses:
+        return tx.related_addresses
+    if tx.recipient:
+        return (tx.recipient,)
+    return tuple()
+
+
+def tx_related_weight_pairs(tx: Tx) -> Tuple[Tuple[str, float], ...]:
+    anchors = tx_related_addresses(tx)
+    if not anchors:
+        return tuple()
+
+    weights = list(tx.related_weights)
+    if len(weights) != len(anchors):
+        weights = [1.0 for _anchor in anchors]
+    weights = [max(0.0, float(weight)) for weight in weights]
+    total = sum(weights)
+    if total <= EPS:
+        weights = [1.0 / float(len(anchors)) for _anchor in anchors]
+    else:
+        weights = [weight / total for weight in weights]
+    return tuple((anchor, weight) for anchor, weight in zip(anchors, weights))
+
+
+def protocol_score(protocol: str) -> float:
+    protocol = protocol.lower()
+    if protocol in {"tls", "https", "ssl"}:
+        return 1.0
+    if protocol in {"http", "rtsp", "rtmp", "xmpp"}:
+        return 0.8
+    if protocol in {"tcp", "udp", "none"}:
+        return 0.5
+    if protocol in {"dns", "ntp", "stun", "syslog"}:
+        return 0.3
+    return 0.6
+
+
+def log_normalize(value: float, scale: float) -> float:
+    return clamp(math.log1p(max(0.0, value)) / math.log1p(max(1.0, scale)), 0.0, 1.0)
+
+
+def numeric_iot_cell(value: object) -> float:
+    try:
+        return float(clean_iot_cell(value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def clean_iot_cell(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().strip('"')
+
+
+def is_private_iot_ip(value: str) -> bool:
+    text = clean_iot_cell(value)
+    if not text:
+        return False
+    try:
+        return ipaddress.ip_address(text).is_private
+    except ValueError:
+        return False
 
 
 def iter_batches(txs: Sequence[Tx], batch_size: int) -> Iterable[List[Tx]]:
@@ -290,6 +568,11 @@ def spring_reward(
     backlog_penalty: float = 0.0,
     backlog_penalty_weight: float = BACKLOG_PENALTY_WEIGHT,
     reward_mode: str = REWARD_MODE,
+    communication_cost: float = 0.0,
+    iot_cstr_weight: float = IOT_CSTR_WEIGHT,
+    iot_balance_weight: float = IOT_BALANCE_WEIGHT,
+    iot_comm_cost_weight: float = IOT_COMM_COST_WEIGHT,
+    iot_hotspot_weight: float = IOT_HOTSPOT_WEIGHT,
 ) -> Tuple[float, Dict[str, float]]:
     effective_tx = float(sum(effective_loads))
     cross_tx = float(sum(cross_loads))
@@ -315,6 +598,7 @@ def spring_reward(
             "hotspot_penalty": 0.0,
             "load_aware_bonus": 0.0,
             "backlog_penalty": 0.0,
+            "communication_cost": 0.0,
             "reward_load_total": 0.0,
             "reward_mode": str(reward_mode),
         }
@@ -381,6 +665,16 @@ def spring_reward(
         reward -= load_penalty_weight * norm_var
         reward += load_aware_bonus
         reward -= float(backlog_penalty_weight) * clamp(float(backlog_penalty), 0.0, 1.0)
+    elif mode == "iot":
+        # IoT MDP v1：把物联网通信代价放进奖励，但仍保持 CSTR（跨分片率）
+        # 和 workload balance（负载均衡）为主，便于第一阶段训练收敛。
+        communication_cost = clamp(float(communication_cost), 0.0, 1.0)
+        reward = (
+            float(iot_cstr_weight) * r_cstr
+            + float(iot_balance_weight) * r_wlb
+            - float(iot_comm_cost_weight) * communication_cost
+            - float(iot_hotspot_weight) * hotspot_penalty
+        )
     else:
         raise ValueError(f"unknown reward_mode: {reward_mode}")
 
@@ -402,6 +696,7 @@ def spring_reward(
         "hotspot_penalty": hotspot_penalty,
         "load_aware_bonus": load_aware_bonus,
         "backlog_penalty": clamp(float(backlog_penalty), 0.0, 1.0),
+        "communication_cost": clamp(float(communication_cost), 0.0, 1.0),
         "reward_load_total": load_total,
         "reward_mode": mode,
     }
@@ -427,6 +722,11 @@ class SpringOfflineEnv:
         capacity_backlog_mode: int = CAPACITY_BACKLOG_MODE,
         backlog_penalty_weight: float = BACKLOG_PENALTY_WEIGHT,
         reward_mode: str = REWARD_MODE,
+        iot_feature_dim: int = 0,
+        iot_cstr_weight: float = IOT_CSTR_WEIGHT,
+        iot_balance_weight: float = IOT_BALANCE_WEIGHT,
+        iot_comm_cost_weight: float = IOT_COMM_COST_WEIGHT,
+        iot_hotspot_weight: float = IOT_HOTSPOT_WEIGHT,
     ) -> None:
         if shards <= 0:
             raise ValueError("shards must be positive")
@@ -450,6 +750,11 @@ class SpringOfflineEnv:
         self.capacity_backlog_mode = int(capacity_backlog_mode)
         self.backlog_penalty_weight = float(backlog_penalty_weight)
         self.reward_mode = str(reward_mode).strip().lower()
+        self.iot_feature_dim = max(0, int(iot_feature_dim))
+        self.iot_cstr_weight = float(iot_cstr_weight)
+        self.iot_balance_weight = float(iot_balance_weight)
+        self.iot_comm_cost_weight = float(iot_comm_cost_weight)
+        self.iot_hotspot_weight = float(iot_hotspot_weight)
 
         self.addr_shard: Dict[str, int] = {}
         self.shard_load: List[int] = []
@@ -479,7 +784,12 @@ class SpringOfflineEnv:
     def normalize_count(self, value: float) -> float:
         return normalize_state_value(value, self.max_block_size, self.tx_batch_size)
 
-    def build_state_from_sender_pos(self, sender_pos: Sequence[float], flag: float) -> List[float]:
+    def build_state_from_sender_pos(
+        self,
+        sender_pos: Sequence[float],
+        flag: float,
+        iot_features: Optional[Sequence[float]] = None,
+    ) -> List[float]:
         state: List[float] = []
 
         for stat in self.recent_stats:
@@ -498,7 +808,13 @@ class SpringOfflineEnv:
 
         state.append(1.0 if flag != 0 else 0.0)
 
-        expected_dim = state_dim(self.shards)
+        if self.iot_feature_dim > 0:
+            extra = list(iot_features or [])
+            for idx in range(self.iot_feature_dim):
+                value = float(extra[idx]) if idx < len(extra) else 0.0
+                state.append(clamp(value, 0.0, 1.0))
+
+        expected_dim = state_dim(self.shards, self.iot_feature_dim)
         if len(state) != expected_dim:
             raise RuntimeError(f"state dim mismatch: got {len(state)}, expected {expected_dim}")
         return state
@@ -615,6 +931,7 @@ class SpringOfflineEnv:
         batch_related: Dict[str, Set[str]],
         policy: PolicyFn,
         batch_id: int,
+        iot_features: Optional[Sequence[float]] = None,
     ) -> Optional[PlacementAction]:
         if not addr or addr in self.addr_shard:
             return None
@@ -628,6 +945,7 @@ class SpringOfflineEnv:
         state = self.build_state_from_sender_pos(
             info.sender_pos,
             address_flag_from_related_count(info.related_count),
+            iot_features=iot_features,
         )
 
         output = self._safe_policy_output(
@@ -664,6 +982,7 @@ class SpringOfflineEnv:
         next_state = self.build_state_from_sender_pos(
             next_info.sender_pos,
             address_flag_from_related_count(next_info.related_count),
+            iot_features=iot_features,
         )
 
         same_as_related = info.related_known and chosen_shard == info.related_shard
@@ -696,46 +1015,90 @@ class SpringOfflineEnv:
         if self.sender_pos_mode != 2:
             return
         for tx in txs:
-            self.temporal_neighbors[tx.sender][tx.recipient] += 1
-            self.temporal_neighbors[tx.recipient][tx.sender] += 1
+            for anchor in tx_related_addresses(tx):
+                self.temporal_neighbors[tx.sender][anchor] += 1
+                self.temporal_neighbors[anchor][tx.sender] += 1
+
+    def build_iot_batch_related(self, txs: Sequence[Tx]) -> Dict[str, Set[str]]:
+        related: Dict[str, Set[str]] = defaultdict(set)
+        for tx in txs:
+            if not tx.sender:
+                continue
+            for anchor in tx_related_addresses(tx):
+                if anchor and anchor != tx.sender:
+                    related[tx.sender].add(anchor)
+        return related
+
+    def _seed_iot_anchor_shards(self, txs: Sequence[Tx]) -> None:
+        # IoT anchor（锚点）账户是外部参照对象，不由 PPO（近端策略优化）放置。
+        # multi-anchor（多锚点）数据里一个状态对象可能关联设备、网关、云端或服务组，
+        # 这些锚点都先用 hash（哈希）固定分片，供 sender_pos/reward 使用。
+        for tx in txs:
+            for anchor in tx_related_addresses(tx):
+                if anchor and anchor not in self.addr_shard:
+                    self.addr_shard[anchor] = addr2shard(anchor, self.shards)
 
     def _simulate_batch_loads(
         self,
         txs: Sequence[Tx],
-    ) -> Tuple[List[int], List[float], List[float], int, int, int]:
+    ) -> Tuple[List[int], List[float], List[float], int, int, int, float]:
         loads = [0 for _ in range(self.shards)]
         effective_loads = [0.0 for _ in range(self.shards)]
         cross_loads = [0.0 for _ in range(self.shards)]
         total_inner = 0
         total_relay1 = 0
         total_relay2 = 0
+        communication_cost = 0.0
 
         for tx in txs:
             sender_shard = self.addr_shard.get(tx.sender)
-            recipient_shard = self.addr_shard.get(tx.recipient)
 
             if sender_shard is None:
                 sender_shard = addr2shard(tx.sender, self.shards)
                 self.addr_shard[tx.sender] = sender_shard
-            if recipient_shard is None:
-                recipient_shard = addr2shard(tx.recipient, self.shards)
-                self.addr_shard[tx.recipient] = recipient_shard
 
-            if sender_shard == recipient_shard:
-                loads[sender_shard] += 1
-                effective_loads[sender_shard] += 1.0
+            related_pairs = tx_related_weight_pairs(tx)
+            cross_weight = 0.0
+            touched_cross_shards: Set[int] = set()
+            loads[sender_shard] += 1
+
+            for anchor, weight in related_pairs:
+                recipient_shard = self.addr_shard.get(anchor)
+                if recipient_shard is None:
+                    recipient_shard = addr2shard(anchor, self.shards)
+                    self.addr_shard[anchor] = recipient_shard
+
+                if sender_shard == recipient_shard:
+                    effective_loads[sender_shard] += weight
+                    continue
+
+                effective_loads[sender_shard] += 0.5 * weight
+                effective_loads[recipient_shard] += 0.5 * weight
+                cross_loads[sender_shard] += 0.5 * weight
+                cross_loads[recipient_shard] += 0.5 * weight
+                cross_weight += weight
+                touched_cross_shards.add(recipient_shard)
+                communication_cost += float(tx.communication_cost_weight) * weight
+
+            for sid in touched_cross_shards:
+                loads[sid] += 1
+
+            if cross_weight <= EPS:
                 total_inner += 1
             else:
-                loads[sender_shard] += 1
-                loads[recipient_shard] += 1
-                effective_loads[sender_shard] += 0.5
-                effective_loads[recipient_shard] += 0.5
-                cross_loads[sender_shard] += 0.5
-                cross_loads[recipient_shard] += 0.5
                 total_relay1 += 1
                 total_relay2 += 1
 
-        return loads, effective_loads, cross_loads, total_inner, total_relay1, total_relay2
+        communication_cost = clamp(communication_cost / float(max(1, len(txs))), 0.0, 1.0)
+        return (
+            loads,
+            effective_loads,
+            cross_loads,
+            total_inner,
+            total_relay1,
+            total_relay2,
+            communication_cost,
+        )
 
     def _apply_capacity_backlog(
         self,
@@ -813,11 +1176,28 @@ class SpringOfflineEnv:
     ) -> Tuple[List[PlacementAction], BatchMetrics]:
         self.batch_id += 1
         batch_id = self.batch_id
-        batch_related = self.build_batch_related(txs)
+        if self.iot_feature_dim > 0:
+            batch_related = self.build_iot_batch_related(txs)
+            self._seed_iot_anchor_shards(txs)
+        else:
+            batch_related = self.build_batch_related(txs)
         batch_placement: Dict[str, int] = {}
         actions: List[PlacementAction] = []
 
-        if self.sender_pos_mode == 1:
+        if self.iot_feature_dim > 0:
+            for tx in txs:
+                action = self._place_address(
+                    tx.sender,
+                    tx.recipient,
+                    batch_placement,
+                    batch_related,
+                    policy,
+                    batch_id,
+                    iot_features=tx.iot_features,
+                )
+                if action is not None:
+                    actions.append(action)
+        elif self.sender_pos_mode == 1:
             for tx in txs:
                 action = self._place_address(
                     tx.sender,
@@ -865,9 +1245,15 @@ class SpringOfflineEnv:
                 if recipient_action is not None:
                     actions.append(recipient_action)
 
-        loads, effective_loads, cross_loads, total_inner, total_relay1, total_relay2 = (
-            self._simulate_batch_loads(txs)
-        )
+        (
+            loads,
+            effective_loads,
+            cross_loads,
+            total_inner,
+            total_relay1,
+            total_relay2,
+            communication_cost,
+        ) = self._simulate_batch_loads(txs)
         (
             reward_loads,
             committed_loads,
@@ -889,6 +1275,11 @@ class SpringOfflineEnv:
             backlog_penalty=backlog_penalty,
             backlog_penalty_weight=self.backlog_penalty_weight,
             reward_mode=self.reward_mode,
+            communication_cost=communication_cost,
+            iot_cstr_weight=self.iot_cstr_weight,
+            iot_balance_weight=self.iot_balance_weight,
+            iot_comm_cost_weight=self.iot_comm_cost_weight,
+            iot_hotspot_weight=self.iot_hotspot_weight,
         )
 
         self.recent_stats.append(
@@ -974,6 +1365,7 @@ class SpringOfflineEnv:
             hotspot_penalty=float(reward_parts["hotspot_penalty"]),
             load_aware_bonus=float(reward_parts["load_aware_bonus"]),
             backlog_penalty=float(reward_parts["backlog_penalty"]),
+            communication_cost=float(reward_parts["communication_cost"]),
             reward=reward,
             loads=loads,
             effective_loads=effective_loads,

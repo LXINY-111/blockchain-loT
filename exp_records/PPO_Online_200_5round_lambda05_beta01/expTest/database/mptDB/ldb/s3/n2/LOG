@@ -1,8 +1,0 @@
-=============== May 13, 2026 (CST) ===============
-18:58:12.221341 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
-18:58:12.251718 db@open opening
-18:58:12.253224 version@stat F·[] S·0B[] Sc·[]
-18:58:12.259423 db@janitor F·2 G·0
-18:58:12.259423 db@open done T·7.7049ms
-19:01:06.823508 db@close closing
-19:01:06.830843 db@close done T·7.3348ms

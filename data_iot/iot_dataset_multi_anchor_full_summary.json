@@ -1,0 +1,312 @@
+{
+  "generated_at": "2026-06-08T12:44:56.857761+00:00",
+  "dataset_variant": "multi_anchor_full",
+  "input_files": {
+    "flows_zip": "E:\\flows.zip",
+    "mote_locs": "E:\\mote_locs.txt",
+    "connectivity": "E:\\connectivity.txt"
+  },
+  "output_files": {
+    "transactions": "data_iot\\selectedTxs_iot_multi_anchor_full.csv",
+    "sidecar": "data_iot\\iot_flow_sidecar_multi_anchor_full.csv",
+    "topology": "data_iot\\iot_device_topology_multi_anchor_full.csv",
+    "anchor_registry": "data_iot\\iot_anchor_registry_multi_anchor_full.csv",
+    "state_anchor_edges": "data_iot\\iot_state_anchor_edges_multi_anchor_full.csv",
+    "summary": "data_iot\\iot_dataset_multi_anchor_full_summary.json"
+  },
+  "limit": 0,
+  "tx_batch_size": 1000,
+  "flow_file_count": 27,
+  "device_count": 27,
+  "total_flow_count": 4944041,
+  "invalid_time_flow_count": 8,
+  "missing_endpoint_flow_count": 14,
+  "selected_flow_count": 4944019,
+  "selected_state_object_count": 76015,
+  "selected_from_address_count": 27,
+  "selected_to_address_count": 76015,
+  "anchor_registry_count": 2913,
+  "state_anchor_edge_count": 153378,
+  "multi_anchor_row_count": 4943655,
+  "multi_anchor_state_object_count": 76013,
+  "anchor_count_distribution": {
+    "1": 364,
+    "2": 3548593,
+    "3": 1395062
+  },
+  "anchor_type_distribution_rows": {
+    "cloud_endpoint": 1436964,
+    "device": 5685004,
+    "gateway": 743248,
+    "local_endpoint": 582298,
+    "private_endpoint": 1209433,
+    "service_group": 1625789
+  },
+  "relation_type_distribution": {
+    "device_to_cloud": 1355183,
+    "device_to_device": 709408,
+    "device_to_gateway": 684336,
+    "device_to_local_endpoint": 380053,
+    "device_to_multi_anchor": 1389557,
+    "device_to_private_endpoint": 18165,
+    "device_to_service_group": 406953,
+    "owner_only": 364
+  },
+  "flow_direction_distribution": {
+    "inbound": 877615,
+    "outbound": 2627278,
+    "owner_not_in_ip_endpoints": 1439126
+  },
+  "protocol_distribution_seen_valid_time": {
+    "classic-stun": 3967,
+    "dhcp": 40719,
+    "dns": 596341,
+    "http": 818456,
+    "icmp": 476420,
+    "icmpv6": 11614,
+    "igmp": 1995,
+    "ipp": 5,
+    "isakmp": 240,
+    "lldp": 24840,
+    "llmnr": 10,
+    "mdns": 4758,
+    "nbns": 1529,
+    "none": 1600249,
+    "ntp": 263211,
+    "rtmp": 11,
+    "rtp": 3,
+    "rtsp": 9,
+    "sip": 17068,
+    "smb": 2529,
+    "snmp": 28,
+    "ssdp": 264128,
+    "stun": 55170,
+    "syslog": 171,
+    "tls": 760434,
+    "xmpp": 128
+  },
+  "protocol_distribution_selected": {
+    "classic-stun": 3967,
+    "dhcp": 40719,
+    "dns": 596341,
+    "http": 818456,
+    "icmp": 476409,
+    "icmpv6": 11614,
+    "igmp": 1995,
+    "ipp": 5,
+    "isakmp": 240,
+    "lldp": 24840,
+    "llmnr": 10,
+    "mdns": 4758,
+    "nbns": 1529,
+    "none": 1600247,
+    "ntp": 263211,
+    "rtmp": 11,
+    "rtp": 3,
+    "rtsp": 9,
+    "sip": 17067,
+    "smb": 2529,
+    "snmp": 28,
+    "ssdp": 264128,
+    "stun": 55170,
+    "syslog": 171,
+    "tls": 760434,
+    "xmpp": 128
+  },
+  "selected_flow_count_by_device": {
+    "AmazonEcho": 245784,
+    "AugustDoorBell": 1132269,
+    "AwairAirQuality": 4404,
+    "BelkinCamera": 65169,
+    "BelkinWemoMotionSensor": 680235,
+    "BelkinWemoSwitch": 490561,
+    "BlipCareBPMeter": 54,
+    "CanaryCamera": 6598,
+    "HPPrinter": 594646,
+    "HelloBarbie": 150,
+    "LiFXBulb": 102031,
+    "NestDropCam": 2102,
+    "NestProtect": 256956,
+    "NetatmoWeatherStation": 78879,
+    "NetatmoWelcome": 315974,
+    "PhilipsHue": 302097,
+    "PixStarPhotoFrame": 15358,
+    "RingDoorBell": 1105,
+    "SamsungCamera": 379921,
+    "SamsungSmartThings": 42910,
+    "TPLinkCamera": 48007,
+    "TPLinkSmartPlug": 12816,
+    "TribySpeaker": 51649,
+    "WithingsBabyMonitor": 11241,
+    "WithingsSleepSensor": 41221,
+    "WithingsSmartScale": 1530,
+    "iHome": 60352
+  },
+  "primary_ip_inference": {
+    "flow_file_count_with_primary_ip": 27,
+    "unique_primary_ip_count": 26,
+    "duplicate_primary_ips": {
+      "192.168.1.241": [
+        "flows/HelloBarbie_28c2ddffa52d_flows.csv",
+        "flows/NetatmoWelcome_70ee50183443_flows.csv"
+      ]
+    },
+    "per_flow_file": {
+      "flows/AmazonEcho_44650d56ccd3_flows.csv": {
+        "primary_ip": "192.168.1.240",
+        "primary_ip_count": 140114,
+        "candidate_ip_count": 5
+      },
+      "flows/AugustDoorBell_e076d03f00ae_flows.csv": {
+        "primary_ip": "192.168.1.216",
+        "primary_ip_count": 1015077,
+        "candidate_ip_count": 3
+      },
+      "flows/AwairAirQuality_70886b100fc6_flows.csv": {
+        "primary_ip": "192.168.1.152",
+        "primary_ip_count": 4383,
+        "candidate_ip_count": 2
+      },
+      "flows/BelkinCamera_b4750eece5a9_flows.csv": {
+        "primary_ip": "192.168.1.165",
+        "primary_ip_count": 65165,
+        "candidate_ip_count": 9
+      },
+      "flows/BelkinWemoMotionSensor_ec1a59832811_flows.csv": {
+        "primary_ip": "192.168.1.193",
+        "primary_ip_count": 565317,
+        "candidate_ip_count": 15
+      },
+      "flows/BelkinWemoSwitch_ec1a5979f489_flows.csv": {
+        "primary_ip": "192.168.1.223",
+        "primary_ip_count": 326403,
+        "candidate_ip_count": 15
+      },
+      "flows/BlipCareBPMeter_746a89002e25_flows.csv": {
+        "primary_ip": "192.168.1.131",
+        "primary_ip_count": 41,
+        "candidate_ip_count": 1
+      },
+      "flows/CanaryCamera_7c70bc5d5edc_flows.csv": {
+        "primary_ip": "192.168.1.230",
+        "primary_ip_count": 6595,
+        "candidate_ip_count": 1
+      },
+      "flows/HPPrinter_705a0fe49bc0_flows.csv": {
+        "primary_ip": "192.168.1.236",
+        "primary_ip_count": 148232,
+        "candidate_ip_count": 11
+      },
+      "flows/HelloBarbie_28c2ddffa52d_flows.csv": {
+        "primary_ip": "192.168.1.241",
+        "primary_ip_count": 93,
+        "candidate_ip_count": 3
+      },
+      "flows/LiFXBulb_d073d5018308_flows.csv": {
+        "primary_ip": "192.168.1.118",
+        "primary_ip_count": 101978,
+        "candidate_ip_count": 5
+      },
+      "flows/NestDropCam_308cfb2fe4b2_flows.csv": {
+        "primary_ip": "192.168.1.106",
+        "primary_ip_count": 2045,
+        "candidate_ip_count": 2
+      },
+      "flows/NestProtect_18b43025bee4_flows.csv": {
+        "primary_ip": "192.168.1.168",
+        "primary_ip_count": 256068,
+        "candidate_ip_count": 2
+      },
+      "flows/NetatmoWeatherStation_70ee5003b8ac_flows.csv": {
+        "primary_ip": "192.168.1.112",
+        "primary_ip_count": 62581,
+        "candidate_ip_count": 3
+      },
+      "flows/NetatmoWelcome_70ee50183443_flows.csv": {
+        "primary_ip": "192.168.1.241",
+        "primary_ip_count": 92389,
+        "candidate_ip_count": 6
+      },
+      "flows/PhilipsHue_0017882b9a25_flows.csv": {
+        "primary_ip": "192.168.1.159",
+        "primary_ip_count": 302068,
+        "candidate_ip_count": 14
+      },
+      "flows/PixStarPhotoFrame_e076d033bb85_flows.csv": {
+        "primary_ip": "192.168.1.177",
+        "primary_ip_count": 10809,
+        "candidate_ip_count": 5
+      },
+      "flows/RingDoorBell_884aea31669d_flows.csv": {
+        "primary_ip": "192.168.1.221",
+        "primary_ip_count": 1100,
+        "candidate_ip_count": 1
+      },
+      "flows/SamsungCamera_00166cab6b88_flows.csv": {
+        "primary_ip": "192.168.1.248",
+        "primary_ip_count": 166856,
+        "candidate_ip_count": 20
+      },
+      "flows/SamsungSmartThings_d052a800675e_flows.csv": {
+        "primary_ip": "192.168.1.196",
+        "primary_ip_count": 42874,
+        "candidate_ip_count": 2
+      },
+      "flows/TPLinkCamera_f4f26D9351f1_flows.csv": {
+        "primary_ip": "192.168.1.143",
+        "primary_ip_count": 21298,
+        "candidate_ip_count": 7
+      },
+      "flows/TPLinkSmartPlug_50c7bf005639_flows.csv": {
+        "primary_ip": "192.168.1.228",
+        "primary_ip_count": 8229,
+        "candidate_ip_count": 6
+      },
+      "flows/TribySpeaker_18B79E022044_flows.csv": {
+        "primary_ip": "192.168.1.120",
+        "primary_ip_count": 51605,
+        "candidate_ip_count": 3
+      },
+      "flows/WithingsBabyMonitor_0024e41118a8_flows.csv": {
+        "primary_ip": "192.168.1.166",
+        "primary_ip_count": 11240,
+        "candidate_ip_count": 1
+      },
+      "flows/WithingsSleepSensor_0024e42028c6_flows.csv": {
+        "primary_ip": "192.168.1.156",
+        "primary_ip_count": 41207,
+        "candidate_ip_count": 5
+      },
+      "flows/WithingsSmartScale_0024e41b6f96_flows.csv": {
+        "primary_ip": "192.168.1.238",
+        "primary_ip_count": 1262,
+        "candidate_ip_count": 1
+      },
+      "flows/iHome_74c63b29d71d_flows.csv": {
+        "primary_ip": "192.168.1.163",
+        "primary_ip_count": 59864,
+        "candidate_ip_count": 4
+      }
+    }
+  },
+  "address_grain": {
+    "from_address": "hash(device_label, device_mac)",
+    "to_address": "hash(device_label, peer_anchor_identity, dstPort/service, protocol)",
+    "state_object_key": "device_label + peer anchor identity + dstPort/service + protocol",
+    "multi_anchor_edges": "state object account -> {owner device anchor, observed peer/service anchors}"
+  },
+  "filter_rules": {
+    "kept_protocols": "all protocols with valid timestamps and at least one usable endpoint",
+    "valid_time_years": [
+      2016,
+      2017
+    ],
+    "missing_endpoint_policy": "drop only rows without any usable src/dst IP or MAC",
+    "control_and_discovery_policy": "keep ARP/DHCP/ICMP/SSDP/mDNS/etc. as IoT control/discovery flows; multicast/broadcast endpoints become service-group anchors"
+  },
+  "topology_augmentation": {
+    "method": "UNSW IoT flow devices are deterministically mapped to Intel Berkeley mote coordinates; non-device anchors are deterministically mapped to motes by hash for distance/link-quality features.",
+    "mote_count": 54,
+    "connectivity_edge_count": 2970
+  }
+}

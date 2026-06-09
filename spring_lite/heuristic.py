@@ -1,3 +1,4 @@
+import hashlib
 from typing import List
 
 
@@ -12,7 +13,10 @@ def addr2shard(addr: str, shards: int) -> int:
     try:
         return int(addr, 16) % shards
     except ValueError:
-        return abs(hash(addr)) % shards
+        # IoT MDP 中的 iot_state/iot_peer 不是十六进制地址。
+        # Python 内置 hash() 会按进程随机化，论文实验需要稳定哈希。
+        digest = hashlib.sha256(addr.encode("utf-8")).digest()
+        return int.from_bytes(digest, "big") % shards
 
 
 def heuristic_from_state(state: List[float], shards: int) -> int:
@@ -36,13 +40,13 @@ def heuristic_from_state(state: List[float], shards: int) -> int:
     best_sid = 0
     best_score = -10**18
 
-    has_related = any(v > 0.5 for v in sender_pos)
-
     for sid in range(shards):
         score = -loads[sid]
 
-        if has_related and sender_pos[sid] > 0.5:
-            score += 1000.0
+        # multi-anchor（多锚点）场景下，相关锚点可能分散在多个 shard（分片）。
+        # 用连续 sender_pos 加分，而不是只在 >0.5 时触发，避免退回纯负载规则。
+        if sid < len(sender_pos):
+            score += 1000.0 * float(sender_pos[sid])
 
         if score > best_score:
             best_score = score

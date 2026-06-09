@@ -23,6 +23,8 @@ from config import (
     CHECKPOINT_DIR,
     CLIP_EPS,
     DEFAULT_CSV_PATH,
+    DEFAULT_IOT_CSV_PATH,
+    DEFAULT_IOT_SIDECAR_PATH,
     DEFAULT_SENDER_POS_MODE,
     DEFAULT_SHARD_NUM,
     ENTROPY_COEF,
@@ -31,6 +33,11 @@ from config import (
     HIDDEN_DIM,
     HOTSPOT_PENALTY_WEIGHT,
     HOTSPOT_THRESHOLD,
+    IOT_BALANCE_WEIGHT,
+    IOT_COMM_COST_WEIGHT,
+    IOT_CSTR_WEIGHT,
+    IOT_FEATURE_DIM,
+    IOT_HOTSPOT_WEIGHT,
     LAMBDA_WEIGHT,
     LEARNING_RATE,
     LOAD_PENALTY_WEIGHT,
@@ -51,6 +58,7 @@ from offline_env import (
     SenderPosInfo,
     SpringOfflineEnv,
     iter_batches,
+    load_iot_transactions,
     load_transactions,
 )
 from ppo import PPOAgent, RolloutBuffer
@@ -64,9 +72,48 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def is_iot_mdp(args: argparse.Namespace) -> bool:
+    return str(getattr(args, "mdp_mode", "spring")).strip().lower() == "iot"
+
+
+def iot_feature_dim_for_args(args: argparse.Namespace) -> int:
+    return IOT_FEATURE_DIM if is_iot_mdp(args) else 0
+
+
+def agent_state_dim(args: argparse.Namespace, shards: Optional[int] = None) -> int:
+    shard_count = int(shards if shards is not None else args.shards)
+    return state_dim(shard_count, iot_feature_dim_for_args(args))
+
+
+def resolve_csv_path(args: argparse.Namespace) -> Path:
+    csv_arg = str(getattr(args, "csv", "")).strip()
+    if csv_arg:
+        return Path(csv_arg)
+    return DEFAULT_IOT_CSV_PATH if is_iot_mdp(args) else DEFAULT_CSV_PATH
+
+
+def resolve_iot_sidecar_path(args: argparse.Namespace) -> Path:
+    sidecar = str(getattr(args, "sidecar", "")).strip()
+    return Path(sidecar) if sidecar else DEFAULT_IOT_SIDECAR_PATH
+
+
+def load_training_transactions(args: argparse.Namespace, csv_path: Path):
+    if is_iot_mdp(args):
+        sidecar_path = resolve_iot_sidecar_path(args)
+        if not sidecar_path.exists():
+            raise FileNotFoundError(f"IoT sidecar not found: {sidecar_path}")
+        args.sidecar = str(sidecar_path)
+        return load_iot_transactions(
+            csv_path,
+            sidecar_path,
+            max_txs=args.max_txs,
+        )
+    return load_transactions(csv_path, max_txs=args.max_txs)
+
+
 def make_agent(args: argparse.Namespace) -> PPOAgent:
     agent = PPOAgent(
-        state_dim=state_dim(args.shards),
+        state_dim=agent_state_dim(args),
         action_dim=args.shards,
         hidden_dim=args.hidden_dim,
         lr=args.lr,
@@ -89,7 +136,7 @@ def make_agent(args: argparse.Namespace) -> PPOAgent:
         payload = agent.load(model_path)
         ckpt_state_dim = int(payload.get("state_dim", -1))
         ckpt_action_dim = int(payload.get("action_dim", -1))
-        if ckpt_state_dim != state_dim(args.shards) or ckpt_action_dim != args.shards:
+        if ckpt_state_dim != agent_state_dim(args) or ckpt_action_dim != args.shards:
             raise ValueError(
                 "checkpoint dimension mismatch: "
                 f"state_dim={ckpt_state_dim}, action_dim={ckpt_action_dim}"
@@ -209,6 +256,7 @@ def new_summary(shards: int) -> Dict[str, object]:
         "hotspot_penalty_sum": 0.0,
         "load_aware_bonus_sum": 0.0,
         "backlog_penalty_sum": 0.0,
+        "communication_cost_sum": 0.0,
         "related_known_count": 0,
         "same_as_related_count": 0,
         "related_shard_hist": [0 for _ in range(shards)],
@@ -243,6 +291,9 @@ def update_summary(summary: Dict[str, object], metrics: BatchMetrics) -> None:
     )
     summary["backlog_penalty_sum"] = (
         float(summary["backlog_penalty_sum"]) + metrics.backlog_penalty
+    )
+    summary["communication_cost_sum"] = (
+        float(summary["communication_cost_sum"]) + metrics.communication_cost
     )
     summary["related_known_count"] = int(summary["related_known_count"]) + metrics.related_known_count
     summary["same_as_related_count"] = int(summary["same_as_related_count"]) + metrics.same_as_related_count
@@ -315,6 +366,7 @@ def summary_view(summary: Dict[str, object]) -> Dict[str, object]:
         "hotspot_penalty_mean": float(summary["hotspot_penalty_sum"]) / batches,
         "load_aware_bonus_mean": float(summary["load_aware_bonus_sum"]) / batches,
         "backlog_penalty_mean": float(summary["backlog_penalty_sum"]) / batches,
+        "communication_cost_mean": float(summary["communication_cost_sum"]) / batches,
         "same_as_related_ratio": (
             int(summary["same_as_related_count"]) / related_known if related_known else 0.0
         ),
@@ -361,6 +413,11 @@ def make_env(args: argparse.Namespace) -> SpringOfflineEnv:
         capacity_backlog_mode=args.capacity_backlog_mode,
         backlog_penalty_weight=args.backlog_penalty_weight,
         reward_mode=args.reward_mode,
+        iot_feature_dim=iot_feature_dim_for_args(args),
+        iot_cstr_weight=args.iot_cstr_weight,
+        iot_balance_weight=args.iot_balance_weight,
+        iot_comm_cost_weight=args.iot_comm_cost_weight,
+        iot_hotspot_weight=args.iot_hotspot_weight,
     )
 
 
@@ -440,7 +497,8 @@ def validation_score(
 def train(args: argparse.Namespace) -> None:
     set_seed(args.seed)
 
-    csv_path = Path(args.csv)
+    csv_path = resolve_csv_path(args)
+    args.csv = str(csv_path)
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV not found: {csv_path}")
 
@@ -448,7 +506,7 @@ def train(args: argparse.Namespace) -> None:
     model_path.parent.mkdir(parents=True, exist_ok=True)
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
-    txs = load_transactions(csv_path, max_txs=args.max_txs)
+    txs = load_training_transactions(args, csv_path)
     if not txs:
         raise RuntimeError(f"no valid transactions loaded from {csv_path}")
 
@@ -456,7 +514,8 @@ def train(args: argparse.Namespace) -> None:
         "[DATA] "
         f"txs={len(txs)} csv={csv_path} shards={args.shards} "
         f"tx_batch_size={args.tx_batch_size} sender_pos_mode={args.sender_pos_mode} "
-        f"reward_mode={args.reward_mode} entropy_coef={args.entropy_coef} "
+        f"mdp_mode={args.mdp_mode} reward_mode={args.reward_mode} "
+        f"entropy_coef={args.entropy_coef} "
         f"supervised_coef={args.supervised_coef}"
     )
 
@@ -733,8 +792,11 @@ def build_extra(
         "checkpoint_kind": checkpoint_kind,
         "loaded_txs": loaded_txs,
         "offline_update_count": update_count,
+        "mdp_mode": args.mdp_mode,
+        "sidecar": args.sidecar,
         "shards": args.shards,
-        "state_dim": state_dim(args.shards),
+        "state_dim": agent_state_dim(args),
+        "iot_feature_dim": iot_feature_dim_for_args(args),
         "hidden_dim": args.hidden_dim,
         "lr": args.lr,
         "gamma": args.gamma,
@@ -761,6 +823,10 @@ def build_extra(
         "min_active_load_share": args.min_active_load_share,
         "capacity_backlog_mode": args.capacity_backlog_mode,
         "backlog_penalty_weight": args.backlog_penalty_weight,
+        "iot_cstr_weight": args.iot_cstr_weight,
+        "iot_balance_weight": args.iot_balance_weight,
+        "iot_comm_cost_weight": args.iot_comm_cost_weight,
+        "iot_hotspot_weight": args.iot_hotspot_weight,
         "argmax_tie_break": args.argmax_tie_break,
         "argmax_tie_eps": args.argmax_tie_eps,
         "argmax_balance_coef": args.argmax_balance_coef,
@@ -791,7 +857,9 @@ def build_extra(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--csv", type=str, default=str(DEFAULT_CSV_PATH))
+    parser.add_argument("--csv", type=str, default="")
+    parser.add_argument("--sidecar", type=str, default="")
+    parser.add_argument("--mdp_mode", choices=["spring", "iot"], default="spring")
     parser.add_argument("--model", type=str, default=str(MODEL_PATH))
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--shards", type=int, default=DEFAULT_SHARD_NUM)
@@ -802,7 +870,7 @@ def main() -> None:
     parser.add_argument("--sender_pos_mode", type=int, default=DEFAULT_SENDER_POS_MODE)
     parser.add_argument("--temporal_top_k", type=int, default=8)
     parser.add_argument("--keep_placement", action="store_true")
-    parser.add_argument("--reward_mode", choices=["paper", "enhanced"], default=REWARD_MODE)
+    parser.add_argument("--reward_mode", choices=["paper", "enhanced", "iot"], default=REWARD_MODE)
 
     parser.add_argument("--hidden_dim", type=int, default=HIDDEN_DIM)
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
@@ -839,6 +907,10 @@ def main() -> None:
     parser.add_argument("--min_active_load_share", type=float, default=MIN_ACTIVE_LOAD_SHARE)
     parser.add_argument("--capacity_backlog_mode", type=int, default=CAPACITY_BACKLOG_MODE)
     parser.add_argument("--backlog_penalty_weight", type=float, default=BACKLOG_PENALTY_WEIGHT)
+    parser.add_argument("--iot_cstr_weight", type=float, default=IOT_CSTR_WEIGHT)
+    parser.add_argument("--iot_balance_weight", type=float, default=IOT_BALANCE_WEIGHT)
+    parser.add_argument("--iot_comm_cost_weight", type=float, default=IOT_COMM_COST_WEIGHT)
+    parser.add_argument("--iot_hotspot_weight", type=float, default=IOT_HOTSPOT_WEIGHT)
     parser.add_argument("--argmax_tie_break", type=int, default=ARGMAX_TIE_BREAK)
     parser.add_argument("--argmax_tie_eps", type=float, default=ARGMAX_TIE_EPS)
 
@@ -866,6 +938,8 @@ def main() -> None:
     parser.add_argument("--log_jsonl", type=str, default="")
 
     args = parser.parse_args()
+    if args.mdp_mode == "iot" and args.reward_mode == REWARD_MODE:
+        args.reward_mode = "iot"
     train(args)
 
 
