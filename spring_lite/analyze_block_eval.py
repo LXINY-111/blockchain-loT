@@ -165,6 +165,9 @@ def analyze_decisions(zip_path: Path, shards: int) -> Dict[str, object]:
         sender_pos_nonzero = 0
         count = 0
         source_hist: Dict[str, int] = {}
+        action_mask_size_hist: Dict[int, int] = {}
+        action_mask_size_sum = 0.0
+        action_mask_seen = 0
         sender_pos_start = 10 * shards
         sender_pos_end = sender_pos_start + shards
 
@@ -178,6 +181,18 @@ def analyze_decisions(zip_path: Path, shards: int) -> Dict[str, object]:
             entropy_sum += float(rec.get("entropy", 0.0) or 0.0)
             source = str(rec.get("source", "unknown"))
             source_hist[source] = source_hist.get(source, 0) + 1
+            raw_mask = rec.get("action_mask") or []
+            mask_size = 0
+            if isinstance(raw_mask, list) and raw_mask:
+                mask_size = sum(1 for value in raw_mask if int(value or 0) > 0)
+            else:
+                mask_size = int(rec.get("action_mask_count", 0) or 0)
+            if mask_size > 0:
+                action_mask_seen += 1
+                action_mask_size_sum += float(mask_size)
+                action_mask_size_hist[mask_size] = (
+                    action_mask_size_hist.get(mask_size, 0) + 1
+                )
 
             state = rec.get("state") or []
             if len(state) >= sender_pos_end:
@@ -206,6 +221,19 @@ def analyze_decisions(zip_path: Path, shards: int) -> Dict[str, object]:
         for sid in range(shards)
         if related_shard_hist[sid] > 0
     ]
+    single_candidate_count = action_mask_size_hist.get(1, 0)
+    multi_candidate_count = sum(
+        value for size, value in action_mask_size_hist.items() if size > 1
+    )
+    python_ppo_count = sum(
+        value for source, value in source_hist.items() if source.startswith("python_ppo")
+    )
+    fallback_source_hist = {
+        source: value
+        for source, value in source_hist.items()
+        if (not source.startswith("python_ppo")) or "fallback" in source
+    }
+    fallback_count = sum(fallback_source_hist.values())
 
     return {
         "decision_count": count,
@@ -216,6 +244,25 @@ def analyze_decisions(zip_path: Path, shards: int) -> Dict[str, object]:
         "confidence_mean": confidence_sum / count if count else 0.0,
         "entropy_mean": entropy_sum / count if count else 0.0,
         "source_hist": source_hist,
+        "python_ppo_count": python_ppo_count,
+        "python_ppo_ratio": python_ppo_count / count if count else 0.0,
+        "fallback_count": fallback_count,
+        "fallback_ratio": fallback_count / count if count else 0.0,
+        "fallback_source_hist": fallback_source_hist,
+        "action_mask_seen": action_mask_seen,
+        "action_mask_seen_ratio": action_mask_seen / count if count else 0.0,
+        "action_mask_size_hist": dict(sorted(action_mask_size_hist.items())),
+        "action_mask_size_mean": action_mask_size_sum / action_mask_seen
+        if action_mask_seen
+        else 0.0,
+        "single_candidate_count": single_candidate_count,
+        "single_candidate_ratio": single_candidate_count / action_mask_seen
+        if action_mask_seen
+        else 0.0,
+        "multi_candidate_count": multi_candidate_count,
+        "multi_candidate_ratio": multi_candidate_count / action_mask_seen
+        if action_mask_seen
+        else 0.0,
         "sender_pos_nonzero_ratio": sender_pos_nonzero / count if count else 0.0,
         "related_shard_hist": related_shard_hist,
         "same_related_by_shard": same_related_by_shard,

@@ -38,6 +38,7 @@ var (
 	// 0 = 原始 Hash Relay
 	// 1 = SPRING-Heuristic
 	// 2 = SPRING-PPO
+	// 3 = SPRING-Random baseline（随机基线）
 	SpringMode = 2
 
 	// SpringOnlineTrain:
@@ -49,6 +50,17 @@ var (
 	// 1 = 验证模式下也使用采样，但不更新模型
 	// 0 = 验证模式下使用最大概率动作
 	SpringEvalSample = 0
+
+	// SpringRandomSeed:
+	// SpringMode = 3 时使用的随机种子，保证 random baseline（随机基线）可复现。
+	SpringRandomSeed int64 = 7
+
+	// Candidate filtering（候选分片过滤）和 capacity guard（容量保护）默认关闭。
+	// 这样旧的 PPO / heuristic / hash / random 实验结果仍然可以复现。
+	SpringCandidateTopK       = 0
+	SpringCapacityGuard       = 0
+	SpringCapacityGuardFactor = 1.2
+	SpringCandidateLoadWeight = 1.0
 
 	// SpringRewardLambda:
 	// SPRING reward 中跨片率奖励和负载均衡奖励的权重。
@@ -68,12 +80,21 @@ var (
 
 	// SpringIOTMode:
 	// 0 = 普通 SPRING MDP（45 维，4 分片时）
-	// 1 = IoT MDP（51 维，4 分片时）：读取 sidecar 并追加 6 个场景特征。
+	// 1 = IoT MDP（59 维，4 分片时）：读取 sidecar，追加 current_load 和 10 个轻量场景特征。
 	SpringIOTMode = 0
 
-	SpringIOTFeatureDim  = 6
+	SpringIOTFeatureDim  = 10
 	SpringIOTSidecarFile = ""
 	SpringModelFile      = "spring_lite/checkpoints/spring_ppo.pt"
+
+	// IoT dense-balanced reward weights. These defaults match
+	// spring_lite/offline_env.py so online BlockEmulator feedback and
+	// offline PPO training explain the same objective.
+	SpringIOTCSTRWeight       = 0.55
+	SpringIOTBalanceWeight    = 0.30
+	SpringIOTCommCostWeight   = 0.10
+	SpringIOTHotspotWeight    = 0.05
+	SpringIOTHotspotThreshold = 0.45
 
 	ExpDataRootDir     = "expTest"                     // The root dir where the experimental data should locate.
 	DataWrite_path     = ExpDataRootDir + "/result/"   // Measurement data result output path
@@ -108,10 +129,22 @@ type globalConfig struct {
 
 	SpringEvalSample int `json:"SpringEvalSample"`
 
-	SpringIOTMode        int    `json:"SpringIOTMode"`
-	SpringIOTFeatureDim  int    `json:"SpringIOTFeatureDim"`
-	SpringIOTSidecarFile string `json:"SpringIOTSidecarFile"`
-	SpringModelFile      string `json:"SpringModelFile"`
+	SpringRandomSeed int64 `json:"SpringRandomSeed"`
+
+	SpringCandidateTopK       int     `json:"SpringCandidateTopK"`
+	SpringCapacityGuard       int     `json:"SpringCapacityGuard"`
+	SpringCapacityGuardFactor float64 `json:"SpringCapacityGuardFactor"`
+	SpringCandidateLoadWeight float64 `json:"SpringCandidateLoadWeight"`
+
+	SpringIOTMode             int      `json:"SpringIOTMode"`
+	SpringIOTFeatureDim       int      `json:"SpringIOTFeatureDim"`
+	SpringIOTSidecarFile      string   `json:"SpringIOTSidecarFile"`
+	SpringModelFile           string   `json:"SpringModelFile"`
+	SpringIOTCSTRWeight       *float64 `json:"SpringIOTCSTRWeight"`
+	SpringIOTBalanceWeight    *float64 `json:"SpringIOTBalanceWeight"`
+	SpringIOTCommCostWeight   *float64 `json:"SpringIOTCommCostWeight"`
+	SpringIOTHotspotWeight    *float64 `json:"SpringIOTHotspotWeight"`
+	SpringIOTHotspotThreshold *float64 `json:"SpringIOTHotspotThreshold"`
 
 	PbftViewChangeTimeOut int `json:"PbftViewChangeTimeOut"`
 
@@ -159,6 +192,23 @@ func ReadConfigFile() {
 	SpringMode = config.SpringMode
 
 	SpringOnlineTrain = config.SpringOnlineTrain
+	if config.SpringRandomSeed != 0 {
+		SpringRandomSeed = config.SpringRandomSeed
+	}
+	SpringCandidateTopK = config.SpringCandidateTopK
+	if SpringCandidateTopK < 0 {
+		SpringCandidateTopK = 0
+	}
+	SpringCapacityGuard = config.SpringCapacityGuard
+	if config.SpringCapacityGuardFactor > 0 {
+		SpringCapacityGuardFactor = config.SpringCapacityGuardFactor
+	}
+	if SpringCapacityGuardFactor < 1.0 {
+		SpringCapacityGuardFactor = 1.0
+	}
+	if config.SpringCandidateLoadWeight > 0 {
+		SpringCandidateLoadWeight = config.SpringCandidateLoadWeight
+	}
 
 	SpringRewardLambda = config.SpringRewardLambda
 	if SpringRewardLambda < 0 || SpringRewardLambda > 1 {
@@ -190,6 +240,39 @@ func ReadConfigFile() {
 	}
 	if strings.TrimSpace(config.SpringModelFile) != "" {
 		SpringModelFile = config.SpringModelFile
+	}
+	if config.SpringIOTCSTRWeight != nil {
+		SpringIOTCSTRWeight = *config.SpringIOTCSTRWeight
+	}
+	if config.SpringIOTBalanceWeight != nil {
+		SpringIOTBalanceWeight = *config.SpringIOTBalanceWeight
+	}
+	if config.SpringIOTCommCostWeight != nil {
+		SpringIOTCommCostWeight = *config.SpringIOTCommCostWeight
+	}
+	if config.SpringIOTHotspotWeight != nil {
+		SpringIOTHotspotWeight = *config.SpringIOTHotspotWeight
+	}
+	if config.SpringIOTHotspotThreshold != nil {
+		SpringIOTHotspotThreshold = *config.SpringIOTHotspotThreshold
+	}
+	if SpringIOTCSTRWeight < 0 {
+		SpringIOTCSTRWeight = 0
+	}
+	if SpringIOTBalanceWeight < 0 {
+		SpringIOTBalanceWeight = 0
+	}
+	if SpringIOTCommCostWeight < 0 {
+		SpringIOTCommCostWeight = 0
+	}
+	if SpringIOTHotspotWeight < 0 {
+		SpringIOTHotspotWeight = 0
+	}
+	if SpringIOTHotspotThreshold < 0 {
+		SpringIOTHotspotThreshold = 0
+	}
+	if SpringIOTHotspotThreshold >= 1 {
+		SpringIOTHotspotThreshold = 0.999999
 	}
 
 	PbftViewChangeTimeOut = config.PbftViewChangeTimeOut

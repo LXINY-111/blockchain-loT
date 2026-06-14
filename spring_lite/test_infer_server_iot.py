@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import torch
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -76,6 +78,44 @@ class InferServerIoTTest(unittest.TestCase):
 
         self.assertEqual(outputs[0]["source"], "python_heuristic_no_model")
         self.assertEqual(outputs[0]["batch_id"], 8)
+
+    def test_infer_items_respects_action_mask(self):
+        shards = 4
+        iot_dim = state_dim(shards, IOT_FEATURE_DIM)
+
+        with TemporaryDirectory() as tmp:
+            model_path = Path(tmp) / "masked_iot_ppo.pt"
+            agent = PPOAgent(
+                state_dim=iot_dim,
+                action_dim=shards,
+                hidden_dim=HIDDEN_DIM,
+                device="cpu",
+            )
+            with torch.no_grad():
+                for param in agent.net.parameters():
+                    param.zero_()
+                agent.net.actor[-1].bias.copy_(torch.tensor([10.0, 0.0, 0.0, 0.0]))
+            agent.save(model_path, extra={"model_source": "unit_test_mask"})
+
+            outputs = infer_items(
+                items=[
+                    {
+                        "address": "iot_state:camera",
+                        "related": "iot_peer:cloud",
+                        "state": [0.0 for _ in range(iot_dim)],
+                        "action_mask": [0, 1, 0, 0],
+                    }
+                ],
+                shards=shards,
+                sample=False,
+                request_id=9,
+                model_path=model_path,
+                iot_feature_dim=IOT_FEATURE_DIM,
+                cache=AgentCache(),
+            )
+
+        self.assertEqual(outputs[0]["source"], "python_ppo")
+        self.assertEqual(outputs[0]["shard"], 1)
 
 
 if __name__ == "__main__":

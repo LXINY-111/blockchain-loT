@@ -46,10 +46,12 @@ from config import (
     MODEL_PATH,
     PPO_EPOCHS,
     REWARD_MODE,
+    REWARD_MODE_CHOICES,
     SUPERVISED_COEF,
     VALUE_CLIP,
     state_dim,
 )
+from action_mask import mask_logits, normalize_action_mask
 from action_select import distribution_floor_shortfall, tie_aware_argmax
 from offline_env import (
     BatchMetrics,
@@ -156,10 +158,12 @@ def sample_agent_policy(
     state_t = torch.tensor(state, dtype=torch.float32, device=agent.device).unsqueeze(0)
     with torch.no_grad():
         logits, value = agent.net(state_t)
-        dist = Categorical(logits=logits)
+        masks = [normalize_action_mask(_info.action_mask, agent.action_dim)]
+        masked = mask_logits(logits, masks)
+        dist = Categorical(logits=masked)
         action = dist.sample()
         log_prob = dist.log_prob(action)
-        probs = torch.softmax(logits, dim=-1)
+        probs = torch.softmax(masked, dim=-1)
         confidence = probs.gather(1, action.unsqueeze(1)).squeeze(1)
         entropy = dist.entropy()
 
@@ -183,8 +187,10 @@ def deterministic_agent_policy(
     state_t = torch.tensor(state, dtype=torch.float32, device=agent.device).unsqueeze(0)
     with torch.no_grad():
         logits, value = agent.net(state_t)
-        dist = Categorical(logits=logits)
-        probs = torch.softmax(logits, dim=-1)
+        masks = [normalize_action_mask(_info.action_mask, agent.action_dim)]
+        masked = mask_logits(logits, masks)
+        dist = Categorical(logits=masked)
+        probs = torch.softmax(masked, dim=-1)
         action_id = tie_aware_argmax(
             probs.squeeze(0).detach().cpu().tolist(),
             key=f"{address}|{related}",
@@ -216,6 +222,8 @@ def args_tie_break(agent: PPOAgent, fallback: int) -> bool:
 
 def add_actions_to_buffer(buffer: RolloutBuffer, actions: List[PlacementAction]) -> None:
     for idx, action in enumerate(actions):
+        if not str(action.source).startswith("python_ppo"):
+            continue
         if idx + 1 < len(actions):
             next_state = actions[idx + 1].state
         else:
@@ -237,6 +245,7 @@ def add_actions_to_buffer(buffer: RolloutBuffer, actions: List[PlacementAction])
             value=action.value,
             target_action=target_action,
             target_weight=target_weight,
+            action_mask=action.action_mask,
         )
 
 
@@ -418,6 +427,10 @@ def make_env(args: argparse.Namespace) -> SpringOfflineEnv:
         iot_balance_weight=args.iot_balance_weight,
         iot_comm_cost_weight=args.iot_comm_cost_weight,
         iot_hotspot_weight=args.iot_hotspot_weight,
+        candidate_top_k=args.candidate_top_k,
+        capacity_guard=args.capacity_guard,
+        capacity_guard_factor=args.capacity_guard_factor,
+        candidate_load_weight=args.candidate_load_weight,
     )
 
 
@@ -827,6 +840,10 @@ def build_extra(
         "iot_balance_weight": args.iot_balance_weight,
         "iot_comm_cost_weight": args.iot_comm_cost_weight,
         "iot_hotspot_weight": args.iot_hotspot_weight,
+        "candidate_top_k": args.candidate_top_k,
+        "capacity_guard": args.capacity_guard,
+        "capacity_guard_factor": args.capacity_guard_factor,
+        "candidate_load_weight": args.candidate_load_weight,
         "argmax_tie_break": args.argmax_tie_break,
         "argmax_tie_eps": args.argmax_tie_eps,
         "argmax_balance_coef": args.argmax_balance_coef,
@@ -870,7 +887,11 @@ def main() -> None:
     parser.add_argument("--sender_pos_mode", type=int, default=DEFAULT_SENDER_POS_MODE)
     parser.add_argument("--temporal_top_k", type=int, default=8)
     parser.add_argument("--keep_placement", action="store_true")
-    parser.add_argument("--reward_mode", choices=["paper", "enhanced", "iot"], default=REWARD_MODE)
+    parser.add_argument(
+        "--reward_mode",
+        choices=list(REWARD_MODE_CHOICES),
+        default=REWARD_MODE,
+    )
 
     parser.add_argument("--hidden_dim", type=int, default=HIDDEN_DIM)
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
@@ -911,6 +932,10 @@ def main() -> None:
     parser.add_argument("--iot_balance_weight", type=float, default=IOT_BALANCE_WEIGHT)
     parser.add_argument("--iot_comm_cost_weight", type=float, default=IOT_COMM_COST_WEIGHT)
     parser.add_argument("--iot_hotspot_weight", type=float, default=IOT_HOTSPOT_WEIGHT)
+    parser.add_argument("--candidate_top_k", type=int, default=0)
+    parser.add_argument("--capacity_guard", type=int, default=0)
+    parser.add_argument("--capacity_guard_factor", type=float, default=1.2)
+    parser.add_argument("--candidate_load_weight", type=float, default=1.0)
     parser.add_argument("--argmax_tie_break", type=int, default=ARGMAX_TIE_BREAK)
     parser.add_argument("--argmax_tie_eps", type=float, default=ARGMAX_TIE_EPS)
 

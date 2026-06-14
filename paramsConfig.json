@@ -1,24 +1,34 @@
 {
   "ConsensusMethod": 3,
 
-  "SpringMode": 0,
+  "SpringMode": 1,
 
   "SpringOnlineTrain": 0,
 
   "SpringEvalSample": 0,
+  "SpringRandomSeed": 7,
+  "SpringCandidateTopK": 2,
+  "SpringCapacityGuard": 1,
+  "SpringCapacityGuardFactor": 1.3,
+  "SpringCandidateLoadWeight": 1.0,
 
   "SpringIOTMode": 1,
-  "SpringIOTFeatureDim": 6,
+  "SpringIOTFeatureDim": 10,
   "SpringIOTSidecarFile": "./data_iot/iot_flow_sidecar_multi_anchor_full.csv",
-  "SpringModelFile": "spring_lite/checkpoints/spring_iot51_multi_anchor_full_ppo.pt",
+  "SpringModelFile": "spring_lite/checkpoints/spring_iot59_top2_guard13_2M_seed7.pt",
+  "SpringIOTCSTRWeight": 0.55,
+  "SpringIOTBalanceWeight": 0.30,
+  "SpringIOTCommCostWeight": 0.10,
+  "SpringIOTHotspotWeight": 0.05,
+  "SpringIOTHotspotThreshold": 0.45,
 
-  "SpringRewardLambda": 0.4,
-  "SpringRewardBeta": 0.2,
+  "SpringRewardLambda": 0.5,
+  "SpringRewardBeta": 0.1,
   "SpringSenderPosMode": 1,
   
   "PbftViewChangeTimeOut":600000,
 
-  "ExpDataRootDir": "expTest_iot51_state_full",
+  "ExpDataRootDir": "expTest",
 
   "Block_Interval": 5000,
 
@@ -27,7 +37,7 @@
   "UseBlocksizeInBytes": 0,
 
   "InjectSpeed": 1000,
-  "TotalDataSize": 4944019,
+  "TotalDataSize": 2000000,
   "TxBatchSize": 1000,
 
   "BrokerNum": 10,

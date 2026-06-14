@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from action_mask import mask_logits, normalize_action_mask
 from model import ActorCritic
 
 
@@ -19,6 +20,7 @@ class RolloutBuffer:
     values: List[float] = field(default_factory=list)
     target_actions: List[int] = field(default_factory=list)
     target_weights: List[float] = field(default_factory=list)
+    action_masks: List[List[int]] = field(default_factory=list)
 
     def add(
         self,
@@ -31,6 +33,7 @@ class RolloutBuffer:
         next_state=None,
         target_action=-1,
         target_weight=0.0,
+        action_mask=None,
     ):
         clean_state = np.asarray(state, dtype=np.float32)
         self.states.append(clean_state)
@@ -45,6 +48,8 @@ class RolloutBuffer:
         self.values.append(float(value))
         self.target_actions.append(int(target_action))
         self.target_weights.append(float(target_weight))
+        raw_mask = [] if action_mask is None else list(action_mask)
+        self.action_masks.append([int(x) for x in raw_mask])
 
     def clear(self):
         self.states.clear()
@@ -56,6 +61,7 @@ class RolloutBuffer:
         self.values.clear()
         self.target_actions.clear()
         self.target_weights.clear()
+        self.action_masks.clear()
 
     def __len__(self):
         return len(self.states)
@@ -97,11 +103,15 @@ class PPOAgent:
         self.net = ActorCritic(state_dim, action_dim, hidden_dim).to(self.device)
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
 
-    def select_action(self, state) -> Tuple[int, float, float]:
+    def select_action(self, state, action_mask=None) -> Tuple[int, float, float]:
         state_t = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
 
         with torch.no_grad():
-            action, log_prob, _, value = self.net.get_action(state_t)
+            logits, value = self.net(state_t)
+            masks = [normalize_action_mask(action_mask, self.action_dim)]
+            dist = torch.distributions.Categorical(logits=mask_logits(logits, masks))
+            action = dist.sample()
+            log_prob = dist.log_prob(action)
 
         return (
             int(action.item()),
@@ -109,11 +119,16 @@ class PPOAgent:
             float(value.item()),
         )
 
-    def deterministic_action(self, state) -> Tuple[int, float]:
+    def deterministic_action(self, state, action_mask=None) -> Tuple[int, float]:
         state_t = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
 
         with torch.no_grad():
-            action, confidence, _ = self.net.act_deterministic(state_t)
+            logits, _value = self.net(state_t)
+            masks = [normalize_action_mask(action_mask, self.action_dim)]
+            masked = mask_logits(logits, masks)
+            probs = torch.softmax(masked, dim=-1)
+            action = torch.argmax(probs, dim=-1)
+            confidence = torch.max(probs, dim=-1).values
 
         return int(action.item()), float(confidence.item())
 
@@ -169,7 +184,22 @@ class PPOAgent:
             dtype=torch.float32,
             device=self.device,
         )
+        action_masks_np = np.asarray(
+            [normalize_action_mask(mask, self.action_dim) for mask in buffer.action_masks],
+            dtype=np.float32,
+        )
+        if action_masks_np.shape != (len(buffer), self.action_dim):
+            action_masks_np = np.ones((len(buffer), self.action_dim), dtype=np.float32)
+        action_masks = torch.tensor(
+            action_masks_np,
+            dtype=torch.float32,
+            device=self.device,
+        )
         supervised_mask = (target_actions >= 0) & (target_weights > 0)
+        if supervised_mask.any():
+            safe_targets = torch.clamp(target_actions, min=0, max=self.action_dim - 1)
+            target_allowed = action_masks.gather(1, safe_targets.unsqueeze(1)).squeeze(1) > 0
+            supervised_mask = supervised_mask & target_allowed
         supervised_target_count = int(supervised_mask.sum().item())
         supervised_weight_mean = (
             float(target_weights[supervised_mask].mean().item())
@@ -222,11 +252,14 @@ class PPOAgent:
         last_sharp_prob_dist = [0.0 for _ in range(self.action_dim)]
 
         for _ in range(self.ppo_epochs):
-            log_probs, entropy, values = self.net.evaluate_actions(states, actions)
-            logits, _ = self.net(states)
-            probs = torch.softmax(logits, dim=-1)
+            logits, values = self.net(states)
+            masked_logits = mask_logits(logits, action_masks)
+            dist = torch.distributions.Categorical(logits=masked_logits)
+            log_probs = dist.log_prob(actions)
+            entropy = dist.entropy()
+            probs = torch.softmax(masked_logits, dim=-1)
             sharp_probs = torch.softmax(
-                logits / self.argmax_balance_temperature,
+                masked_logits / self.argmax_balance_temperature,
                 dim=-1,
             )
 
@@ -275,7 +308,7 @@ class PPOAgent:
 
             if supervised_target_count > 0 and self.supervised_coef > 0:
                 supervised_ce = F.cross_entropy(
-                    logits[supervised_mask],
+                    masked_logits[supervised_mask],
                     target_actions[supervised_mask],
                     reduction="none",
                 )

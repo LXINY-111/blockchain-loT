@@ -14,6 +14,7 @@ import (
 	"log"
 	"math"
 	"math/big"
+	"math/rand"
 	"os"
 	"strings"
 	"time"
@@ -29,6 +30,9 @@ type SpringBlockStat struct {
 	Relay2Tx    int     `json:"relay2_tx"`
 	CrossTx     float64 `json:"cross_tx"`
 	EffectiveTx float64 `json:"effective_tx"`
+
+	CommunicationCostSum   float64 `json:"communication_cost_sum"`
+	CommunicationCostCount int     `json:"communication_cost_count"`
 
 	// 当前 shard block 中和 PPO 放置决策直接相关的 TxBatch。
 	// 只统计 InnerShardTxs + Relay1Txs，不统计 Relay2Txs，避免跨片第二阶段重复计算。
@@ -103,6 +107,9 @@ type RelayCommitteeModule struct {
 	// SPRING: 新地址放置动作编号，用于生成 action_1.json、action_2.json
 	springActionSeq uint64
 
+	// SPRING random baseline（随机基线）：按固定 seed（随机种子）复现随机放置。
+	springRandom *rand.Rand
+
 	// SPRING: 真实 TxBatch 编号，用于核对 PPO action 和 block reward 是否对齐
 	springTxBatchSeq uint64
 
@@ -131,6 +138,7 @@ func NewRelayCommitteeModule(Ip_nodeTable map[uint64]map[uint64]string, Ss *sign
 		springEpochFeedback:   make(map[int]map[uint64]SpringBlockStat),
 		springRewardedEpoch:   make(map[int]bool),
 		springTrainedBatchIDs: make(map[uint64]bool),
+		springRandom:          rand.New(rand.NewSource(params.SpringRandomSeed)),
 	}
 
 	if springIOTEnabled() {
@@ -190,6 +198,10 @@ func (rthm *RelayCommitteeModule) springEnsurePlaced(
 		// SPRING-PPO：调用 Python PPO；如果 Python 失败，springChooseShardPPO 内部会自动回退到启发式
 		sid = rthm.springChooseShardPPO(addr, related)
 
+	case 3:
+		// SPRING-Random baseline（随机基线）：只随机选择分片，不使用交互关系。
+		sid = rthm.springChooseShardRandom()
+
 	default:
 		// SpringMode = 0 或其他非法值：退化为原始 Hash 放置
 		sid = uint64(utils.Addr2Shard(addr))
@@ -199,14 +211,16 @@ func (rthm *RelayCommitteeModule) springEnsurePlaced(
 	rthm.springShardLoad[sid]++
 	batchPlacement[string(addr)] = sid
 
-	rthm.sl.Slog.Printf(
-		"[SPRING PLACE] mode=%d addr=%s shard=%d related=%s totalPlaced=%d\n",
-		params.SpringMode,
-		addr,
-		sid,
-		related,
-		len(rthm.springAddrShard),
-	)
+	if rthm.sl != nil && rthm.sl.Slog != nil {
+		rthm.sl.Slog.Printf(
+			"[SPRING PLACE] mode=%d addr=%s shard=%d related=%s totalPlaced=%d\n",
+			params.SpringMode,
+			addr,
+			sid,
+			related,
+			len(rthm.springAddrShard),
+		)
+	}
 
 	return sid
 }
@@ -233,6 +247,9 @@ func (rthm *RelayCommitteeModule) springEnsurePlacedWithBatchRelated(
 		sid = rthm.springChooseShardFromSenderPos(addr, senderPos)
 	} else {
 		sid = rthm.springChooseShard(addr, related)
+	}
+	if guardedSid, changed := rthm.springApplyCandidateGuard(addr, senderPos, sid); changed {
+		sid = guardedSid
 	}
 
 	rthm.springAddrShard[string(addr)] = sid
@@ -265,6 +282,16 @@ func (rthm *RelayCommitteeModule) springChooseShardFromSenderPos(
 	}
 
 	return bestSid
+}
+
+func (rthm *RelayCommitteeModule) springChooseShardRandom() uint64 {
+	if params.ShardNum <= 0 {
+		return 0
+	}
+	if rthm.springRandom == nil {
+		rthm.springRandom = rand.New(rand.NewSource(params.SpringRandomSeed))
+	}
+	return uint64(rthm.springRandom.Intn(params.ShardNum))
 }
 
 // SPRING 第一版简单策略：
@@ -347,6 +374,23 @@ func (rthm *RelayCommitteeModule) springPreparePlacement(
 
 	case 2:
 		rthm.springPreparePlacementPPOBatch(txlist, batchPlacement)
+		rthm.springFillTouchedPlacement(txlist, batchPlacement)
+		return batchPlacement
+
+	case 3:
+		if springIOTEnabled() {
+			// IoT random baseline：设备/锚点仍用 hash（哈希）固定，只有状态对象随机放置。
+			rthm.springSeedIOTAnchorShards(txlist, batchPlacement)
+			for _, tx := range txlist {
+				rthm.springEnsurePlaced(tx.Sender, tx.Recipient, batchPlacement)
+			}
+			rthm.springFillTouchedPlacement(txlist, batchPlacement)
+			return batchPlacement
+		}
+		for _, tx := range txlist {
+			rthm.springEnsurePlaced(tx.Sender, tx.Recipient, batchPlacement)
+			rthm.springEnsurePlaced(tx.Recipient, tx.Sender, batchPlacement)
+		}
 		rthm.springFillTouchedPlacement(txlist, batchPlacement)
 		return batchPlacement
 
@@ -559,11 +603,13 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 		extraFeatures = iotFeatures[0]
 	}
 	state = rthm.springBuildStateFromSenderPos(senderPos, springAddressFlagFromRelatedCount(relatedCount), extraFeatures)
+	actionMask := rthm.springBuildCandidateActionMask(addr, senderPos)
 
 	item := SpringBatchInferItem{
-		Address: key,
-		Related: relatedKey,
-		State:   state,
+		Address:    key,
+		Related:    relatedKey,
+		State:      state,
+		ActionMask: actionMask,
 	}
 
 	results, inferCostUs, ok := rthm.springCallPythonBatch([]SpringBatchInferItem{item})
@@ -594,6 +640,16 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 			sid = rthm.springChooseShard(addr, related)
 			source = "go_heuristic_sequential_fallback"
 		}
+	}
+	if guardedSid, changed := rthm.springApplyCandidateGuard(addr, senderPos, sid); changed {
+		sid = guardedSid
+		if source == "" {
+			source = "python_ppo"
+		}
+		source = source + "_capacity_guard"
+		confidence = 0.0
+		entropy = 0.0
+		result.LogProb = 0.0
 	}
 
 	// sequential 语义的关键：
@@ -639,6 +695,7 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 		state,
 		inferCostUs,
 		1,
+		actionMask,
 	)
 	/*
 		rthm.sl.Slog.Printf(
@@ -680,6 +737,7 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 		RelatedWeight:         relatedWeight,
 		RelatedCount:          relatedCount,
 		SenderPos:             senderPos,
+		ActionMask:            append([]int(nil), actionMask...),
 		ChosenShard:           chosenShard,
 		SameAsRelated:         sameAsRelated,
 		RelatedInCurrentBatch: relatedInCurrentBatch,
@@ -825,25 +883,36 @@ func (rthm *RelayCommitteeModule) HandleBlockInfo(b *message.BlockInfoMsg) {
 
 	crossTx := float64(len(b.Relay1Txs)+len(b.Relay2Txs)) / 2.0
 	effectiveTx := float64(len(b.InnerShardTxs)) + crossTx
+	communicationCostSum, communicationCostCount := 0.0, 0
+	if params.SpringIOTMode == 1 {
+		communicationCostSum, communicationCostCount = rthm.springIOTCommunicationCostForTxGroups(
+			b.InnerShardTxs,
+			b.Relay1Txs,
+		)
+	}
 
 	stat := SpringBlockStat{
-		NumTx:            b.BlockBodyLength,
-		InnerTx:          len(b.InnerShardTxs),
-		Relay1Tx:         len(b.Relay1Txs),
-		Relay2Tx:         len(b.Relay2Txs),
-		CrossTx:          crossTx,
-		EffectiveTx:      effectiveTx,
-		DecisionBatchIDs: decisionBatchIDs,
+		NumTx:                  b.BlockBodyLength,
+		InnerTx:                len(b.InnerShardTxs),
+		Relay1Tx:               len(b.Relay1Txs),
+		Relay2Tx:               len(b.Relay2Txs),
+		CrossTx:                crossTx,
+		EffectiveTx:            effectiveTx,
+		CommunicationCostSum:   communicationCostSum,
+		CommunicationCostCount: communicationCostCount,
+		DecisionBatchIDs:       decisionBatchIDs,
 	}
 
 	rthm.sl.Slog.Printf(
-		"[BLOCK INFO] shard=%d epoch=%d body=%d inner=%d relay1=%d relay2=%d decision_batches=%v\n",
+		"[BLOCK INFO] shard=%d epoch=%d body=%d inner=%d relay1=%d relay2=%d commCostSum=%.6f commCostCount=%d decision_batches=%v\n",
 		b.SenderShardID,
 		b.Epoch,
 		b.BlockBodyLength,
 		len(b.InnerShardTxs),
 		len(b.Relay1Txs),
 		len(b.Relay2Txs),
+		communicationCostSum,
+		communicationCostCount,
 		decisionBatchIDs,
 	)
 
@@ -879,8 +948,9 @@ func (rthm *RelayCommitteeModule) HandleBlockInfo(b *message.BlockInfoMsg) {
 			rthm.springAppendFeedbackRecord(record)
 
 			rthm.sl.Slog.Printf(
-				"[SPRING ONLINE REWARD] epoch=%d total=%d effective=%.1f cross=%.1f inner=%d relay1=%d relay2=%d crossRate=%.6f runCross=%.6f rCSTR=%.6f rWLB=%.6f absDiff=%.6f normVar=%.6f reward=%.6f runReward=%.6f lambda=%.3f beta=%.3f loads=%v effectiveLoads=%v\n",
+				"[SPRING ONLINE REWARD] epoch=%d mode=%s total=%d effective=%.1f cross=%.1f inner=%d relay1=%d relay2=%d crossRate=%.6f runCross=%.6f rCSTR=%.6f rWLB=%.6f absDiff=%.6f normVar=%.6f commCost=%.6f maxShare=%.6f hotspot=%.6f reward=%.6f runReward=%.6f lambda=%.3f beta=%.3f loads=%v effectiveLoads=%v\n",
 				record.Epoch,
+				record.RewardMode,
 				record.TotalTx,
 				record.EffectiveTx,
 				record.CrossTx,
@@ -893,6 +963,9 @@ func (rthm *RelayCommitteeModule) HandleBlockInfo(b *message.BlockInfoMsg) {
 				record.RWLB,
 				record.AbsLoadDiff,
 				record.NormalizedLoadVariance,
+				record.CommunicationCost,
+				record.MaxLoadShare,
+				record.HotspotPenalty,
 				record.Reward,
 				record.RunningAvgReward,
 				record.Lambda,
@@ -1129,8 +1202,16 @@ func (rthm *RelayCommitteeModule) springBuildStateFromSenderPos(
 	if len(iotFeatures) > 0 {
 		extraFeatures = iotFeatures[0]
 	}
+	featureDim := len(extraFeatures)
+	if params.SpringIOTMode == 1 && springConfiguredIOTFeatureDim() > 0 {
+		featureDim = springConfiguredIOTFeatureDim()
+	}
+	currentLoadDim := 0
+	if params.SpringIOTMode == 1 && featureDim > 0 {
+		currentLoadDim = params.ShardNum
+	}
 
-	state := make([]float64, 0, 11*params.ShardNum+1+len(extraFeatures))
+	state := make([]float64, 0, 11*params.ShardNum+1+currentLoadDim+featureDim)
 
 	for back := 4; back >= 0; back-- {
 		for sid := uint64(0); sid < uint64(params.ShardNum); sid++ {
@@ -1165,7 +1246,25 @@ func (rthm *RelayCommitteeModule) springBuildStateFromSenderPos(
 	}
 	state = append(state, flag)
 
-	for _, feature := range extraFeatures {
+	if currentLoadDim > 0 {
+		totalLoad := 0
+		for _, load := range rthm.springShardLoad {
+			totalLoad += load
+		}
+		for sid := 0; sid < params.ShardNum; sid++ {
+			value := 0.0
+			if totalLoad > 0 && sid < len(rthm.springShardLoad) {
+				value = float64(rthm.springShardLoad[sid]) / float64(totalLoad)
+			}
+			state = append(state, springClamp(value, 0.0, 1.0))
+		}
+	}
+
+	for idx := 0; idx < featureDim; idx++ {
+		feature := 0.0
+		if idx < len(extraFeatures) {
+			feature = extraFeatures[idx]
+		}
 		state = append(state, springClamp(feature, 0.0, 1.0))
 	}
 

@@ -3,8 +3,11 @@ package committee
 import (
 	"blockEmulator/core"
 	"blockEmulator/params"
+	"blockEmulator/utils"
 	"math"
 	"math/big"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,6 +32,7 @@ func TestSpringIOTFeatureFromRowMatchesOfflineMDP(t *testing.T) {
 		"dstNumPackets":   "5",
 		"srcPayloadSize":  "100",
 		"dstPayloadSize":  "200",
+		"flowDuration":    "1000",
 		"distance":        "50",
 		"link_quality":    "0.2",
 		"from_address":    "0x" + "1",
@@ -57,16 +61,20 @@ func TestSpringIOTFeatureFromRowMatchesOfflineMDP(t *testing.T) {
 	if len(feature.AnchorObjects) != 1 || feature.AnchorObjects[0] != wantAnchor {
 		t.Fatalf("AnchorObjects = %v, want [%q]", feature.AnchorObjects, wantAnchor)
 	}
-	if len(feature.Features) != 6 {
-		t.Fatalf("feature dim = %d, want 6", len(feature.Features))
+	if len(feature.Features) != 10 {
+		t.Fatalf("feature dim = %d, want 10", len(feature.Features))
 	}
 
-	assertClose(t, feature.Features[0], math.Log1p(300.0)/math.Log1p(1_000_000.0))
-	assertClose(t, feature.Features[1], math.Log1p(10.0)/math.Log1p(10_000.0))
+	assertClose(t, feature.Features[0], 0.25)
+	assertClose(t, feature.Features[1], 50.0/60.0)
 	assertClose(t, feature.Features[2], 50.0/60.0)
-	assertClose(t, feature.Features[3], 0.8)
-	assertClose(t, feature.Features[4], math.Log1p(3.0)/math.Log1p(1000.0))
+	assertClose(t, feature.Features[3], 0.2)
+	assertClose(t, feature.Features[4], math.Log1p(300.0/1000.0)/math.Log1p(10000.0))
 	assertClose(t, feature.Features[5], 1.0)
+	assertClose(t, feature.Features[6], 0.0)
+	assertClose(t, feature.Features[7], 0.0)
+	assertClose(t, feature.Features[8], 0.0)
+	assertClose(t, feature.Features[9], 0.0)
 }
 
 func TestSpringIOTFeatureFromRowParsesMultiAnchorSet(t *testing.T) {
@@ -84,6 +92,8 @@ func TestSpringIOTFeatureFromRowParsesMultiAnchorSet(t *testing.T) {
 		"from_address":     "0xprimary",
 		"to_address":       "0xstate",
 		"anchor_addresses": "0xprimary;0xpeer;0xprimary",
+		"anchor_types":     "device;gateway;cloud_endpoint",
+		"anchor_weights":   "0.2;0.3;0.5",
 	}
 
 	feature, ok := springIOTFeatureFromRow(row, 0)
@@ -97,6 +107,9 @@ func TestSpringIOTFeatureFromRowParsesMultiAnchorSet(t *testing.T) {
 	if feature.AnchorObjects[0] != "0xprimary" || feature.AnchorObjects[1] != "0xpeer" {
 		t.Fatalf("AnchorObjects = %v, want [0xprimary 0xpeer]", feature.AnchorObjects)
 	}
+	assertClose(t, feature.Features[5], 0.2)
+	assertClose(t, feature.Features[6], 0.3)
+	assertClose(t, feature.Features[7], 0.5)
 }
 
 func TestSpringApplyIOTTxIdentityUsesNonceSidecar(t *testing.T) {
@@ -105,7 +118,7 @@ func TestSpringApplyIOTTxIdentityUsesNonceSidecar(t *testing.T) {
 		StateObject:   "0xstate",
 		AnchorObject:  "0xdevice",
 		AnchorObjects: []string{"0xdevice", "0xpeer"},
-		Features:      []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6},
+		Features:      make([]float64, 10),
 	}
 	rthm := &RelayCommitteeModule{
 		springIOTByTxIndex: map[uint64]SpringIOTTxFeature{
@@ -140,15 +153,27 @@ func TestSpringBuildStateFromSenderPosAppendsIOTFeatures(t *testing.T) {
 		},
 	}
 
-	iotFeatures := []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6}
+	oldIOTMode := params.SpringIOTMode
+	oldIOTFeatureDim := params.SpringIOTFeatureDim
+	defer func() {
+		params.SpringIOTMode = oldIOTMode
+		params.SpringIOTFeatureDim = oldIOTFeatureDim
+	}()
+	params.SpringIOTMode = 1
+	params.SpringIOTFeatureDim = 10
+
+	iotFeatures := make([]float64, 10)
+	for idx := range iotFeatures {
+		iotFeatures[idx] = float64(idx+1) / 100.0
+	}
 	state := rthm.springBuildStateFromSenderPos(
 		[]float64{0.25, 0.25, 0.25, 0.25},
 		1.0,
 		iotFeatures,
 	)
 
-	if len(state) != 11*params.ShardNum+1+6 {
-		t.Fatalf("state dim = %d, want %d", len(state), 11*params.ShardNum+1+6)
+	if len(state) != 11*params.ShardNum+1+params.ShardNum+10 {
+		t.Fatalf("state dim = %d, want %d", len(state), 11*params.ShardNum+1+params.ShardNum+10)
 	}
 	for idx, want := range iotFeatures {
 		assertClose(t, state[len(state)-len(iotFeatures)+idx], want)
@@ -211,5 +236,226 @@ func TestSpringBuildIOTBatchRelatedMapUsesAllSidecarAnchors(t *testing.T) {
 	peers := related["0xstate"]
 	if !peers["0xprimary"] || !peers["0xpeer"] {
 		t.Fatalf("related anchors = %v, want primary and peer", peers)
+	}
+}
+
+func TestSpringIOTCommunicationCostForTxGroupsUsesUniqueNonce(t *testing.T) {
+	rthm := &RelayCommitteeModule{
+		springIOTByTxIndex: map[uint64]SpringIOTTxFeature{
+			1: {CommunicationCostWeight: 0.25},
+			2: {CommunicationCostWeight: 0.75},
+		},
+	}
+	tx1 := core.NewTransaction("0xstate1", "0xanchor1", big.NewInt(1), 1, time.Now())
+	tx2 := core.NewTransaction("0xstate2", "0xanchor2", big.NewInt(1), 2, time.Now())
+
+	sum, count := rthm.springIOTCommunicationCostForTxGroups(
+		[]*core.Transaction{tx1, tx2},
+		[]*core.Transaction{tx1, nil},
+	)
+
+	assertClose(t, sum, 1.0)
+	if count != 2 {
+		t.Fatalf("communication cost count = %d, want 2", count)
+	}
+}
+
+func TestSpringBuildFeedbackRewardRecordUsesIOTDenseBalancedReward(t *testing.T) {
+	oldShardNum := params.ShardNum
+	oldIOTMode := params.SpringIOTMode
+	oldCSTRWeight := params.SpringIOTCSTRWeight
+	oldBalanceWeight := params.SpringIOTBalanceWeight
+	oldCommCostWeight := params.SpringIOTCommCostWeight
+	oldHotspotWeight := params.SpringIOTHotspotWeight
+	oldHotspotThreshold := params.SpringIOTHotspotThreshold
+	oldBeta := params.SpringRewardBeta
+	defer func() {
+		params.ShardNum = oldShardNum
+		params.SpringIOTMode = oldIOTMode
+		params.SpringIOTCSTRWeight = oldCSTRWeight
+		params.SpringIOTBalanceWeight = oldBalanceWeight
+		params.SpringIOTCommCostWeight = oldCommCostWeight
+		params.SpringIOTHotspotWeight = oldHotspotWeight
+		params.SpringIOTHotspotThreshold = oldHotspotThreshold
+		params.SpringRewardBeta = oldBeta
+	}()
+	params.ShardNum = 4
+	params.SpringIOTMode = 1
+	params.SpringIOTCSTRWeight = 0.55
+	params.SpringIOTBalanceWeight = 0.30
+	params.SpringIOTCommCostWeight = 0.10
+	params.SpringIOTHotspotWeight = 0.05
+	params.SpringIOTHotspotThreshold = 0.45
+	params.SpringRewardBeta = 0.1
+
+	rthm := &RelayCommitteeModule{}
+	stats := map[uint64]SpringBlockStat{
+		0: {
+			NumTx:                  40,
+			InnerTx:                35,
+			Relay1Tx:               5,
+			CrossTx:                5,
+			EffectiveTx:            40,
+			CommunicationCostSum:   0.7,
+			CommunicationCostCount: 2,
+			DecisionBatchIDs:       []uint64{2, 1},
+		},
+		1: {
+			NumTx:                  10,
+			InnerTx:                8,
+			Relay1Tx:               2,
+			CrossTx:                2,
+			EffectiveTx:            10,
+			CommunicationCostSum:   0.4,
+			CommunicationCostCount: 1,
+			DecisionBatchIDs:       []uint64{2},
+		},
+		2: {
+			NumTx:                  10,
+			InnerTx:                10,
+			CrossTx:                0,
+			EffectiveTx:            10,
+			CommunicationCostSum:   0.3,
+			CommunicationCostCount: 1,
+		},
+		3: {
+			NumTx:                  10,
+			InnerTx:                9,
+			Relay1Tx:               1,
+			CrossTx:                1,
+			EffectiveTx:            10,
+			CommunicationCostSum:   0.2,
+			CommunicationCostCount: 1,
+		},
+	}
+
+	record, ok := rthm.springBuildFeedbackRewardRecord(12, stats)
+	if !ok {
+		t.Fatal("expected feedback reward record")
+	}
+
+	effectiveLoads := []float64{40, 10, 10, 10}
+	effectiveTx := 70.0
+	crossTx := 8.0
+	crossRate := crossTx / effectiveTx
+	rCSTR := 1.0 - crossRate
+	avgLoad := effectiveTx / 4.0
+	rawAbsDiff := 0.0
+	rawVar := 0.0
+	for _, load := range effectiveLoads {
+		diff := load - avgLoad
+		rawAbsDiff += math.Abs(diff)
+		rawVar += diff * diff
+	}
+	rawVar /= 4.0
+	normVar := rawVar / (avgLoad*avgLoad + 1e-6)
+	normVar = normVar / (1.0 + normVar)
+	normalizedAbsDiff := rawAbsDiff / (avgLoad + 1e-6)
+	rWLB := math.Exp(-0.1*normalizedAbsDiff) * (1.0 - normVar)
+	communicationCost := 1.6 / 5.0
+	maxLoadShare := 40.0 / (70.0 + 1e-6)
+	hotspotPenalty := (maxLoadShare - 0.45) / (1.0 - 0.45 + 1e-6)
+	wantReward := 0.55*rCSTR + 0.30*rWLB - 0.10*communicationCost - 0.05*hotspotPenalty
+
+	assertClose(t, record.CrossRate, crossRate)
+	assertClose(t, record.RCSTR, rCSTR)
+	assertClose(t, record.RWLB, rWLB)
+	assertClose(t, record.CommunicationCost, communicationCost)
+	assertClose(t, record.MaxLoadShare, maxLoadShare)
+	assertClose(t, record.HotspotPenalty, hotspotPenalty)
+	assertClose(t, record.Reward, wantReward)
+	if record.RewardMode != "iot_dense_balanced" {
+		t.Fatalf("reward mode = %q, want iot_dense_balanced", record.RewardMode)
+	}
+	if got := strings.Join([]string{strconv.FormatUint(record.DecisionBatchIDs[0], 10), strconv.FormatUint(record.DecisionBatchIDs[1], 10)}, ","); got != "1,2" {
+		t.Fatalf("decision batch ids = %v, want [1 2]", record.DecisionBatchIDs)
+	}
+}
+
+func TestSpringRandomPlacementModeIsSeeded(t *testing.T) {
+	oldShardNum := params.ShardNum
+	oldSpringMode := params.SpringMode
+	oldRandomSeed := params.SpringRandomSeed
+	defer func() {
+		params.ShardNum = oldShardNum
+		params.SpringMode = oldSpringMode
+		params.SpringRandomSeed = oldRandomSeed
+	}()
+	params.ShardNum = 4
+	params.SpringMode = 3
+	params.SpringRandomSeed = 7
+
+	newModule := func() *RelayCommitteeModule {
+		return &RelayCommitteeModule{
+			springAddrShard: make(map[string]uint64),
+			springShardLoad: make([]int, params.ShardNum),
+		}
+	}
+	first := newModule()
+	second := newModule()
+
+	firstActions := make([]uint64, 0, 6)
+	secondActions := make([]uint64, 0, 6)
+	for idx := 0; idx < 6; idx++ {
+		addr := utils.Address("state-" + strconv.Itoa(idx))
+		firstActions = append(firstActions, first.springEnsurePlaced(addr, "", make(map[string]uint64)))
+		secondActions = append(secondActions, second.springEnsurePlaced(addr, "", make(map[string]uint64)))
+	}
+
+	for idx := range firstActions {
+		if firstActions[idx] != secondActions[idx] {
+			t.Fatalf("seeded random mismatch at %d: %v vs %v", idx, firstActions, secondActions)
+		}
+		if firstActions[idx] >= uint64(params.ShardNum) {
+			t.Fatalf("random shard = %d, want < %d", firstActions[idx], params.ShardNum)
+		}
+	}
+}
+
+func TestSpringCandidateMaskCapacityGuardBlocksOverloadedShard(t *testing.T) {
+	oldShardNum := params.ShardNum
+	oldTopK := params.SpringCandidateTopK
+	oldGuard := params.SpringCapacityGuard
+	oldFactor := params.SpringCapacityGuardFactor
+	oldLoadWeight := params.SpringCandidateLoadWeight
+	defer func() {
+		params.ShardNum = oldShardNum
+		params.SpringCandidateTopK = oldTopK
+		params.SpringCapacityGuard = oldGuard
+		params.SpringCapacityGuardFactor = oldFactor
+		params.SpringCandidateLoadWeight = oldLoadWeight
+	}()
+
+	params.ShardNum = 4
+	params.SpringCandidateTopK = 2
+	params.SpringCapacityGuard = 1
+	params.SpringCapacityGuardFactor = 1.2
+	params.SpringCandidateLoadWeight = 1.0
+
+	rthm := &RelayCommitteeModule{
+		springShardLoad: []int{30, 1, 1, 1},
+	}
+	mask := rthm.springBuildCandidateActionMask(
+		utils.Address("0x"+strings.Repeat("b", 40)),
+		[]float64{1.0, 0.0, 0.0, 0.0},
+	)
+
+	if mask[0] != 0 {
+		t.Fatalf("mask = %v, want overloaded shard 0 blocked", mask)
+	}
+	if springActionMaskCount(mask) != 2 {
+		t.Fatalf("mask = %v, want exactly top-2 candidates", mask)
+	}
+
+	guarded, changed := rthm.springApplyCandidateGuard(
+		utils.Address("0x"+strings.Repeat("b", 40)),
+		[]float64{1.0, 0.0, 0.0, 0.0},
+		0,
+	)
+	if !changed {
+		t.Fatalf("guard did not rewrite overloaded action")
+	}
+	if guarded == 0 {
+		t.Fatalf("guarded shard = %d, want non-overloaded shard", guarded)
 	}
 }

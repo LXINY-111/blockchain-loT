@@ -14,9 +14,10 @@ import (
 )
 
 type SpringBatchInferItem struct {
-	Address string    `json:"address"`
-	Related string    `json:"related"`
-	State   []float64 `json:"state"`
+	Address    string    `json:"address"`
+	Related    string    `json:"related"`
+	State      []float64 `json:"state"`
+	ActionMask []int     `json:"action_mask,omitempty"`
 }
 
 type SpringBatchInferInput struct {
@@ -43,20 +44,22 @@ type SpringBatchInferOutput struct {
 }
 
 type SpringDecisionRecord struct {
-	TimeUnixNano int64     `json:"time_unix_nano"`
-	BatchID      uint64    `json:"batch_id"`
-	Address      string    `json:"address"`
-	Related      string    `json:"related"`
-	Shard        uint64    `json:"shard"`
-	Source       string    `json:"source"`
-	Confidence   float64   `json:"confidence"`
-	Entropy      float64   `json:"entropy"`
-	LogProb      float64   `json:"log_prob"`
-	Value        float64   `json:"value"`
-	StateDim     int       `json:"state_dim"`
-	InferCostUs  int64     `json:"infer_cost_us"`
-	BatchSize    int       `json:"batch_size"`
-	State        []float64 `json:"state"`
+	TimeUnixNano    int64     `json:"time_unix_nano"`
+	BatchID         uint64    `json:"batch_id"`
+	Address         string    `json:"address"`
+	Related         string    `json:"related"`
+	Shard           uint64    `json:"shard"`
+	Source          string    `json:"source"`
+	Confidence      float64   `json:"confidence"`
+	Entropy         float64   `json:"entropy"`
+	LogProb         float64   `json:"log_prob"`
+	Value           float64   `json:"value"`
+	StateDim        int       `json:"state_dim"`
+	InferCostUs     int64     `json:"infer_cost_us"`
+	BatchSize       int       `json:"batch_size"`
+	State           []float64 `json:"state"`
+	ActionMask      []int     `json:"action_mask,omitempty"`
+	ActionMaskCount int       `json:"action_mask_count,omitempty"`
 }
 
 type SpringOnlineTrainResult struct {
@@ -133,7 +136,7 @@ func springConfiguredIOTFeatureDim() int {
 		return 0
 	}
 	if params.SpringIOTFeatureDim <= 0 {
-		return 6
+		return 10
 	}
 	return params.SpringIOTFeatureDim
 }
@@ -177,6 +180,7 @@ func (rthm *RelayCommitteeModule) springChooseShardPPO(addr utils.Address, relat
 				state,
 				inferCostUs,
 				1,
+				nil,
 			)
 
 			rthm.sl.Slog.Printf(
@@ -211,6 +215,7 @@ func (rthm *RelayCommitteeModule) springChooseShardPPO(addr utils.Address, relat
 		state,
 		inferCostUs,
 		1,
+		nil,
 	)
 
 	rthm.sl.Slog.Printf(
@@ -338,26 +343,29 @@ func (rthm *RelayCommitteeModule) springAppendDecisionRecord(
 	state []float64,
 	inferCostUs int64,
 	batchSize int,
+	actionMask []int,
 ) {
 	if err := os.MkdirAll("spring_io", os.ModePerm); err != nil {
 		return
 	}
 
 	record := SpringDecisionRecord{
-		TimeUnixNano: time.Now().UnixNano(),
-		BatchID:      batchID,
-		Address:      addr,
-		Related:      related,
-		Shard:        shard,
-		Source:       source,
-		Confidence:   confidence,
-		Entropy:      entropy,
-		LogProb:      logProb,
-		Value:        value,
-		StateDim:     len(state),
-		InferCostUs:  inferCostUs,
-		BatchSize:    batchSize,
-		State:        state,
+		TimeUnixNano:    time.Now().UnixNano(),
+		BatchID:         batchID,
+		Address:         addr,
+		Related:         related,
+		Shard:           shard,
+		Source:          source,
+		Confidence:      confidence,
+		Entropy:         entropy,
+		LogProb:         logProb,
+		Value:           value,
+		StateDim:        len(state),
+		InferCostUs:     inferCostUs,
+		BatchSize:       batchSize,
+		State:           state,
+		ActionMask:      append([]int(nil), actionMask...),
+		ActionMaskCount: springActionMaskCount(actionMask),
 	}
 
 	b, err := json.Marshal(record)

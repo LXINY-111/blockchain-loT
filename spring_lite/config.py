@@ -10,16 +10,22 @@ MODEL_PATH = CHECKPOINT_DIR / "spring_ppo.pt"
 
 DEFAULT_SHARD_NUM = 4
 
-# SPRING 论文状态维度：11k + 1
-# 5k 个最近总交易数 + 5k 个最近跨片交易数 + k 个 sender_pos + 1 个地址类型标记
+# SPRING paper state dimension: 11k + 1.
+# It contains five recent windows of num_tx, five recent windows of cross_tx,
+# k sender_pos entries, and one address-type flag.
 def state_dim(shards: int, iot_feature_dim: int = 0) -> int:
-    return 11 * shards + 1 + max(0, int(iot_feature_dim))
+    base_dim = 11 * shards + 1
+    # IoT-MDP-B-lite appends current_load[k] before the compact IoT features.
+    if int(iot_feature_dim) > 0:
+        base_dim += shards
+    return base_dim + max(0, int(iot_feature_dim))
 
 
-# IoT MDP v1 追加的场景特征维度：
-# payload（载荷强度）、packet（包数量）、distance（距离）、
-# link_loss（链路损耗）、recent_frequency（近期频率）、protocol（协议类别）。
-IOT_FEATURE_DIM = 6
+# IoT-MDP-B-lite appends 10 compact scene features:
+# anchor count, distance/link-quality stats, traffic rate, anchor-type shares,
+# and a control protocol flag. For four shards this makes the PPO input
+# dimension 59.
+IOT_FEATURE_DIM = 10
 
 # IoT MDP v1 奖励权重。第一阶段先保证能跑通和收敛，所以仍然以
 # CSTR（跨分片率）和 balance（负载均衡）为主，通信代价和热点为辅。
@@ -56,7 +62,16 @@ BETA = 0.1
 # PPO-v1.6 starts from a paper-aligned MDP baseline. The extra load/hotspot/
 # backlog terms are kept for the later enhanced method, but the default reward
 # path below only uses lambda * r_cstr + (1 - lambda) * r_wlb.
-REWARD_MODE = "paper"  # choices: paper, enhanced
+IOT_DENSE_BALANCED_REWARD_MODE = "iot_dense_balanced"
+REWARD_MODE_CHOICES = (
+    "paper",
+    "enhanced",
+    "iot",
+    "iot_dense",
+    IOT_DENSE_BALANCED_REWARD_MODE,
+)
+
+REWARD_MODE = "paper"  # choices: see REWARD_MODE_CHOICES
 LOAD_PENALTY_WEIGHT = 0.0
 LOCAL_REWARD_WEIGHT = 0.0
 ACTION_REWARD_SCALE = 0.1
@@ -66,6 +81,11 @@ HOTSPOT_THRESHOLD = 0.45
 MIN_ACTIVE_LOAD_SHARE = 0.03
 CAPACITY_BACKLOG_MODE = 0
 BACKLOG_PENALTY_WEIGHT = 0.0
+
+# C-lite+ keeps the 59-dim state unchanged, but gives under-used shards a
+# bounded action-level dense reward（动作级稠密奖励）bonus（奖励项）.
+IOT_DENSE_BALANCED_LOW_LOAD_BONUS_WEIGHT = 0.25
+IOT_DENSE_BALANCED_LOW_LOAD_BONUS_CAP = 0.18
 
 # Enhanced-mode defaults used for ablation/innovation experiments after the
 # paper-aligned baseline is stable.

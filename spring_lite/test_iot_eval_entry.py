@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import IOT_FEATURE_DIM, state_dim  # noqa: E402
-from eval_offline import eval_state_dim, load_eval_transactions  # noqa: E402
+from eval_offline import eval_state_dim, load_eval_transactions, make_policy  # noqa: E402
 
 
 class IoTEvalEntryTest(unittest.TestCase):
@@ -88,6 +88,23 @@ class IoTEvalEntryTest(unittest.TestCase):
             self.assertEqual(len(txs), 1)
             self.assertEqual(txs[0].sender, to_addr)
             self.assertEqual(txs[0].recipient, from_addr)
+
+    def test_random_baseline_policy_is_seeded(self):
+        args = argparse.Namespace(policy="random", seed=7, shards=4)
+        first_policy = make_policy(args, agent=None)
+        second_policy = make_policy(args, agent=None)
+
+        first_actions = [
+            first_policy([], f"state-{idx}", "", None).action
+            for idx in range(6)
+        ]
+        second_actions = [
+            second_policy([], f"state-{idx}", "", None).action
+            for idx in range(6)
+        ]
+
+        self.assertEqual(first_actions, second_actions)
+        self.assertTrue(all(0 <= action < args.shards for action in first_actions))
 
 
 if __name__ == "__main__":

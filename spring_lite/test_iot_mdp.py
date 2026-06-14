@@ -1,4 +1,5 @@
 import csv
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -12,6 +13,9 @@ from heuristic import addr2shard, heuristic_from_state  # noqa: E402
 from offline_env import (  # noqa: E402
     PolicyOutput,
     SpringOfflineEnv,
+    Tx,
+    iot_dense_action_reward,
+    iot_feature_vector,
     iot_state_object_key,
     load_iot_transactions,
     spring_reward,
@@ -59,7 +63,15 @@ def write_sidecar_csv(path: Path, rows):
         "link_quality",
         "tx_batch_id",
         "anchor_addresses",
+        "anchor_types",
         "anchor_weights",
+        "anchor_distances",
+        "anchor_link_qualities",
+        "anchor_count",
+        "flow_direction",
+        "relation_type",
+        "is_control_protocol",
+        "is_multicast_or_broadcast",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -68,6 +80,136 @@ def write_sidecar_csv(path: Path, rows):
 
 
 class IoTMDPTest(unittest.TestCase):
+    def test_iot_feature_vector_keeps_lite_multi_anchor_scene_features(self):
+        row = {
+            "protocol": "tls",
+            "srcNumPackets": "5",
+            "dstNumPackets": "7",
+            "srcPayloadSize": "100",
+            "dstPayloadSize": "300",
+            "flowDuration": "1000",
+            "anchor_count": "3",
+            "anchor_types": "device;gateway;cloud_endpoint",
+            "anchor_weights": "0.2;0.3;0.5",
+            "anchor_distances": "10;30;50",
+            "anchor_link_qualities": "0.9;0.6;0.3",
+            "flow_direction": "outbound",
+            "relation_type": "device_to_cloud",
+            "is_control_protocol": "0",
+            "is_multicast_or_broadcast": "0",
+        }
+
+        features = iot_feature_vector(row, prior_frequency=9)
+
+        self.assertEqual(len(features), IOT_FEATURE_DIM)
+        self.assertEqual(IOT_FEATURE_DIM, 10)
+        self.assertAlmostEqual(features[0], 0.75)
+        self.assertAlmostEqual(features[1], 36.0 / 60.0)
+        self.assertAlmostEqual(features[2], 10.0 / 60.0)
+        self.assertAlmostEqual(features[3], 0.51)
+        self.assertAlmostEqual(features[4], math.log1p(400.0 / 1000.0) / math.log1p(10000.0))
+        self.assertAlmostEqual(features[5], 0.2)
+        self.assertAlmostEqual(features[6], 0.3)
+        self.assertAlmostEqual(features[7], 0.5)
+        self.assertAlmostEqual(features[8], 0.0)
+        self.assertEqual(features[9], 0.0)
+
+    def test_iot_state_appends_current_load_before_lite_features(self):
+        env = SpringOfflineEnv(shards=4, iot_feature_dim=IOT_FEATURE_DIM, reward_mode="iot")
+        env.shard_load = [1, 2, 1, 0]
+        iot_features = [float(idx + 1) / 10.0 for idx in range(IOT_FEATURE_DIM)]
+
+        state = env.build_state_from_sender_pos(
+            sender_pos=[0.25, 0.25, 0.25, 0.25],
+            flag=1.0,
+            iot_features=iot_features,
+        )
+
+        current_load_offset = 11 * 4 + 1
+        self.assertEqual(len(state), state_dim(4, IOT_FEATURE_DIM))
+        self.assertEqual(state[current_load_offset : current_load_offset + 4], [0.25, 0.5, 0.25, 0.0])
+        self.assertEqual(state[-IOT_FEATURE_DIM:], iot_features)
+
+    def test_iot_dense_action_reward_prefers_anchor_mass_and_load_balance(self):
+        sender_pos = [0.05, 0.80, 0.10, 0.05]
+
+        good, _ = iot_dense_action_reward(
+            chosen_shard=1,
+            sender_pos=sender_pos,
+            communication_cost_weight=0.4,
+            shard_load_before=2,
+            load_mean_before=2.0,
+        )
+        bad, _ = iot_dense_action_reward(
+            chosen_shard=3,
+            sender_pos=sender_pos,
+            communication_cost_weight=0.4,
+            shard_load_before=2,
+            load_mean_before=2.0,
+        )
+        overloaded, _ = iot_dense_action_reward(
+            chosen_shard=1,
+            sender_pos=sender_pos,
+            communication_cost_weight=0.4,
+            shard_load_before=8,
+            load_mean_before=2.0,
+        )
+
+        self.assertGreater(good, bad)
+        self.assertLess(overloaded, good)
+
+    def test_iot_dense_balanced_low_load_bonus_is_bounded(self):
+        sender_pos = [0.0, 0.50, 0.50, 0.0]
+
+        low_load, _ = iot_dense_action_reward(
+            chosen_shard=1,
+            sender_pos=sender_pos,
+            communication_cost_weight=0.0,
+            shard_load_before=0,
+            load_mean_before=4.0,
+            low_load_bonus_weight=0.25,
+            low_load_bonus_cap=0.18,
+        )
+        average_load, _ = iot_dense_action_reward(
+            chosen_shard=1,
+            sender_pos=sender_pos,
+            communication_cost_weight=0.0,
+            shard_load_before=4,
+            load_mean_before=4.0,
+            low_load_bonus_weight=0.25,
+            low_load_bonus_cap=0.18,
+        )
+        empty_anchor_low_load, _ = iot_dense_action_reward(
+            chosen_shard=0,
+            sender_pos=sender_pos,
+            communication_cost_weight=0.0,
+            shard_load_before=0,
+            load_mean_before=4.0,
+            low_load_bonus_weight=0.25,
+            low_load_bonus_cap=0.18,
+        )
+
+        self.assertGreater(low_load, average_load)
+        self.assertLessEqual(low_load - average_load, 0.30)
+        self.assertLess(empty_anchor_low_load, average_load)
+
+    def test_iot_dense_balanced_uses_same_global_iot_reward(self):
+        iot_reward, _ = spring_reward(
+            effective_loads=[1.0, 2.0, 1.0, 2.0],
+            cross_loads=[0.2, 0.2, 0.1, 0.1],
+            reward_mode="iot",
+            communication_cost=0.2,
+        )
+        balanced_reward, parts = spring_reward(
+            effective_loads=[1.0, 2.0, 1.0, 2.0],
+            cross_loads=[0.2, 0.2, 0.1, 0.1],
+            reward_mode="iot_dense_balanced",
+            communication_cost=0.2,
+        )
+
+        self.assertAlmostEqual(balanced_reward, iot_reward)
+        self.assertEqual(parts["reward_mode"], "iot_dense_balanced")
+
     def test_iot_state_object_key_groups_same_device_peer_and_protocol(self):
         first = {
             "device_label": "AugustDoorBell",
@@ -423,6 +565,39 @@ class IoTMDPTest(unittest.TestCase):
         )
 
         self.assertLess(high_cost, low_cost)
+
+    def test_candidate_filter_capacity_guard_blocks_overloaded_related_shard(self):
+        env = SpringOfflineEnv(
+            shards=4,
+            iot_feature_dim=IOT_FEATURE_DIM,
+            reward_mode="iot",
+            candidate_top_k=2,
+            capacity_guard=1,
+            capacity_guard_factor=1.2,
+        )
+        anchor = "0x" + "a" * 40
+        env.addr_shard[anchor] = 0
+        env.shard_load = [30, 1, 1, 1]
+        tx = Tx(
+            sender="0x" + "b" * 40,
+            recipient=anchor,
+            related_addresses=(anchor,),
+            related_weights=(1.0,),
+            iot_features=tuple(0.0 for _ in range(IOT_FEATURE_DIM)),
+        )
+        observed_masks = []
+
+        def overloaded_policy(_state, _address, _related, info):
+            observed_masks.append(list(info.action_mask))
+            return PolicyOutput(action=0, source="test_policy")
+
+        actions, _metrics = env.run_batch([tx], overloaded_policy)
+
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(observed_masks[0][0], 0)
+        self.assertEqual(sum(observed_masks[0]), 2)
+        self.assertNotEqual(actions[0].action, 0)
+        self.assertTrue(actions[0].source.endswith("capacity_guard"))
 
 
 if __name__ == "__main__":

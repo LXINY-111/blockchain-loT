@@ -40,10 +40,23 @@ type SpringFeedbackRewardRecord struct {
 	RWLB        float64 `json:"r_wlb"`
 	AbsLoadDiff float64 `json:"abs_load_diff"`
 
-	Reward float64 `json:"reward"`
+	CommunicationCost      float64 `json:"communication_cost"`
+	CommunicationCostSum   float64 `json:"communication_cost_sum"`
+	CommunicationCostCount int     `json:"communication_cost_count"`
+	MaxLoadShare           float64 `json:"max_load_share"`
+	HotspotPenalty         float64 `json:"hotspot_penalty"`
+
+	Reward     float64 `json:"reward"`
+	RewardMode string  `json:"reward_mode"`
 
 	Lambda float64 `json:"lambda"`
 	Beta   float64 `json:"beta"`
+
+	IOTCSTRWeight       float64 `json:"iot_cstr_weight"`
+	IOTBalanceWeight    float64 `json:"iot_balance_weight"`
+	IOTCommCostWeight   float64 `json:"iot_comm_cost_weight"`
+	IOTHotspotWeight    float64 `json:"iot_hotspot_weight"`
+	IOTHotspotThreshold float64 `json:"iot_hotspot_threshold"`
 
 	RunningAvgCrossRate float64 `json:"running_avg_cross_rate"`
 	RunningAvgReward    float64 `json:"running_avg_reward"`
@@ -72,6 +85,7 @@ type SpringTrainAction struct {
 	RelatedWeight         float64   `json:"related_weight"`
 	RelatedCount          int       `json:"related_count"`
 	SenderPos             []float64 `json:"sender_pos"`
+	ActionMask            []int     `json:"action_mask,omitempty"`
 	ChosenShard           int       `json:"chosen_shard"`
 	SameAsRelated         bool      `json:"same_as_related"`
 	RelatedInCurrentBatch bool      `json:"related_in_current_batch"`
@@ -94,6 +108,9 @@ type SpringFeedbackAggregate struct {
 	RCSTRSum                  float64 `json:"r_cstr_sum"`
 	RWLBSum                   float64 `json:"r_wlb_sum"`
 	AbsLoadDiffSum            float64 `json:"abs_load_diff_sum"`
+	CommunicationCostSum      float64 `json:"communication_cost_sum"`
+	MaxLoadShareSum           float64 `json:"max_load_share_sum"`
+	HotspotPenaltySum         float64 `json:"hotspot_penalty_sum"`
 	LambdaSum                 float64 `json:"lambda_sum"`
 	BetaSum                   float64 `json:"beta_sum"`
 	TotalTxSum                float64 `json:"total_tx_sum"`
@@ -148,6 +165,10 @@ type SpringOnlineUpdateInput struct {
 	RCSTR                  float64 `json:"r_cstr"`
 	RWLB                   float64 `json:"r_wlb"`
 	AbsLoadDiff            float64 `json:"abs_load_diff"`
+	CommunicationCost      float64 `json:"communication_cost"`
+	MaxLoadShare           float64 `json:"max_load_share"`
+	HotspotPenalty         float64 `json:"hotspot_penalty"`
+	RewardMode             string  `json:"reward_mode"`
 	Lambda                 float64 `json:"lambda"`
 	Beta                   float64 `json:"beta"`
 	TotalTx                int     `json:"total_tx"`
@@ -219,6 +240,9 @@ func (agg *SpringFeedbackAggregate) add(record SpringFeedbackRewardRecord, weigh
 	agg.RCSTRSum += record.RCSTR * weight
 	agg.RWLBSum += record.RWLB * weight
 	agg.AbsLoadDiffSum += record.AbsLoadDiff * weight
+	agg.CommunicationCostSum += record.CommunicationCost * weight
+	agg.MaxLoadShareSum += record.MaxLoadShare * weight
+	agg.HotspotPenaltySum += record.HotspotPenalty * weight
 	agg.LambdaSum += record.Lambda * weight
 	agg.BetaSum += record.Beta * weight
 	agg.TotalTxSum += float64(record.TotalTx) * weight
@@ -264,6 +288,18 @@ func (agg SpringFeedbackAggregate) rWLB() float64 {
 
 func (agg SpringFeedbackAggregate) absLoadDiff() float64 {
 	return agg.mean(agg.AbsLoadDiffSum)
+}
+
+func (agg SpringFeedbackAggregate) communicationCost() float64 {
+	return agg.mean(agg.CommunicationCostSum)
+}
+
+func (agg SpringFeedbackAggregate) maxLoadShare() float64 {
+	return agg.mean(agg.MaxLoadShareSum)
+}
+
+func (agg SpringFeedbackAggregate) hotspotPenalty() float64 {
+	return agg.mean(agg.HotspotPenaltySum)
 }
 
 func (agg SpringFeedbackAggregate) lambda() float64 {
@@ -324,6 +360,8 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 	totalRelay2 := 0
 	effectiveTx := 0.0
 	crossTx := 0.0
+	communicationCostSum := 0.0
+	communicationCostCount := 0
 
 	for sid := 0; sid < params.ShardNum; sid++ {
 		stat := shardStats[uint64(sid)]
@@ -340,6 +378,8 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 		totalRelay2 += stat.Relay2Tx
 		effectiveTx += stat.EffectiveTx
 		crossTx += stat.CrossTx
+		communicationCostSum += stat.CommunicationCostSum
+		communicationCostCount += stat.CommunicationCostCount
 
 		for _, bid := range stat.DecisionBatchIDs {
 			decisionBatchSet[bid] = true
@@ -434,7 +474,41 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 
 	// SPRING-style reward:
 	// r_t = λ * r_cstr + (1 - λ) * r_wlb
+	maxLoadShare := 0.0
+	if effectiveTx > eps {
+		for _, load := range effectiveLoads {
+			share := load / (effectiveTx + eps)
+			if share > maxLoadShare {
+				maxLoadShare = share
+			}
+		}
+	}
+	maxLoadShare = springClampFloat64(maxLoadShare, 0.0, 1.0)
+
+	hotspotThreshold := springClampFloat64(params.SpringIOTHotspotThreshold, 0.0, 1.0-eps)
+	hotspotPenalty := springClampFloat64(
+		(maxLoadShare-hotspotThreshold)/(1.0-hotspotThreshold+eps),
+		0.0,
+		1.0,
+	)
+
+	communicationCost := 0.0
+	if communicationCostCount > 0 {
+		communicationCost = communicationCostSum / float64(communicationCostCount)
+	}
+	communicationCost = springClampFloat64(communicationCost, 0.0, 1.0)
+
 	reward := lambda*rCSTR + (1.0-lambda)*rWLB - springLoadPenaltyWeight*normVar
+	rewardMode := "spring_legacy"
+	if params.SpringIOTMode == 1 {
+		// Match spring_lite/offline_env.py iot_dense_balanced:
+		// 0.55*CSTR + 0.30*WLB - 0.10*communication_cost - 0.05*hotspot.
+		rewardMode = "iot_dense_balanced"
+		reward = params.SpringIOTCSTRWeight*rCSTR +
+			params.SpringIOTBalanceWeight*rWLB -
+			params.SpringIOTCommCostWeight*communicationCost -
+			params.SpringIOTHotspotWeight*hotspotPenalty
+	}
 
 	if math.IsNaN(reward) || math.IsInf(reward, 0) {
 		reward = 0.0
@@ -450,6 +524,15 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 	}
 	if math.IsNaN(rWLB) || math.IsInf(rWLB, 0) {
 		rWLB = 0.0
+	}
+	if math.IsNaN(communicationCost) || math.IsInf(communicationCost, 0) {
+		communicationCost = 0.0
+	}
+	if math.IsNaN(maxLoadShare) || math.IsInf(maxLoadShare, 0) {
+		maxLoadShare = 0.0
+	}
+	if math.IsNaN(hotspotPenalty) || math.IsInf(hotspotPenalty, 0) {
+		hotspotPenalty = 0.0
 	}
 
 	decisionBatchIDs := make([]uint64, 0, len(decisionBatchSet))
@@ -489,10 +572,23 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 		RWLB:        rWLB,
 		AbsLoadDiff: normalizedAbsDiff,
 
-		Reward: reward,
+		CommunicationCost:      communicationCost,
+		CommunicationCostSum:   communicationCostSum,
+		CommunicationCostCount: communicationCostCount,
+		MaxLoadShare:           maxLoadShare,
+		HotspotPenalty:         hotspotPenalty,
+
+		Reward:     reward,
+		RewardMode: rewardMode,
 
 		Lambda: lambda,
 		Beta:   beta,
+
+		IOTCSTRWeight:       params.SpringIOTCSTRWeight,
+		IOTBalanceWeight:    params.SpringIOTBalanceWeight,
+		IOTCommCostWeight:   params.SpringIOTCommCostWeight,
+		IOTHotspotWeight:    params.SpringIOTHotspotWeight,
+		IOTHotspotThreshold: hotspotThreshold,
 	}
 
 	return record, true
@@ -762,6 +858,9 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 	rCSTRSum := 0.0
 	rWLBSum := 0.0
 	absLoadDiffSum := 0.0
+	communicationCostMetricSum := 0.0
+	maxLoadShareMetricSum := 0.0
+	hotspotPenaltyMetricSum := 0.0
 	lambdaSum := 0.0
 	betaSum := 0.0
 	totalTxSum := 0.0
@@ -808,6 +907,9 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 		rCSTRSum += agg.rCSTR() * metricWeight
 		rWLBSum += agg.rWLB() * metricWeight
 		absLoadDiffSum += agg.absLoadDiff() * metricWeight
+		communicationCostMetricSum += agg.communicationCost() * metricWeight
+		maxLoadShareMetricSum += agg.maxLoadShare() * metricWeight
+		hotspotPenaltyMetricSum += agg.hotspotPenalty() * metricWeight
 		lambdaSum += agg.lambda() * metricWeight
 		betaSum += agg.beta() * metricWeight
 		totalTxSum += agg.mean(agg.TotalTxSum) * metricWeight
@@ -872,9 +974,12 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 	aggregateRCSTR := avgMetric(rCSTRSum)
 	aggregateRWLB := avgMetric(rWLBSum)
 	aggregateAbsLoadDiff := avgMetric(absLoadDiffSum)
+	aggregateCommunicationCost := avgMetric(communicationCostMetricSum)
+	aggregateMaxLoadShare := avgMetric(maxLoadShareMetricSum)
+	aggregateHotspotPenalty := avgMetric(hotspotPenaltyMetricSum)
 
 	rthm.sl.Slog.Printf(
-		"[SPRING ALIGN AGGREGATE] ready_batches=%v matched_this_epoch=%v tx_nonce=[%d,%d] tx_count=%d actions=%d -> feedback_epoch=%d feedback_window=[%d,%d] feedback_count=%d reward=%.6f crossRate=%.6f rWLB=%.6f normVar=%.6f pending_kept=%d pruned=%d flush=%v\n",
+		"[SPRING ALIGN AGGREGATE] ready_batches=%v matched_this_epoch=%v tx_nonce=[%d,%d] tx_count=%d actions=%d -> feedback_epoch=%d feedback_window=[%d,%d] feedback_count=%d reward=%.6f crossRate=%.6f rWLB=%.6f normVar=%.6f commCost=%.6f maxShare=%.6f hotspot=%.6f pending_kept=%d pruned=%d flush=%v\n",
 		matchedIDs,
 		matchedThisEpoch,
 		txStartNonce,
@@ -889,6 +994,9 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 		aggregateCrossRate,
 		aggregateRWLB,
 		aggregateNormVar,
+		aggregateCommunicationCost,
+		aggregateMaxLoadShare,
+		aggregateHotspotPenalty,
 		len(rthm.springPendingTrainBatches),
 		prunedPending,
 		flushUpdate,
@@ -923,6 +1031,10 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 		RCSTR:                   aggregateRCSTR,
 		RWLB:                    aggregateRWLB,
 		AbsLoadDiff:             aggregateAbsLoadDiff,
+		CommunicationCost:       aggregateCommunicationCost,
+		MaxLoadShare:            aggregateMaxLoadShare,
+		HotspotPenalty:          aggregateHotspotPenalty,
+		RewardMode:              rewardRecord.RewardMode,
 		Lambda:                  avgMetric(lambdaSum),
 		Beta:                    avgMetric(betaSum),
 		TotalTx:                 springRoundToInt(avgMetric(totalTxSum)),
@@ -967,16 +1079,20 @@ func (rthm *RelayCommitteeModule) springWriteOnlineUpdateInput(input SpringOnlin
 	}
 
 	rthm.sl.Slog.Printf(
-		"[SPRING ONLINE UPDATE FILE] batch_id=%d epoch=%d actions=%d reward=%.6f effective=%.1f cross=%.1f crossRate=%.6f runCross=%.6f normVar=%.6f feedback_count=%d feedback_window=[%d,%d] flush=%v file=%s\n",
+		"[SPRING ONLINE UPDATE FILE] batch_id=%d epoch=%d actions=%d reward=%.6f mode=%s effective=%.1f cross=%.1f crossRate=%.6f runCross=%.6f normVar=%.6f commCost=%.6f maxShare=%.6f hotspot=%.6f feedback_count=%d feedback_window=[%d,%d] flush=%v file=%s\n",
 		input.BatchID,
 		input.FeedbackEpoch,
 		len(input.Actions),
 		input.Reward,
+		input.RewardMode,
 		input.EffectiveTx,
 		input.CrossTx,
 		input.CrossRate,
 		input.RunningAvgCrossRate,
 		input.NormalizedLoadVariance,
+		input.CommunicationCost,
+		input.MaxLoadShare,
+		input.HotspotPenalty,
 		input.FeedbackAggregateCount,
 		input.FeedbackFirstEpoch,
 		input.FeedbackLastEpoch,

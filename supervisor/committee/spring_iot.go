@@ -40,21 +40,46 @@ func springIOTFeatureFromRow(row map[string]string, priorFrequency int) (SpringI
 	stateObject := springIOTStateObjectKey(row)
 	payload := springIOTNumber(row["srcPayloadSize"]) + springIOTNumber(row["dstPayloadSize"])
 	packets := springIOTNumber(row["srcNumPackets"]) + springIOTNumber(row["dstNumPackets"])
-	distance := springIOTNumber(row["distance"])
-	linkQuality := springIOTNumber(row["link_quality"])
-
-	features := []float64{
-		springIOTLogNormalize(payload, 1_000_000.0),
-		springIOTLogNormalize(packets, 10_000.0),
-		springClamp(distance/60.0, 0.0, 1.0),
-		springClamp(1.0-linkQuality, 0.0, 1.0),
-		springIOTLogNormalize(float64(priorFrequency), 1000.0),
-		springIOTProtocolScore(protocol),
+	duration := springIOTNumber(row["flowDuration"])
+	anchorWeights := springIOTNormalizedWeights(row)
+	distances := springIOTNumericList(row, "anchor_distances", "distance", len(anchorWeights))
+	linkQualities := springIOTNumericList(row, "anchor_link_qualities", "link_quality", len(anchorWeights))
+	normalizedDistances := make([]float64, 0, len(distances))
+	for _, distance := range distances {
+		normalizedDistances = append(normalizedDistances, springClamp(distance/60.0, 0.0, 1.0))
+	}
+	normalizedLinkQualities := make([]float64, 0, len(linkQualities))
+	for _, linkQuality := range linkQualities {
+		normalizedLinkQualities = append(normalizedLinkQualities, springClamp(linkQuality, 0.0, 1.0))
+	}
+	distanceStats := springIOTWeightedStats(normalizedDistances, anchorWeights)
+	linkQualityStats := springIOTWeightedStats(normalizedLinkQualities, anchorWeights)
+	trafficRateFeature := springIOTTrafficRateFeature(payload, duration)
+	anchorCount := springIOTNumber(row["anchor_count"])
+	if anchorCount <= 0 {
+		anchorCount = float64(len(anchorWeights))
+	}
+	if anchorCount <= 0 {
+		anchorCount = 1
 	}
 
-	distanceNorm := springClamp(distance/60.0, 0.0, 1.0)
-	linkLoss := springClamp(1.0-linkQuality, 0.0, 1.0)
-	trafficWeight := math.Max(0.05, features[0])
+	features := []float64{
+		springClamp(anchorCount/4.0, 0.0, 1.0),
+		distanceStats[0],
+		distanceStats[1],
+		linkQualityStats[0],
+		trafficRateFeature,
+	}
+	anchorShares := springIOTLiteAnchorTypeShares(row, anchorWeights)
+	features = append(features, anchorShares["device"])
+	features = append(features, anchorShares["edge"])
+	features = append(features, anchorShares["cloud"])
+	features = append(features, anchorShares["service"])
+	features = append(features, springIOTControlProtocolFlag(protocol, row))
+
+	distanceNorm := distanceStats[0]
+	linkLoss := springClamp(1.0-linkQualityStats[0], 0.0, 1.0)
+	trafficWeight := math.Max(0.05, springIOTLogNormalize(payload+packets+duration, 1_000_000.0))
 
 	return SpringIOTTxFeature{
 		TxIndex:                 txIndex,
@@ -65,6 +90,13 @@ func springIOTFeatureFromRow(row map[string]string, priorFrequency int) (SpringI
 		Features:                features,
 		CommunicationCostWeight: springClamp(distanceNorm*linkLoss*trafficWeight, 0.0, 1.0),
 	}, true
+}
+
+func springIOTTrafficRateFeature(payload float64, duration float64) float64 {
+	if duration <= 1e-8 {
+		return springIOTLogNormalize(payload, 1_000_000.0)
+	}
+	return springIOTLogNormalize(payload/duration, 10_000.0)
 }
 
 func springLoadIOTSidecar(path string) (map[uint64]SpringIOTTxFeature, error) {
@@ -148,6 +180,30 @@ func (rthm *RelayCommitteeModule) springIOTFeaturesForTx(tx *core.Transaction) [
 		return nil
 	}
 	return feature.Features
+}
+
+func (rthm *RelayCommitteeModule) springIOTCommunicationCostForTxGroups(txGroups ...[]*core.Transaction) (float64, int) {
+	if rthm == nil || rthm.springIOTByTxIndex == nil {
+		return 0.0, 0
+	}
+	seen := make(map[uint64]bool)
+	sum := 0.0
+	count := 0
+	for _, txs := range txGroups {
+		for _, tx := range txs {
+			if tx == nil || seen[tx.Nonce] {
+				continue
+			}
+			seen[tx.Nonce] = true
+			feature, ok := rthm.springIOTByTxIndex[tx.Nonce]
+			if !ok {
+				continue
+			}
+			sum += springClamp(feature.CommunicationCostWeight, 0.0, 1.0)
+			count++
+		}
+	}
+	return sum, count
 }
 
 func (rthm *RelayCommitteeModule) springBuildIOTBatchRelatedMap(txlist []*core.Transaction) map[string]map[string]bool {
@@ -315,6 +371,341 @@ func springIOTProtocol(row map[string]string) string {
 		return "none"
 	}
 	return protocol
+}
+
+var springIOTAnchorTypeOrder = []string{
+	"device",
+	"gateway",
+	"cloud_endpoint",
+	"local_endpoint",
+	"private_endpoint",
+	"service_group",
+}
+
+var springIOTFlowDirectionOrder = []string{
+	"outbound",
+	"inbound",
+	"owner_not_in_ip_endpoints",
+}
+
+var springIOTProtocolGroupOrder = []string{
+	"web",
+	"secure",
+	"infra",
+	"control",
+	"other",
+}
+
+var springIOTRelationGroupOrder = []string{
+	"cloud",
+	"gateway",
+	"local_private",
+	"device_multi",
+	"service_owner_other",
+}
+
+func springIOTNormalizedWeights(row map[string]string) []float64 {
+	rawWeights := springIOTSplitList(row["anchor_weights"])
+	weights := make([]float64, 0, len(rawWeights))
+	for _, raw := range rawWeights {
+		weight := springIOTNumber(raw)
+		if weight < 0 {
+			weight = 0
+		}
+		weights = append(weights, weight)
+	}
+
+	anchorCount := len(springIOTSplitList(row["anchor_addresses"]))
+	if anchorCount == 0 {
+		anchorCount = len(springIOTSplitList(row["anchor_types"]))
+	}
+	if len(weights) == 0 {
+		if anchorCount <= 0 {
+			anchorCount = 1
+		}
+		for i := 0; i < anchorCount; i++ {
+			weights = append(weights, 1.0)
+		}
+	}
+
+	total := 0.0
+	for _, weight := range weights {
+		total += weight
+	}
+	if total <= 0 {
+		uniform := 1.0 / float64(len(weights))
+		for i := range weights {
+			weights[i] = uniform
+		}
+		return weights
+	}
+	for i := range weights {
+		weights[i] = weights[i] / total
+	}
+	return weights
+}
+
+func springIOTSplitList(value string) []string {
+	text := springIOTCleanCell(value)
+	if text == "" {
+		return nil
+	}
+	parts := strings.Split(text, ";")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = springIOTCleanCell(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func springIOTNumericList(row map[string]string, field string, fallbackField string, expectedLen int) []float64 {
+	rawValues := springIOTSplitList(row[field])
+	values := make([]float64, 0, len(rawValues))
+	for _, raw := range rawValues {
+		values = append(values, springIOTNumber(raw))
+	}
+	if len(values) == 0 {
+		values = append(values, springIOTNumber(row[fallbackField]))
+	}
+	if expectedLen <= 0 {
+		expectedLen = 1
+	}
+	for len(values) < expectedLen {
+		last := 0.0
+		if len(values) > 0 {
+			last = values[len(values)-1]
+		}
+		values = append(values, last)
+	}
+	if len(values) > expectedLen {
+		values = values[:expectedLen]
+	}
+	return values
+}
+
+func springIOTWeightedStats(values []float64, weights []float64) [3]float64 {
+	if len(values) == 0 {
+		return [3]float64{0, 0, 0}
+	}
+	if len(weights) != len(values) || len(weights) == 0 {
+		weights = make([]float64, len(values))
+		for i := range weights {
+			weights[i] = 1.0 / float64(len(values))
+		}
+	}
+
+	total := 0.0
+	for _, weight := range weights {
+		if weight > 0 {
+			total += weight
+		}
+	}
+	if total <= 0 {
+		total = 1.0
+		for i := range weights {
+			weights[i] = 1.0 / float64(len(values))
+		}
+	}
+
+	avg := 0.0
+	minValue := values[0]
+	maxValue := values[0]
+	for idx, value := range values {
+		if value < minValue {
+			minValue = value
+		}
+		if value > maxValue {
+			maxValue = value
+		}
+		weight := weights[idx]
+		if weight < 0 {
+			weight = 0
+		}
+		avg += value * weight
+	}
+	avg = avg / total
+	return [3]float64{
+		springClamp(avg, 0.0, 1.0),
+		springClamp(minValue, 0.0, 1.0),
+		springClamp(maxValue, 0.0, 1.0),
+	}
+}
+
+func springIOTAnchorTypeDistribution(row map[string]string, weights []float64) []float64 {
+	rawTypes := springIOTSplitList(row["anchor_types"])
+	if len(rawTypes) == 0 {
+		rawType := springIOTCleanCell(row["peer_anchor_type"])
+		if rawType != "" {
+			rawTypes = []string{rawType}
+		}
+	}
+	if len(rawTypes) == 0 {
+		rawTypes = []string{"device"}
+	}
+	for len(weights) < len(rawTypes) {
+		weights = append(weights, 1.0)
+	}
+	if len(weights) > len(rawTypes) {
+		weights = weights[:len(rawTypes)]
+	}
+
+	total := 0.0
+	for _, weight := range weights {
+		if weight > 0 {
+			total += weight
+		}
+	}
+	if total <= 0 {
+		total = 1.0
+		for i := range weights {
+			weights[i] = 1.0 / float64(len(rawTypes))
+		}
+	}
+
+	dist := make([]float64, len(springIOTAnchorTypeOrder))
+	index := make(map[string]int, len(springIOTAnchorTypeOrder))
+	for idx, name := range springIOTAnchorTypeOrder {
+		index[name] = idx
+	}
+	for idx, rawType := range rawTypes {
+		group := springIOTAnchorTypeGroup(rawType)
+		if pos, ok := index[group]; ok {
+			weight := weights[idx]
+			if weight < 0 {
+				weight = 0
+			}
+			dist[pos] += weight / total
+		}
+	}
+	for idx := range dist {
+		dist[idx] = springClamp(dist[idx], 0.0, 1.0)
+	}
+	return dist
+}
+
+func springIOTLiteAnchorTypeShares(row map[string]string, weights []float64) map[string]float64 {
+	dist := springIOTAnchorTypeDistribution(row, weights)
+	index := make(map[string]int, len(springIOTAnchorTypeOrder))
+	for idx, name := range springIOTAnchorTypeOrder {
+		index[name] = idx
+	}
+	edgeShare := dist[index["gateway"]] +
+		dist[index["local_endpoint"]] +
+		dist[index["private_endpoint"]]
+	return map[string]float64{
+		"device":  springClamp(dist[index["device"]], 0.0, 1.0),
+		"edge":    springClamp(edgeShare, 0.0, 1.0),
+		"cloud":   springClamp(dist[index["cloud_endpoint"]], 0.0, 1.0),
+		"service": springClamp(dist[index["service_group"]], 0.0, 1.0),
+	}
+}
+
+func springIOTAnchorTypeGroup(value string) string {
+	text := strings.ToLower(springIOTCleanCell(value))
+	if strings.Contains(text, "gateway") {
+		return "gateway"
+	}
+	if strings.Contains(text, "cloud") {
+		return "cloud_endpoint"
+	}
+	if strings.Contains(text, "local") {
+		return "local_endpoint"
+	}
+	if strings.Contains(text, "private") {
+		return "private_endpoint"
+	}
+	if strings.Contains(text, "service") {
+		return "service_group"
+	}
+	return "device"
+}
+
+func springIOTControlProtocolFlag(protocol string, row map[string]string) float64 {
+	protocol = strings.ToLower(protocol)
+	if springIOTBool(row["is_control_protocol"]) > 0 {
+		return 1.0
+	}
+	switch protocol {
+	case "icmp", "arp", "dhcp", "mdns", "ssdp", "igmp":
+		return 1.0
+	default:
+		return 0.0
+	}
+}
+
+func springIOTFlowDirectionGroup(row map[string]string) string {
+	direction := strings.ToLower(springIOTCleanCell(row["flow_direction"]))
+	for _, item := range springIOTFlowDirectionOrder {
+		if direction == item {
+			return direction
+		}
+	}
+	if strings.HasPrefix(direction, "in") {
+		return "inbound"
+	}
+	if strings.HasPrefix(direction, "out") {
+		return "outbound"
+	}
+	return "owner_not_in_ip_endpoints"
+}
+
+func springIOTProtocolGroup(protocol string, row map[string]string) string {
+	protocol = strings.ToLower(protocol)
+	if springIOTBool(row["is_control_protocol"]) > 0 {
+		return "control"
+	}
+	switch protocol {
+	case "tls", "https", "ssl":
+		return "secure"
+	case "http", "rtsp", "rtmp", "xmpp", "mqtt", "coap":
+		return "web"
+	case "dns", "ntp", "stun", "syslog":
+		return "infra"
+	case "icmp", "arp", "dhcp", "mdns", "ssdp", "igmp":
+		return "control"
+	default:
+		return "other"
+	}
+}
+
+func springIOTRelationGroup(row map[string]string) string {
+	relation := strings.ToLower(springIOTCleanCell(row["relation_type"]))
+	if strings.Contains(relation, "cloud") {
+		return "cloud"
+	}
+	if strings.Contains(relation, "gateway") {
+		return "gateway"
+	}
+	if strings.Contains(relation, "local") || strings.Contains(relation, "private") {
+		return "local_private"
+	}
+	if strings.Contains(relation, "device_to_device") || strings.Contains(relation, "multi_anchor") {
+		return "device_multi"
+	}
+	return "service_owner_other"
+}
+
+func springIOTOneHot(order []string, value string) []float64 {
+	out := make([]float64, 0, len(order))
+	for _, item := range order {
+		if item == value {
+			out = append(out, 1.0)
+		} else {
+			out = append(out, 0.0)
+		}
+	}
+	return out
+}
+
+func springIOTBool(value string) float64 {
+	text := strings.ToLower(springIOTCleanCell(value))
+	if text == "1" || text == "true" || text == "yes" || text == "y" {
+		return 1.0
+	}
+	return 0.0
 }
 
 func springIOTProtocolScore(protocol string) float64 {

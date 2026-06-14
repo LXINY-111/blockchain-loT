@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from torch.distributions import Categorical
 
+from action_mask import mask_logits, normalize_action_mask
 from action_select import tie_aware_argmax
 from config import (
     ARGMAX_TIE_BREAK,
@@ -125,7 +126,7 @@ CACHE = AgentCache()
 
 def safe_heuristic(item: Dict[str, Any], shards: int, reason: str, request_id: int) -> Dict[str, Any]:
     state = item.get("state", [])
-    shard = heuristic_from_state(state, shards)
+    shard = heuristic_from_state(state, shards, item.get("action_mask", []))
 
     if shard < 0 or shard >= shards:
         shard = 0
@@ -157,12 +158,16 @@ def normalize_items(raw_items: Any) -> List[Dict[str, Any]]:
         state = raw.get("state", [])
         if not isinstance(state, list):
             state = []
+        action_mask = raw.get("action_mask", [])
+        if not isinstance(action_mask, list):
+            action_mask = []
 
         items.append(
             {
                 "address": str(raw.get("address", "")),
                 "related": str(raw.get("related", "")),
                 "state": [float(x) for x in state],
+                "action_mask": action_mask,
             }
         )
 
@@ -194,6 +199,7 @@ def infer_items(
     outputs: List[Optional[Dict[str, Any]]] = [None for _ in items]
     valid_indices: List[int] = []
     valid_states: List[List[float]] = []
+    valid_masks: List[List[int]] = []
 
     for idx, item in enumerate(items):
         state = item.get("state", [])
@@ -203,6 +209,7 @@ def infer_items(
 
         valid_indices.append(idx)
         valid_states.append(state)
+        valid_masks.append(normalize_action_mask(item.get("action_mask", []), shards))
 
     if valid_states:
         with torch.no_grad():
@@ -213,8 +220,9 @@ def infer_items(
             )
 
             logits, values = agent.net(states_t)
-            dist = Categorical(logits=logits)
-            probs = torch.softmax(logits, dim=-1)
+            masked = mask_logits(logits, valid_masks)
+            dist = Categorical(logits=masked)
+            probs = torch.softmax(masked, dim=-1)
 
             if sample:
                 actions = dist.sample()

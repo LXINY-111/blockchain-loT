@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from torch.distributions import Categorical
 
+from action_mask import mask_logits, normalize_action_mask
 from config import HIDDEN_DIM, MODEL_PATH, state_dim
 from heuristic import heuristic_from_state
 from ppo import PPOAgent
@@ -34,12 +35,16 @@ def load_input(path: str) -> Tuple[List[Dict[str, Any]], int]:
         state = item.get("state", [])
         if not isinstance(state, list):
             state = []
+        action_mask = item.get("action_mask", [])
+        if not isinstance(action_mask, list):
+            action_mask = []
 
         normalized_items.append(
             {
                 "address": str(item.get("address", "")),
                 "related": str(item.get("related", "")),
                 "state": [float(x) for x in state],
+                "action_mask": action_mask,
             }
         )
 
@@ -48,7 +53,7 @@ def load_input(path: str) -> Tuple[List[Dict[str, Any]], int]:
 
 def safe_heuristic(item: Dict[str, Any], shards: int, reason: str) -> Dict[str, Any]:
     state = item.get("state", [])
-    shard = heuristic_from_state(state, shards)
+    shard = heuristic_from_state(state, shards, item.get("action_mask", []))
 
     if shard < 0 or shard >= shards:
         shard = 0
@@ -153,6 +158,7 @@ def infer_batch(
     outputs: List[Optional[Dict[str, Any]]] = [None for _ in items]
     valid_indices: List[int] = []
     valid_states: List[List[float]] = []
+    valid_masks: List[List[int]] = []
 
     for idx, item in enumerate(items):
         state = item.get("state", [])
@@ -162,6 +168,7 @@ def infer_batch(
 
         valid_indices.append(idx)
         valid_states.append(state)
+        valid_masks.append(normalize_action_mask(item.get("action_mask", []), shards))
 
     if valid_states:
         with torch.no_grad():
@@ -172,8 +179,9 @@ def infer_batch(
             )
 
             logits, values = agent.net(states_t)
-            dist = Categorical(logits=logits)
-            probs = torch.softmax(logits, dim=-1)
+            masked = mask_logits(logits, valid_masks)
+            dist = Categorical(logits=masked)
+            probs = torch.softmax(masked, dim=-1)
 
             if sample:
                 # 训练模式：按概率采样动作，保留探索。

@@ -19,6 +19,9 @@ from config import (
     IOT_BALANCE_WEIGHT,
     IOT_COMM_COST_WEIGHT,
     IOT_CSTR_WEIGHT,
+    IOT_DENSE_BALANCED_LOW_LOAD_BONUS_CAP,
+    IOT_DENSE_BALANCED_LOW_LOAD_BONUS_WEIGHT,
+    IOT_DENSE_BALANCED_REWARD_MODE,
     IOT_FEATURE_DIM,
     IOT_HOTSPOT_WEIGHT,
     LAMBDA_WEIGHT,
@@ -28,7 +31,12 @@ from config import (
     REWARD_MODE,
     state_dim,
 )
+from action_mask import action_allowed, best_allowed_action, normalize_action_mask
 from heuristic import addr2shard
+
+
+IOT_DENSE_REWARD_MODES = {"iot_dense", IOT_DENSE_BALANCED_REWARD_MODE}
+IOT_GLOBAL_REWARD_MODES = {"iot", "iot_dense", IOT_DENSE_BALANCED_REWARD_MODE}
 
 
 @dataclass(frozen=True)
@@ -50,6 +58,7 @@ class SenderPosInfo:
     related_weight: float
     related_in_current_batch: bool
     related_count: int
+    action_mask: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -87,6 +96,8 @@ class PlacementAction:
     shard_load_before: int = 0
     shard_load_mean_before: float = 0.0
     load_penalty: float = 0.0
+    source: str = "policy"
+    action_mask: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -400,30 +411,207 @@ def normalized_iot_protocol(row: Mapping[str, str]) -> str:
     return protocol if protocol else "none"
 
 
+IOT_ANCHOR_TYPE_ORDER = (
+    "device",
+    "gateway",
+    "cloud_endpoint",
+    "local_endpoint",
+    "private_endpoint",
+    "service_group",
+)
 def iot_feature_vector(row: Mapping[str, str], prior_frequency: int) -> List[float]:
+    protocol = normalized_iot_protocol(row)
+    anchor_weights = normalized_iot_weights(row)
+    distances = normalized_iot_numeric_list(
+        row,
+        "anchor_distances",
+        fallback_field="distance",
+        expected_len=len(anchor_weights),
+    )
+    link_qualities = normalized_iot_numeric_list(
+        row,
+        "anchor_link_qualities",
+        fallback_field="link_quality",
+        expected_len=len(anchor_weights),
+    )
+    distance_stats = weighted_iot_stats(
+        [clamp(value / 60.0, 0.0, 1.0) for value in distances],
+        anchor_weights,
+    )
+    link_quality_stats = weighted_iot_stats(
+        [clamp(value, 0.0, 1.0) for value in link_qualities],
+        anchor_weights,
+    )
+    anchor_count = int(max(1.0, numeric_iot_cell(row.get("anchor_count", "")) or len(anchor_weights) or 1))
+    anchor_shares = lite_anchor_type_shares(row, anchor_weights)
+
+    features: List[float] = [
+        clamp(float(anchor_count) / 4.0, 0.0, 1.0),
+        distance_stats[0],
+        distance_stats[1],
+        link_quality_stats[0],
+        iot_traffic_rate_feature(row),
+        anchor_shares["device"],
+        anchor_shares["edge"],
+        anchor_shares["cloud"],
+        anchor_shares["service"],
+        iot_control_protocol_flag(protocol, row),
+    ]
+
+    if len(features) != IOT_FEATURE_DIM:
+        raise RuntimeError(
+            f"IoT feature dim mismatch: got {len(features)}, expected {IOT_FEATURE_DIM}"
+        )
+    return features
+
+
+def normalized_iot_weights(row: Mapping[str, str]) -> List[float]:
+    weights = [max(0.0, numeric_iot_cell(value)) for value in split_iot_list(row.get("anchor_weights", ""))]
+    anchor_count = len(split_iot_list(row.get("anchor_addresses", ""))) or len(split_iot_list(row.get("anchor_types", "")))
+    if not weights:
+        weights = [1.0 for _ in range(max(1, anchor_count))]
+    total = sum(weights)
+    if total <= EPS:
+        return [1.0 / float(len(weights)) for _ in weights]
+    return [weight / total for weight in weights]
+
+
+def normalized_iot_numeric_list(
+    row: Mapping[str, str],
+    field: str,
+    fallback_field: str,
+    expected_len: int,
+) -> List[float]:
+    values = [numeric_iot_cell(value) for value in split_iot_list(row.get(field, ""))]
+    if not values:
+        values = [numeric_iot_cell(row.get(fallback_field, ""))]
+    if len(values) < expected_len:
+        values.extend([values[-1] if values else 0.0] * (expected_len - len(values)))
+    return values[: max(1, expected_len)]
+
+
+def weighted_iot_stats(values: Sequence[float], weights: Sequence[float]) -> Tuple[float, float, float]:
+    if not values:
+        return 0.0, 0.0, 0.0
+    if not weights or len(weights) != len(values):
+        weights = [1.0 / float(len(values)) for _ in values]
+    total_weight = sum(max(0.0, float(weight)) for weight in weights)
+    if total_weight <= EPS:
+        weights = [1.0 / float(len(values)) for _ in values]
+        total_weight = 1.0
+    avg = sum(float(value) * max(0.0, float(weight)) for value, weight in zip(values, weights))
+    avg /= total_weight
+    return clamp(avg, 0.0, 1.0), clamp(min(values), 0.0, 1.0), clamp(max(values), 0.0, 1.0)
+
+
+def anchor_type_distribution(row: Mapping[str, str], weights: Sequence[float]) -> List[float]:
+    raw_types = split_iot_list(row.get("anchor_types", ""))
+    if not raw_types:
+        raw_type = clean_iot_cell(row.get("peer_anchor_type", ""))
+        raw_types = [raw_type] if raw_type else []
+    if not raw_types:
+        raw_types = ["device"]
+    if len(weights) < len(raw_types):
+        weights = list(weights) + [1.0 for _ in range(len(raw_types) - len(weights))]
+    if len(weights) > len(raw_types):
+        weights = list(weights[: len(raw_types)])
+    total_weight = sum(max(0.0, float(weight)) for weight in weights)
+    if total_weight <= EPS:
+        weights = [1.0 / float(len(raw_types)) for _ in raw_types]
+        total_weight = 1.0
+
+    dist = [0.0 for _ in IOT_ANCHOR_TYPE_ORDER]
+    index = {name: idx for idx, name in enumerate(IOT_ANCHOR_TYPE_ORDER)}
+    for raw_type, weight in zip(raw_types, weights):
+        kind = anchor_type_group(raw_type)
+        if kind in index:
+            dist[index[kind]] += max(0.0, float(weight)) / total_weight
+    return [clamp(value, 0.0, 1.0) for value in dist]
+
+
+def lite_anchor_type_shares(row: Mapping[str, str], weights: Sequence[float]) -> Dict[str, float]:
+    dist = anchor_type_distribution(row, weights)
+    index = {name: idx for idx, name in enumerate(IOT_ANCHOR_TYPE_ORDER)}
+    device_share = dist[index["device"]]
+    edge_share = (
+        dist[index["gateway"]]
+        + dist[index["local_endpoint"]]
+        + dist[index["private_endpoint"]]
+    )
+    cloud_share = dist[index["cloud_endpoint"]]
+    service_share = dist[index["service_group"]]
+    return {
+        "device": clamp(device_share, 0.0, 1.0),
+        "edge": clamp(edge_share, 0.0, 1.0),
+        "cloud": clamp(cloud_share, 0.0, 1.0),
+        "service": clamp(service_share, 0.0, 1.0),
+    }
+
+
+def anchor_type_group(value: object) -> str:
+    text = clean_iot_cell(value).lower()
+    if "gateway" in text:
+        return "gateway"
+    if "cloud" in text:
+        return "cloud_endpoint"
+    if "local" in text:
+        return "local_endpoint"
+    if "private" in text:
+        return "private_endpoint"
+    if "service" in text:
+        return "service_group"
+    return "device"
+
+
+def iot_control_protocol_flag(protocol: str, row: Mapping[str, str]) -> float:
+    protocol = protocol.lower()
+    if bool_iot_cell(row.get("is_control_protocol", "")) > 0.0:
+        return 1.0
+    if protocol in {"icmp", "arp", "dhcp", "mdns", "ssdp", "igmp"}:
+        return 1.0
+    return 0.0
+
+
+def bool_iot_cell(value: object) -> float:
+    text = clean_iot_cell(value).lower()
+    if text in {"1", "true", "yes", "y"}:
+        return 1.0
+    return 0.0
+
+
+def iot_traffic_rate_feature(row: Mapping[str, str]) -> float:
     payload = numeric_iot_cell(row.get("srcPayloadSize", "")) + numeric_iot_cell(
         row.get("dstPayloadSize", "")
     )
-    packets = numeric_iot_cell(row.get("srcNumPackets", "")) + numeric_iot_cell(
-        row.get("dstNumPackets", "")
-    )
-    distance = numeric_iot_cell(row.get("distance", ""))
-    link_quality = numeric_iot_cell(row.get("link_quality", ""))
-    protocol = normalized_iot_protocol(row)
-
-    return [
-        log_normalize(payload, 1_000_000.0),
-        log_normalize(packets, 10_000.0),
-        clamp(distance / 60.0, 0.0, 1.0),
-        clamp(1.0 - link_quality, 0.0, 1.0),
-        log_normalize(float(prior_frequency), 1000.0),
-        protocol_score(protocol),
-    ]
+    duration = numeric_iot_cell(row.get("flowDuration", ""))
+    if duration <= EPS:
+        return log_normalize(payload, 1_000_000.0)
+    return log_normalize(payload / duration, 10_000.0)
 
 
 def iot_communication_cost_weight(row: Mapping[str, str]) -> float:
-    distance = clamp(numeric_iot_cell(row.get("distance", "")) / 60.0, 0.0, 1.0)
-    link_loss = clamp(1.0 - numeric_iot_cell(row.get("link_quality", "")), 0.0, 1.0)
+    weights = normalized_iot_weights(row)
+    distances = normalized_iot_numeric_list(
+        row,
+        "anchor_distances",
+        fallback_field="distance",
+        expected_len=len(weights),
+    )
+    link_qualities = normalized_iot_numeric_list(
+        row,
+        "anchor_link_qualities",
+        fallback_field="link_quality",
+        expected_len=len(weights),
+    )
+    distance = weighted_iot_stats(
+        [clamp(value / 60.0, 0.0, 1.0) for value in distances],
+        weights,
+    )[0]
+    link_quality = weighted_iot_stats(
+        [clamp(value, 0.0, 1.0) for value in link_qualities],
+        weights,
+    )[0]
+    link_loss = clamp(1.0 - link_quality, 0.0, 1.0)
     payload = numeric_iot_cell(row.get("srcPayloadSize", "")) + numeric_iot_cell(
         row.get("dstPayloadSize", "")
     )
@@ -554,6 +742,44 @@ def local_action_reward(
     return reward, load_penalty
 
 
+def iot_dense_action_reward(
+    chosen_shard: int,
+    sender_pos: Sequence[float],
+    communication_cost_weight: float,
+    shard_load_before: int,
+    load_mean_before: float,
+    low_load_bonus_weight: float = 0.0,
+    low_load_bonus_cap: float = 0.0,
+) -> Tuple[float, float]:
+    anchor_mass = 0.0
+    if 0 <= chosen_shard < len(sender_pos):
+        anchor_mass = clamp(float(sender_pos[chosen_shard]), 0.0, 1.0)
+
+    cross_penalty = 1.0 - anchor_mass if sum(sender_pos) > EPS else 0.0
+    reward = 1.4 * anchor_mass - 0.8 * cross_penalty
+    reward -= 0.45 * clamp(float(communication_cost_weight), 0.0, 1.0) * cross_penalty
+
+    load_penalty = 0.0
+    if load_mean_before > 1e-9:
+        load_penalty = float(shard_load_before) / load_mean_before
+        if load_penalty > 1.0:
+            overload = load_penalty - 1.0
+            reward -= 0.55 * overload
+            if load_penalty > 1.5:
+                reward -= 0.35 * (load_penalty - 1.5)
+        else:
+            underuse_gap = 1.0 - load_penalty
+            reward += 0.10 * underuse_gap
+            bonus_cap = max(0.0, float(low_load_bonus_cap))
+            if low_load_bonus_weight > 0.0 and bonus_cap > 0.0:
+                reward += min(
+                    bonus_cap,
+                    float(low_load_bonus_weight) * underuse_gap,
+                )
+
+    return reward, load_penalty
+
+
 def spring_reward(
     effective_loads: Sequence[float],
     cross_loads: Sequence[float],
@@ -665,9 +891,10 @@ def spring_reward(
         reward -= load_penalty_weight * norm_var
         reward += load_aware_bonus
         reward -= float(backlog_penalty_weight) * clamp(float(backlog_penalty), 0.0, 1.0)
-    elif mode == "iot":
-        # IoT MDP v1：把物联网通信代价放进奖励，但仍保持 CSTR（跨分片率）
-        # 和 workload balance（负载均衡）为主，便于第一阶段训练收敛。
+    elif mode in IOT_GLOBAL_REWARD_MODES:
+        # IoT reward keeps the global SPRING objectives, then adds the IoT
+        # communication cost term. Dense modes add local multi-anchor reward
+        # in run_batch(); iot_dense_balanced only changes that local signal.
         communication_cost = clamp(float(communication_cost), 0.0, 1.0)
         reward = (
             float(iot_cstr_weight) * r_cstr
@@ -727,6 +954,10 @@ class SpringOfflineEnv:
         iot_balance_weight: float = IOT_BALANCE_WEIGHT,
         iot_comm_cost_weight: float = IOT_COMM_COST_WEIGHT,
         iot_hotspot_weight: float = IOT_HOTSPOT_WEIGHT,
+        candidate_top_k: int = 0,
+        capacity_guard: int = 0,
+        capacity_guard_factor: float = 1.2,
+        candidate_load_weight: float = 1.0,
     ) -> None:
         if shards <= 0:
             raise ValueError("shards must be positive")
@@ -755,6 +986,10 @@ class SpringOfflineEnv:
         self.iot_balance_weight = float(iot_balance_weight)
         self.iot_comm_cost_weight = float(iot_comm_cost_weight)
         self.iot_hotspot_weight = float(iot_hotspot_weight)
+        self.candidate_top_k = max(0, int(candidate_top_k))
+        self.capacity_guard = int(capacity_guard)
+        self.capacity_guard_factor = max(1.0, float(capacity_guard_factor))
+        self.candidate_load_weight = max(0.0, float(candidate_load_weight))
 
         self.addr_shard: Dict[str, int] = {}
         self.shard_load: List[int] = []
@@ -809,6 +1044,12 @@ class SpringOfflineEnv:
         state.append(1.0 if flag != 0 else 0.0)
 
         if self.iot_feature_dim > 0:
+            total_load = float(sum(self.shard_load))
+            for sid in range(self.shards):
+                load = float(self.shard_load[sid]) if sid < len(self.shard_load) else 0.0
+                value = load / total_load if total_load > EPS else 0.0
+                state.append(clamp(value, 0.0, 1.0))
+
             extra = list(iot_features or [])
             for idx in range(self.iot_feature_dim):
                 value = float(extra[idx]) if idx < len(extra) else 0.0
@@ -904,21 +1145,80 @@ class SpringOfflineEnv:
             related_count=len(related_keys),
         )
 
+    def _candidate_scores(self, addr: str, sender_pos: Sequence[float]) -> List[float]:
+        hash_sid = addr2shard(addr, self.shards)
+        scores: List[float] = []
+        for sid in range(self.shards):
+            related_score = float(sender_pos[sid]) if sid < len(sender_pos) else 0.0
+            load = float(self.shard_load[sid]) if sid < len(self.shard_load) else 0.0
+            score = 1000.0 * related_score - self.candidate_load_weight * load
+            if sid == hash_sid:
+                score += 0.001
+            scores.append(score)
+        return scores
+
+    def build_candidate_action_mask(
+        self,
+        addr: str,
+        sender_pos: Sequence[float],
+    ) -> List[int]:
+        if self.shards <= 0:
+            return []
+        if self.candidate_top_k <= 0 and self.capacity_guard == 0:
+            return [1 for _ in range(self.shards)]
+
+        mask = [1 for _ in range(self.shards)]
+        if self.capacity_guard != 0 and self.shard_load:
+            total_load = float(sum(self.shard_load))
+            mean_load = total_load / float(max(1, self.shards))
+            if mean_load > EPS:
+                threshold = mean_load * self.capacity_guard_factor
+                guarded = [
+                    1 if float(load) <= threshold else 0
+                    for load in self.shard_load[: self.shards]
+                ]
+                if any(guarded):
+                    mask = guarded
+
+        top_k = self.candidate_top_k
+        if top_k > 0 and top_k < self.shards:
+            scores = self._candidate_scores(addr, sender_pos)
+            allowed = [sid for sid in range(self.shards) if sid < len(mask) and mask[sid] > 0]
+            allowed.sort(key=lambda sid: (scores[sid], -sid), reverse=True)
+            keep = set(allowed[: min(top_k, len(allowed))])
+            mask = [1 if sid in keep else 0 for sid in range(self.shards)]
+
+        return normalize_action_mask(mask, self.shards)
+
+    def _best_candidate_action(
+        self,
+        addr: str,
+        sender_pos: Sequence[float],
+        action_mask: Sequence[int],
+    ) -> int:
+        return best_allowed_action(
+            self._candidate_scores(addr, sender_pos),
+            action_mask,
+            self.shards,
+        )
+
     def _safe_policy_output(
         self,
         output: PolicyOutput,
         address: str,
+        sender_pos: Sequence[float],
+        action_mask: Sequence[int],
     ) -> PolicyOutput:
         action = int(output.action)
-        if action < 0 or action >= self.shards:
-            action = addr2shard(address, self.shards)
+        if action < 0 or action >= self.shards or not action_allowed(action_mask, action, self.shards):
+            action = self._best_candidate_action(address, sender_pos, action_mask)
             return PolicyOutput(
                 action=action,
                 log_prob=0.0,
                 value=0.0,
                 confidence=0.0,
                 entropy=0.0,
-                source="safe_hash_fallback",
+                source=f"{output.source}_capacity_guard",
             )
         output.action = action
         return output
@@ -932,6 +1232,7 @@ class SpringOfflineEnv:
         policy: PolicyFn,
         batch_id: int,
         iot_features: Optional[Sequence[float]] = None,
+        communication_cost_weight: float = 0.0,
     ) -> Optional[PlacementAction]:
         if not addr or addr in self.addr_shard:
             return None
@@ -947,10 +1248,14 @@ class SpringOfflineEnv:
             address_flag_from_related_count(info.related_count),
             iot_features=iot_features,
         )
+        action_mask = self.build_candidate_action_mask(addr, info.sender_pos)
+        info.action_mask = list(action_mask)
 
         output = self._safe_policy_output(
             policy(state, addr, info.related_summary, info),
             addr,
+            info.sender_pos,
+            action_mask,
         )
 
         chosen_shard = int(output.action)
@@ -960,14 +1265,30 @@ class SpringOfflineEnv:
             if self.shard_load
             else 0.0
         )
-        local_reward, load_penalty = local_action_reward(
-            chosen_shard=chosen_shard,
-            related_known=info.related_known,
-            related_shard=info.related_shard,
-            related_weight=info.related_weight,
-            shard_load_before=shard_load_before,
-            load_mean_before=load_mean_before,
-        )
+        if self.reward_mode in IOT_DENSE_REWARD_MODES and self.iot_feature_dim > 0:
+            low_load_bonus_weight = 0.0
+            low_load_bonus_cap = 0.0
+            if self.reward_mode == IOT_DENSE_BALANCED_REWARD_MODE:
+                low_load_bonus_weight = IOT_DENSE_BALANCED_LOW_LOAD_BONUS_WEIGHT
+                low_load_bonus_cap = IOT_DENSE_BALANCED_LOW_LOAD_BONUS_CAP
+            local_reward, load_penalty = iot_dense_action_reward(
+                chosen_shard=chosen_shard,
+                sender_pos=info.sender_pos,
+                communication_cost_weight=communication_cost_weight,
+                shard_load_before=shard_load_before,
+                load_mean_before=load_mean_before,
+                low_load_bonus_weight=low_load_bonus_weight,
+                low_load_bonus_cap=low_load_bonus_cap,
+            )
+        else:
+            local_reward, load_penalty = local_action_reward(
+                chosen_shard=chosen_shard,
+                related_known=info.related_known,
+                related_shard=info.related_shard,
+                related_weight=info.related_weight,
+                shard_load_before=shard_load_before,
+                load_mean_before=load_mean_before,
+            )
 
         self.addr_shard[addr] = chosen_shard
         self.shard_load[chosen_shard] += 1
@@ -985,7 +1306,10 @@ class SpringOfflineEnv:
             iot_features=iot_features,
         )
 
-        same_as_related = info.related_known and chosen_shard == info.related_shard
+        if self.iot_feature_dim > 0:
+            same_as_related = info.related_known and 0 <= chosen_shard < len(info.sender_pos) and info.sender_pos[chosen_shard] > EPS
+        else:
+            same_as_related = info.related_known and chosen_shard == info.related_shard
 
         return PlacementAction(
             batch_id=batch_id,
@@ -1009,6 +1333,8 @@ class SpringOfflineEnv:
             shard_load_before=shard_load_before,
             shard_load_mean_before=load_mean_before,
             load_penalty=load_penalty,
+            source=output.source,
+            action_mask=list(action_mask),
         )
 
     def _update_temporal_neighbors(self, txs: Sequence[Tx]) -> None:
@@ -1194,6 +1520,7 @@ class SpringOfflineEnv:
                     policy,
                     batch_id,
                     iot_features=tx.iot_features,
+                    communication_cost_weight=tx.communication_cost_weight,
                 )
                 if action is not None:
                     actions.append(action)
@@ -1303,9 +1630,12 @@ class SpringOfflineEnv:
 
         for action in actions:
             local_signal = clamp(action.local_reward, -1.0, 1.0)
+            local_reward_weight = self.local_reward_weight
+            if self.reward_mode in IOT_DENSE_REWARD_MODES and self.iot_feature_dim > 0:
+                local_reward_weight = max(local_reward_weight, 0.65)
             shaped = (
-                self.local_reward_weight * local_signal
-                + (1.0 - self.local_reward_weight) * block_signal
+                local_reward_weight * local_signal
+                + (1.0 - local_reward_weight) * block_signal
             )
             action.reward = self.action_reward_scale * clamp(shaped, -1.0, 1.0)
             action.done = False

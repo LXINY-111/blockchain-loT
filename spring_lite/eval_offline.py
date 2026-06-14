@@ -34,8 +34,10 @@ from config import (
     MIN_ACTIVE_LOAD_SHARE,
     MODEL_PATH,
     REWARD_MODE,
+    REWARD_MODE_CHOICES,
     state_dim,
 )
+from action_mask import mask_logits, normalize_action_mask
 from action_select import tie_aware_argmax
 from heuristic import addr2shard, heuristic_from_state
 from offline_env import (
@@ -316,8 +318,10 @@ def make_policy(args: argparse.Namespace, agent: Optional[PPOAgent]):
         state_t = torch.tensor(state, dtype=torch.float32, device=agent.device).unsqueeze(0)
         with torch.no_grad():
             logits, value = agent.net(state_t)
-            dist = Categorical(logits=logits)
-            probs = torch.softmax(logits, dim=-1)
+            masks = [normalize_action_mask(_info.action_mask, agent.action_dim)]
+            masked = mask_logits(logits, masks)
+            dist = Categorical(logits=masked)
+            probs = torch.softmax(masked, dim=-1)
             if args.sample:
                 action = dist.sample()
             else:
@@ -346,7 +350,10 @@ def make_policy(args: argparse.Namespace, agent: Optional[PPOAgent]):
         _related: str,
         _info: SenderPosInfo,
     ) -> PolicyOutput:
-        return PolicyOutput(action=heuristic_from_state(state, args.shards), source="heuristic")
+        return PolicyOutput(
+            action=heuristic_from_state(state, args.shards, _info.action_mask),
+            source="heuristic",
+        )
 
     def hash_policy(
         _state: List[float],
@@ -419,6 +426,10 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
         iot_balance_weight=args.iot_balance_weight,
         iot_comm_cost_weight=args.iot_comm_cost_weight,
         iot_hotspot_weight=args.iot_hotspot_weight,
+        candidate_top_k=args.candidate_top_k,
+        capacity_guard=args.capacity_guard,
+        capacity_guard_factor=args.capacity_guard_factor,
+        candidate_load_weight=args.candidate_load_weight,
     )
 
     summary = new_summary(args.shards)
@@ -472,6 +483,10 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
         "iot_balance_weight": args.iot_balance_weight,
         "iot_comm_cost_weight": args.iot_comm_cost_weight,
         "iot_hotspot_weight": args.iot_hotspot_weight,
+        "candidate_top_k": args.candidate_top_k,
+        "capacity_guard": args.capacity_guard,
+        "capacity_guard_factor": args.capacity_guard_factor,
+        "candidate_load_weight": args.candidate_load_weight,
         "argmax_tie_break": args.argmax_tie_break,
         "argmax_tie_eps": args.argmax_tie_eps,
         "summary": summary_view(summary),
@@ -494,7 +509,11 @@ def main() -> None:
     parser.add_argument("--max_block_size", type=int, default=1000)
     parser.add_argument("--sender_pos_mode", type=int, default=DEFAULT_SENDER_POS_MODE)
     parser.add_argument("--temporal_top_k", type=int, default=8)
-    parser.add_argument("--reward_mode", choices=["paper", "enhanced", "iot"], default=REWARD_MODE)
+    parser.add_argument(
+        "--reward_mode",
+        choices=list(REWARD_MODE_CHOICES),
+        default=REWARD_MODE,
+    )
     parser.add_argument("--lambda_weight", type=float, default=LAMBDA_WEIGHT)
     parser.add_argument("--beta", type=float, default=BETA)
     parser.add_argument("--load_penalty_weight", type=float, default=LOAD_PENALTY_WEIGHT)
@@ -518,6 +537,10 @@ def main() -> None:
     parser.add_argument("--iot_balance_weight", type=float, default=IOT_BALANCE_WEIGHT)
     parser.add_argument("--iot_comm_cost_weight", type=float, default=IOT_COMM_COST_WEIGHT)
     parser.add_argument("--iot_hotspot_weight", type=float, default=IOT_HOTSPOT_WEIGHT)
+    parser.add_argument("--candidate_top_k", type=int, default=0)
+    parser.add_argument("--capacity_guard", type=int, default=0)
+    parser.add_argument("--capacity_guard_factor", type=float, default=1.2)
+    parser.add_argument("--candidate_load_weight", type=float, default=1.0)
     parser.add_argument("--argmax_tie_break", type=int, default=ARGMAX_TIE_BREAK)
     parser.add_argument("--argmax_tie_eps", type=float, default=ARGMAX_TIE_EPS)
     parser.add_argument("--hidden_dim", type=int, default=HIDDEN_DIM)

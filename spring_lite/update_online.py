@@ -203,6 +203,7 @@ def build_buffer_from_update(data: Dict[str, Any]) -> Tuple[RolloutBuffer, Dict[
             next_state=clean_next_state,
             target_action=target_action,
             target_weight=target_weight,
+            action_mask=item.get("action_mask", []),
         )
 
         action_hist[action] += 1
@@ -257,6 +258,7 @@ def buffer_to_records(buffer: RolloutBuffer) -> List[Dict[str, Any]]:
                 "value": float(buffer.values[i]),
                 "target_action": int(buffer.target_actions[i]),
                 "target_weight": float(buffer.target_weights[i]),
+                "action_mask": list(buffer.action_masks[i]),
             }
         )
 
@@ -298,6 +300,7 @@ def records_to_buffer(records: List[Dict[str, Any]], shards: int) -> RolloutBuff
             value=value,
             target_action=safe_int(item.get("target_action", -1), -1),
             target_weight=safe_float(item.get("target_weight", 0.0), 0.0),
+            action_mask=item.get("action_mask", []),
         )
 
     return buffer
@@ -372,6 +375,7 @@ def append_buffer(dst: RolloutBuffer, src: RolloutBuffer) -> None:
             value=src.values[i],
             target_action=src.target_actions[i],
             target_weight=src.target_weights[i],
+            action_mask=src.action_masks[i],
         )
 
 
