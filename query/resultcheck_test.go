@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -16,6 +17,10 @@ import (
 
 func TestFinalResult(t *testing.T) {
 	// check the final result after running BlockEmulator
+	firstMptPath := queryTestPath(params.DatabaseWrite_path + "mptDB/ldb/s0/n0")
+	if _, err := os.Stat(firstMptPath); err != nil {
+		t.Skipf("skip final result check because BlockEmulator database is not present: %s", firstMptPath)
+	}
 
 	// get the result from Dataset
 	accountBalance := loadFinalResultFromDataset()
@@ -31,8 +36,8 @@ func TestFinalResult(t *testing.T) {
 
 	// check the result from BlockEmulator
 	for sid := 0; sid < params.ShardNum; sid++ {
-		mptfp := "../" + params.DatabaseWrite_path + "mptDB/ldb/s" + strconv.FormatUint(uint64(sid), 10) + "/n0"
-		chaindbfp := "../" + params.DatabaseWrite_path + fmt.Sprintf("chainDB/S%d_N%d", sid, 0)
+		mptfp := queryTestPath(params.DatabaseWrite_path + "mptDB/ldb/s" + strconv.FormatUint(uint64(sid), 10) + "/n0")
+		chaindbfp := queryTestPath(params.DatabaseWrite_path + fmt.Sprintf("chainDB/S%d_N%d", sid, 0))
 		aslist := QueryAccountStateList(chaindbfp, mptfp, uint64(sid), 0, accounts)
 		for idx, as := range aslist {
 			if as != nil && as.Balance.Cmp(accountBalance[accounts[idx]]) == 0 {
@@ -48,6 +53,13 @@ func TestFinalResult(t *testing.T) {
 	} else {
 		log.Panic("Err, too many wrong accounts", len(accountBalance)-len(acCorrect))
 	}
+}
+
+func queryTestPath(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return "../" + path
 }
 
 func data2tx(data []string, nonce uint64) (*core.Transaction, bool) {

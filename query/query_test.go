@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 )
 
 func TestQuery(t *testing.T) {
+	useTempQueryDataDir(t)
+
 	// pre-build a blockchain
 	buildBlockChain()
 	fmt.Println("Now a new blockchain is generated.")
@@ -40,6 +43,28 @@ func TestQuery(t *testing.T) {
 	fmt.Println("The account balance of 00000000001:", accountState.Balance)
 
 	clearBlockchainData()
+}
+
+func useTempQueryDataDir(t *testing.T) {
+	t.Helper()
+
+	oldExpDataRootDir := params.ExpDataRootDir
+	oldDataWritePath := params.DataWrite_path
+	oldLogWritePath := params.LogWrite_path
+	oldDatabaseWritePath := params.DatabaseWrite_path
+
+	root := filepath.ToSlash(t.TempDir())
+	params.ExpDataRootDir = root
+	params.DataWrite_path = root + "/result/"
+	params.LogWrite_path = root + "/log"
+	params.DatabaseWrite_path = root + "/database/"
+
+	t.Cleanup(func() {
+		params.ExpDataRootDir = oldExpDataRootDir
+		params.DataWrite_path = oldDataWritePath
+		params.LogWrite_path = oldLogWritePath
+		params.DatabaseWrite_path = oldDatabaseWritePath
+	})
 }
 
 func buildBlockChain() {

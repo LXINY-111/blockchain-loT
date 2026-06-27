@@ -22,11 +22,19 @@ from config import (
     CAPACITY_BACKLOG_MODE,
     CHECKPOINT_DIR,
     CLIP_EPS,
+    DEFAULT_CANDIDATE_TOP_K,
+    DEFAULT_CAPACITY_GUARD,
+    DEFAULT_CAPACITY_GUARD_FACTOR,
     DEFAULT_CSV_PATH,
+    DEFAULT_TRAIN_LOG_JSONL,
+    DEFAULT_IOT_REWARD_MODE,
     DEFAULT_IOT_CSV_PATH,
     DEFAULT_IOT_SIDECAR_PATH,
+    DEFAULT_MAX_TXS,
+    DEFAULT_OFFLINE_EPOCHS,
     DEFAULT_SENDER_POS_MODE,
     DEFAULT_SHARD_NUM,
+    DEFAULT_TX_BATCH_SIZE,
     ENTROPY_COEF,
     GAE_LAMBDA,
     GAMMA,
@@ -76,6 +84,11 @@ def set_seed(seed: int) -> None:
 
 def is_iot_mdp(args: argparse.Namespace) -> bool:
     return str(getattr(args, "mdp_mode", "spring")).strip().lower() == "iot"
+
+
+def normalize_reward_mode(args: argparse.Namespace) -> None:
+    if is_iot_mdp(args) and args.reward_mode == REWARD_MODE:
+        args.reward_mode = DEFAULT_IOT_REWARD_MODE
 
 
 def iot_feature_dim_for_args(args: argparse.Namespace) -> int:
@@ -876,13 +889,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--csv", type=str, default="")
     parser.add_argument("--sidecar", type=str, default="")
-    parser.add_argument("--mdp_mode", choices=["spring", "iot"], default="spring")
+    parser.add_argument("--mdp_mode", choices=["spring", "iot"], default="iot")
     parser.add_argument("--model", type=str, default=str(MODEL_PATH))
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--shards", type=int, default=DEFAULT_SHARD_NUM)
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--max_txs", type=int, default=300000)
-    parser.add_argument("--tx_batch_size", type=int, default=1000)
+    parser.add_argument("--epochs", type=int, default=DEFAULT_OFFLINE_EPOCHS)
+    parser.add_argument("--max_txs", type=int, default=DEFAULT_MAX_TXS)
+    parser.add_argument("--tx_batch_size", type=int, default=DEFAULT_TX_BATCH_SIZE)
     parser.add_argument("--max_block_size", type=int, default=1000)
     parser.add_argument("--sender_pos_mode", type=int, default=DEFAULT_SENDER_POS_MODE)
     parser.add_argument("--temporal_top_k", type=int, default=8)
@@ -932,21 +945,21 @@ def main() -> None:
     parser.add_argument("--iot_balance_weight", type=float, default=IOT_BALANCE_WEIGHT)
     parser.add_argument("--iot_comm_cost_weight", type=float, default=IOT_COMM_COST_WEIGHT)
     parser.add_argument("--iot_hotspot_weight", type=float, default=IOT_HOTSPOT_WEIGHT)
-    parser.add_argument("--candidate_top_k", type=int, default=0)
-    parser.add_argument("--capacity_guard", type=int, default=0)
-    parser.add_argument("--capacity_guard_factor", type=float, default=1.2)
+    parser.add_argument("--candidate_top_k", type=int, default=DEFAULT_CANDIDATE_TOP_K)
+    parser.add_argument("--capacity_guard", type=int, default=DEFAULT_CAPACITY_GUARD)
+    parser.add_argument("--capacity_guard_factor", type=float, default=DEFAULT_CAPACITY_GUARD_FACTOR)
     parser.add_argument("--candidate_load_weight", type=float, default=1.0)
     parser.add_argument("--argmax_tie_break", type=int, default=ARGMAX_TIE_BREAK)
     parser.add_argument("--argmax_tie_eps", type=float, default=ARGMAX_TIE_EPS)
 
     parser.add_argument("--eval_every_epochs", type=int, default=1)
-    parser.add_argument("--eval_max_txs", type=int, default=300000)
+    parser.add_argument("--eval_max_txs", type=int, default=DEFAULT_MAX_TXS)
     parser.add_argument("--disable_best_checkpoint", action="store_true")
     parser.add_argument("--last_model", type=str, default="")
-    parser.add_argument("--best_min_active_shards", type=float, default=3.6)
-    parser.add_argument("--best_max_hotspot", type=float, default=0.50)
-    parser.add_argument("--best_max_cross", type=float, default=0.35)
-    parser.add_argument("--best_min_action_share", type=float, default=0.05)
+    parser.add_argument("--best_min_active_shards", type=float, default=12.0)
+    parser.add_argument("--best_max_hotspot", type=float, default=0.65)
+    parser.add_argument("--best_max_cross", type=float, default=0.70)
+    parser.add_argument("--best_min_action_share", type=float, default=0.02)
     parser.add_argument("--best_min_related_follow", type=float, default=0.30)
     parser.add_argument("--best_min_same_related", type=float, default=0.40)
     parser.add_argument("--best_hotspot_penalty", type=float, default=2.0)
@@ -960,11 +973,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--save_every_updates", type=int, default=0)
     parser.add_argument("--log_interval_batches", type=int, default=50)
-    parser.add_argument("--log_jsonl", type=str, default="")
+    parser.add_argument("--log_jsonl", type=str, default=str(DEFAULT_TRAIN_LOG_JSONL))
 
     args = parser.parse_args()
-    if args.mdp_mode == "iot" and args.reward_mode == REWARD_MODE:
-        args.reward_mode = "iot"
+    normalize_reward_mode(args)
     train(args)
 
 

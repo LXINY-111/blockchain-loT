@@ -5,10 +5,19 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_CSV_PATH = ROOT_DIR / "selectedTxs_300K.csv"
 DEFAULT_IOT_CSV_PATH = ROOT_DIR / "data_iot" / "selectedTxs_iot_multi_anchor_full.csv"
 DEFAULT_IOT_SIDECAR_PATH = ROOT_DIR / "data_iot" / "iot_flow_sidecar_multi_anchor_full.csv"
-CHECKPOINT_DIR = ROOT_DIR / "spring_lite" / "checkpoints"
-MODEL_PATH = CHECKPOINT_DIR / "spring_ppo.pt"
+EXPERIMENT_ROOT = Path(r"E:\project_iot\实验结果7")
+OFFLINE_TRAINING_DIR = EXPERIMENT_ROOT / "offline_training"
+OFFLINE_EVAL_DIR = EXPERIMENT_ROOT / "offline_eval"
+BLOCK_EVAL_DIR = EXPERIMENT_ROOT / "block_eval"
+CHECKPOINT_DIR = EXPERIMENT_ROOT / "models"
+MODEL_PATH = CHECKPOINT_DIR / "ppo_top8_guard13_w4540_16s_seed7.pt"
+DEFAULT_TRAIN_LOG_JSONL = OFFLINE_TRAINING_DIR / "ppo_top8_guard13_w4540_16s_seed7_train.jsonl"
+DEFAULT_EVAL_LOG_JSONL = OFFLINE_EVAL_DIR / "ppo_top8_guard13_w4540_16s_seed7_eval.jsonl"
 
-DEFAULT_SHARD_NUM = 4
+DEFAULT_SHARD_NUM = 16
+DEFAULT_OFFLINE_EPOCHS = 15
+DEFAULT_MAX_TXS = 2_000_000
+DEFAULT_TX_BATCH_SIZE = 1000
 
 # SPRING paper state dimension: 11k + 1.
 # It contains five recent windows of num_tx, five recent windows of cross_tx,
@@ -23,14 +32,14 @@ def state_dim(shards: int, iot_feature_dim: int = 0) -> int:
 
 # IoT-MDP-B-lite appends 10 compact scene features:
 # anchor count, distance/link-quality stats, traffic rate, anchor-type shares,
-# and a control protocol flag. For four shards this makes the PPO input
-# dimension 59.
+# and a control protocol flag. For 16 shards this makes the PPO input
+# dimension 203 = 11 * 16 + 1 + 16 + 10.
 IOT_FEATURE_DIM = 10
 
 # IoT MDP v1 奖励权重。第一阶段先保证能跑通和收敛，所以仍然以
 # CSTR（跨分片率）和 balance（负载均衡）为主，通信代价和热点为辅。
-IOT_CSTR_WEIGHT = 0.55
-IOT_BALANCE_WEIGHT = 0.30
+IOT_CSTR_WEIGHT = 0.45
+IOT_BALANCE_WEIGHT = 0.40
 IOT_COMM_COST_WEIGHT = 0.10
 IOT_HOTSPOT_WEIGHT = 0.05
 
@@ -63,6 +72,10 @@ BETA = 0.1
 # backlog terms are kept for the later enhanced method, but the default reward
 # path below only uses lambda * r_cstr + (1 - lambda) * r_wlb.
 IOT_DENSE_BALANCED_REWARD_MODE = "iot_dense_balanced"
+DEFAULT_IOT_REWARD_MODE = IOT_DENSE_BALANCED_REWARD_MODE
+DEFAULT_CANDIDATE_TOP_K = 8
+DEFAULT_CAPACITY_GUARD = 1
+DEFAULT_CAPACITY_GUARD_FACTOR = 1.3
 REWARD_MODE_CHOICES = (
     "paper",
     "enhanced",
@@ -71,7 +84,7 @@ REWARD_MODE_CHOICES = (
     IOT_DENSE_BALANCED_REWARD_MODE,
 )
 
-REWARD_MODE = "paper"  # choices: see REWARD_MODE_CHOICES
+REWARD_MODE = DEFAULT_IOT_REWARD_MODE  # choices: see REWARD_MODE_CHOICES
 LOAD_PENALTY_WEIGHT = 0.0
 LOCAL_REWARD_WEIGHT = 0.0
 ACTION_REWARD_SCALE = 0.1
@@ -82,7 +95,7 @@ MIN_ACTIVE_LOAD_SHARE = 0.03
 CAPACITY_BACKLOG_MODE = 0
 BACKLOG_PENALTY_WEIGHT = 0.0
 
-# C-lite+ keeps the 59-dim state unchanged, but gives under-used shards a
+# C-lite+ keeps the same state layout unchanged, but gives under-used shards a
 # bounded action-level dense reward（动作级稠密奖励）bonus（奖励项）.
 IOT_DENSE_BALANCED_LOW_LOAD_BONUS_WEIGHT = 0.25
 IOT_DENSE_BALANCED_LOW_LOAD_BONUS_CAP = 0.18

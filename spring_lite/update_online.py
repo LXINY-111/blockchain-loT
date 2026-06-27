@@ -49,6 +49,15 @@ def safe_int(x: Any, default: int = 0) -> int:
         return default
 
 
+def update_iot_feature_dim(data: Dict[str, Any]) -> int:
+    raw_value = data.get("iot_feature_dim", data.get("IOTFeatureDim", 0))
+    return max(0, safe_int(raw_value, 0))
+
+
+def update_state_dim(shards: int, iot_feature_dim: int = 0) -> int:
+    return state_dim(shards, max(0, int(iot_feature_dim)))
+
+
 def clip_value(value: float, limit: float) -> float:
     if limit <= 0:
         return value
@@ -65,8 +74,12 @@ def load_update_input(path: Path) -> Dict[str, Any]:
     return data
 
 
-def build_agent(shards: int, model_path: Path) -> Tuple[PPOAgent, Dict[str, Any], str]:
-    expected_state_dim = state_dim(shards)
+def build_agent(
+    shards: int,
+    model_path: Path,
+    iot_feature_dim: int = 0,
+) -> Tuple[PPOAgent, Dict[str, Any], str]:
+    expected_state_dim = update_state_dim(shards, iot_feature_dim)
 
     agent = PPOAgent(
         state_dim=expected_state_dim,
@@ -108,7 +121,8 @@ def build_agent(shards: int, model_path: Path) -> Tuple[PPOAgent, Dict[str, Any]
 
 def build_buffer_from_update(data: Dict[str, Any]) -> Tuple[RolloutBuffer, Dict[str, Any]]:
     shards = safe_int(data.get("shards", 4), 4)
-    expected_state_dim = state_dim(shards)
+    iot_feature_dim = update_iot_feature_dim(data)
+    expected_state_dim = update_state_dim(shards, iot_feature_dim)
 
     batch_reward = safe_float(data.get("reward", 0.0), 0.0)
 
@@ -223,6 +237,8 @@ def build_buffer_from_update(data: Dict[str, Any]) -> Tuple[RolloutBuffer, Dict[
 
     meta = {
         "shards": shards,
+        "iot_feature_dim": iot_feature_dim,
+        "state_dim": expected_state_dim,
         "batch_reward": batch_reward,
         "skipped": skipped,
         "action_hist": action_hist,
@@ -265,8 +281,12 @@ def buffer_to_records(buffer: RolloutBuffer) -> List[Dict[str, Any]]:
     return records
 
 
-def records_to_buffer(records: List[Dict[str, Any]], shards: int) -> RolloutBuffer:
-    expected_state_dim = state_dim(shards)
+def records_to_buffer(
+    records: List[Dict[str, Any]],
+    shards: int,
+    iot_feature_dim: int = 0,
+) -> RolloutBuffer:
+    expected_state_dim = update_state_dim(shards, iot_feature_dim)
     buffer = RolloutBuffer()
 
     for item in records:
@@ -306,7 +326,11 @@ def records_to_buffer(records: List[Dict[str, Any]], shards: int) -> RolloutBuff
     return buffer
 
 
-def load_pending_buffer(path: Path, shards: int) -> Tuple[RolloutBuffer, Dict[str, Any]]:
+def load_pending_buffer(
+    path: Path,
+    shards: int,
+    iot_feature_dim: int = 0,
+) -> Tuple[RolloutBuffer, Dict[str, Any]]:
     if not path.exists():
         return RolloutBuffer(), {"status": "new"}
 
@@ -324,12 +348,22 @@ def load_pending_buffer(path: Path, shards: int) -> Tuple[RolloutBuffer, Dict[st
                 "old_shards": old_shards,
                 "new_shards": shards,
             }
+        old_iot_feature_dim = safe_int(
+            payload.get("iot_feature_dim", iot_feature_dim),
+            iot_feature_dim,
+        )
+        if old_iot_feature_dim != iot_feature_dim:
+            return RolloutBuffer(), {
+                "status": "reset_iot_feature_dim_mismatch",
+                "old_iot_feature_dim": old_iot_feature_dim,
+                "new_iot_feature_dim": iot_feature_dim,
+            }
 
         records = payload.get("records", [])
         if not isinstance(records, list):
             return RolloutBuffer(), {"status": "bad_records_reset"}
 
-        buffer = records_to_buffer(records, shards)
+        buffer = records_to_buffer(records, shards, iot_feature_dim)
 
         meta = {
             "status": "loaded",
@@ -343,7 +377,12 @@ def load_pending_buffer(path: Path, shards: int) -> Tuple[RolloutBuffer, Dict[st
         return RolloutBuffer(), {"status": f"load_failed_{type(e).__name__}"}
 
 
-def save_pending_buffer(path: Path, buffer: RolloutBuffer, shards: int) -> None:
+def save_pending_buffer(
+    path: Path,
+    buffer: RolloutBuffer,
+    shards: int,
+    iot_feature_dim: int = 0,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if len(buffer) == 0:
@@ -354,6 +393,7 @@ def save_pending_buffer(path: Path, buffer: RolloutBuffer, shards: int) -> None:
     payload = {
         "time_unix_nano": now_ns(),
         "shards": shards,
+        "iot_feature_dim": iot_feature_dim,
         "size": len(buffer),
         "num_trajectories": int(sum(1 for d in buffer.dones if d)),
         "records": buffer_to_records(buffer),
@@ -424,6 +464,7 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
     batch_id = safe_int(data.get("batch_id", 0), 0)
     feedback_epoch = safe_int(data.get("feedback_epoch", -1), -1)
     shards = safe_int(data.get("shards", 4), 4)
+    iot_feature_dim = update_iot_feature_dim(data)
     flush_update = bool(data.get("flush_update", False))
 
     new_buffer, meta = build_buffer_from_update(data)
@@ -431,7 +472,11 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     model_path.parent.mkdir(parents=True, exist_ok=True)
 
-    pending_buffer, pending_meta = load_pending_buffer(ROLLOUT_BUFFER_PATH, shards)
+    pending_buffer, pending_meta = load_pending_buffer(
+        ROLLOUT_BUFFER_PATH,
+        shards,
+        iot_feature_dim,
+    )
     old_pending_size = len(pending_buffer)
 
     append_buffer(pending_buffer, new_buffer)
@@ -445,6 +490,8 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
         "batch_id": batch_id,
         "feedback_epoch": feedback_epoch,
         "shards": shards,
+        "iot_feature_dim": iot_feature_dim,
+        "state_dim": meta["state_dim"],
         "input_path": str(input_path),
         "model_path": str(model_path),
         "log_path": str(log_path),
@@ -509,7 +556,7 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
     }
 
     if len(new_buffer) == 0:
-        save_pending_buffer(ROLLOUT_BUFFER_PATH, pending_buffer, shards)
+        save_pending_buffer(ROLLOUT_BUFFER_PATH, pending_buffer, shards, iot_feature_dim)
         result["ok"] = True
         result["message"] = "skip_no_valid_new_actions"
         append_train_log(log_path, result)
@@ -522,7 +569,7 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
         update_threshold = MIN_FLUSH_BATCH_SIZE
 
     if len(pending_buffer) < update_threshold:
-        save_pending_buffer(ROLLOUT_BUFFER_PATH, pending_buffer, shards)
+        save_pending_buffer(ROLLOUT_BUFFER_PATH, pending_buffer, shards, iot_feature_dim)
 
         result["ok"] = True
         result["updated"] = False
@@ -534,7 +581,7 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
         append_train_log(log_path, result)
         return result
 
-    agent, old_payload, model_source = build_agent(shards, model_path)
+    agent, old_payload, model_source = build_agent(shards, model_path, iot_feature_dim)
     result["model_source"] = model_source
 
     loss_info = agent.update(pending_buffer)
@@ -565,12 +612,14 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
         "last_pending_size_used_for_update": len(pending_buffer),
         "last_pending_num_trajectories": pending_stats["num_trajectories"],
         "last_update_time_unix_nano": result["time_unix_nano"],
+        "iot_feature_dim": iot_feature_dim,
+        "state_dim": meta["state_dim"],
     }
 
     agent.save(model_path, extra=extra)
 
     # 更新成功后清空已用 rollout buffer。
-    save_pending_buffer(ROLLOUT_BUFFER_PATH, RolloutBuffer(), shards)
+    save_pending_buffer(ROLLOUT_BUFFER_PATH, RolloutBuffer(), shards, iot_feature_dim)
 
     result["ok"] = True
     result["updated"] = True

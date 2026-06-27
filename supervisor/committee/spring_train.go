@@ -152,6 +152,7 @@ type SpringOnlineUpdateInput struct {
 
 	FeedbackEpoch int `json:"feedback_epoch"`
 	Shards        int `json:"shards"`
+	IOTFeatureDim int `json:"iot_feature_dim,omitempty"`
 
 	Actions    []SpringTrainAction `json:"actions"`
 	Reward     float64             `json:"reward"`
@@ -1016,6 +1017,7 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 
 		FeedbackEpoch: rewardRecord.Epoch,
 		Shards:        params.ShardNum,
+		IOTFeatureDim: springConfiguredIOTFeatureDim(),
 
 		Actions: actions,
 

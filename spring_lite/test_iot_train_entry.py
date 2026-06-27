@@ -8,8 +8,12 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config import IOT_FEATURE_DIM, state_dim  # noqa: E402
-from train_offline import agent_state_dim, load_training_transactions  # noqa: E402
+from config import DEFAULT_IOT_REWARD_MODE, IOT_FEATURE_DIM, REWARD_MODE, state_dim  # noqa: E402
+from train_offline import (  # noqa: E402
+    agent_state_dim,
+    load_training_transactions,
+    normalize_reward_mode,
+)
 
 
 class IoTTrainEntryTest(unittest.TestCase):
@@ -19,6 +23,13 @@ class IoTTrainEntryTest(unittest.TestCase):
 
         self.assertEqual(agent_state_dim(spring_args, 4), state_dim(4))
         self.assertEqual(agent_state_dim(iot_args, 4), state_dim(4, IOT_FEATURE_DIM))
+
+    def test_iot_default_reward_mode_uses_dense_balanced_mainline(self):
+        args = argparse.Namespace(mdp_mode="iot", reward_mode=REWARD_MODE)
+
+        normalize_reward_mode(args)
+
+        self.assertEqual(args.reward_mode, DEFAULT_IOT_REWARD_MODE)
 
     def test_load_training_transactions_uses_sidecar_in_iot_mode(self):
         with TemporaryDirectory() as tmp:

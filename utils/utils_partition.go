@@ -10,11 +10,18 @@ import (
 
 // the default method
 func Addr2Shard(addr Address) int {
+	return Addr2ShardWithShardNum(addr, params.ShardNum)
+}
+
+func Addr2ShardWithShardNum(addr Address, shardNum int) int {
+	if shardNum <= 0 {
+		return 0
+	}
 	text := string(addr)
 	if !isHexAddressText(text) {
 		// IoT MDP 会把 device/service/protocol 组合成 iot_state/iot_peer 对象，
 		// 这类对象不是十六进制账户地址，使用 SHA-256 做稳定哈希分片。
-		return stableTextShard(text)
+		return stableTextShard(text, shardNum)
 	}
 
 	last8_addr := text
@@ -23,14 +30,14 @@ func Addr2Shard(addr Address) int {
 	}
 	num, err := strconv.ParseUint(last8_addr, 16, 64)
 	if err != nil {
-		return stableTextShard(text)
+		return stableTextShard(text, shardNum)
 	}
-	return int(num) % params.ShardNum
+	return int(num) % shardNum
 }
 
-func stableTextShard(text string) int {
+func stableTextShard(text string, shardNum int) int {
 	hash := sha256.Sum256([]byte(text))
-	return int(ModBytes(hash[:], uint(params.ShardNum)))
+	return int(ModBytes(hash[:], uint(shardNum)))
 }
 
 func isHexAddressText(text string) bool {

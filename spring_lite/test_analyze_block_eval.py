@@ -8,10 +8,16 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from analyze_block_eval import analyze_decisions  # noqa: E402
+from analyze_block_eval import analyze_decisions, build_arg_parser  # noqa: E402
 
 
 class AnalyzeBlockEvalTest(unittest.TestCase):
+    def test_parser_defaults_to_configured_16_shards(self):
+        parser = build_arg_parser()
+        args = parser.parse_args([])
+
+        self.assertEqual(args.shards, 16)
+
     def test_analyze_decisions_reports_action_mask_and_fallback_ratios(self):
         records = [
             {

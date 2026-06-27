@@ -202,6 +202,10 @@ func (rthm *RelayCommitteeModule) springEnsurePlaced(
 		// SPRING-Random baseline（随机基线）：只随机选择分片，不使用交互关系。
 		sid = rthm.springChooseShardRandom()
 
+	case 4:
+		// MinState baseline（最少状态优先）：新状态放到当前状态数量最少的分片，不使用通信关系或 PPO。
+		sid = rthm.springChooseShardMinState()
+
 	default:
 		// SpringMode = 0 或其他非法值：退化为原始 Hash 放置
 		sid = uint64(utils.Addr2Shard(addr))
@@ -294,6 +298,26 @@ func (rthm *RelayCommitteeModule) springChooseShardRandom() uint64 {
 	return uint64(rthm.springRandom.Intn(params.ShardNum))
 }
 
+func (rthm *RelayCommitteeModule) springChooseShardMinState() uint64 {
+	if params.ShardNum <= 0 {
+		return 0
+	}
+
+	bestSid := 0
+	bestLoad := int(^uint(0) >> 1)
+	for sid := 0; sid < params.ShardNum; sid++ {
+		load := 0
+		if rthm != nil && sid < len(rthm.springShardLoad) {
+			load = rthm.springShardLoad[sid]
+		}
+		if load < bestLoad {
+			bestLoad = load
+			bestSid = sid
+		}
+	}
+	return uint64(bestSid)
+}
+
 // SPRING 第一版简单策略：
 // 1. 如果 related 地址已经有分片，优先放到 related 的分片，降低跨片交易
 // 2. 同时考虑当前放置负载，避免所有新地址都堆到一个分片
@@ -380,6 +404,23 @@ func (rthm *RelayCommitteeModule) springPreparePlacement(
 	case 3:
 		if springIOTEnabled() {
 			// IoT random baseline：设备/锚点仍用 hash（哈希）固定，只有状态对象随机放置。
+			rthm.springSeedIOTAnchorShards(txlist, batchPlacement)
+			for _, tx := range txlist {
+				rthm.springEnsurePlaced(tx.Sender, tx.Recipient, batchPlacement)
+			}
+			rthm.springFillTouchedPlacement(txlist, batchPlacement)
+			return batchPlacement
+		}
+		for _, tx := range txlist {
+			rthm.springEnsurePlaced(tx.Sender, tx.Recipient, batchPlacement)
+			rthm.springEnsurePlaced(tx.Recipient, tx.Sender, batchPlacement)
+		}
+		rthm.springFillTouchedPlacement(txlist, batchPlacement)
+		return batchPlacement
+
+	case 4:
+		if springIOTEnabled() {
+			// IoT MinState baseline（最少状态优先）：锚点仍用 hash 固定，只把状态对象放到状态数量最少的分片。
 			rthm.springSeedIOTAnchorShards(txlist, batchPlacement)
 			for _, tx := range txlist {
 				rthm.springEnsurePlaced(tx.Sender, tx.Recipient, batchPlacement)

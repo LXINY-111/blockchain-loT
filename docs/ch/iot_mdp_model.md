@@ -140,11 +140,12 @@ C-lite = 轻量 IoT state + action-level dense reward（动作级稠密奖励）
 C-lite+ = 轻量 IoT state + dense reward + bounded low-load bonus（有上限低负载奖励）
 ```
 
-Baseline（基线）保留四类：
+Baseline（基线）保留五类：
 
 ```text
 hash      = 原始哈希放置
 random    = 随机放置，使用 seed（随机种子）保证可复现
+minstate  = 最少状态优先，把新状态放到状态数量最少的分片
 heuristic = 启发式多锚点贴近放置
 ppo       = PPO（近端策略优化）模型放置
 ```
@@ -209,6 +210,7 @@ BlockEmulator baseline（区块链测试平台基线）对应的 `SpringMode`：
 1 = heuristic
 2 = ppo
 3 = random
+4 = minstate
 ```
 
 Python 和 Go 两侧都会构造同样的 59 维 state（状态），保证 offline training（离线训练）和 BlockEmulator evaluation（区块链测试平台评估）一致。

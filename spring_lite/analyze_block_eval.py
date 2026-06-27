@@ -9,6 +9,8 @@ import zipfile
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+from config import DEFAULT_SHARD_NUM
+
 
 def as_float(value: object) -> Optional[float]:
     try:
@@ -389,15 +391,20 @@ def analyze(args: argparse.Namespace) -> Dict[str, object]:
     return result
 
 
-def main() -> None:
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--result_zip", default="expTest/result.zip")
     parser.add_argument("--spring_io_zip", default="spring_io.zip")
     parser.add_argument("--log", default="")
-    parser.add_argument("--shards", type=int, default=4)
+    parser.add_argument("--shards", type=int, default=DEFAULT_SHARD_NUM)
     parser.add_argument("--min_effective_tx", type=float, default=1000.0)
     parser.add_argument("--max_epoch_tps", type=float, default=5000.0)
     parser.add_argument("--output_json", default="")
+    return parser
+
+
+def main() -> None:
+    parser = build_arg_parser()
     args = parser.parse_args()
     print(json.dumps(analyze(args), ensure_ascii=False, indent=2))
 

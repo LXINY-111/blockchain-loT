@@ -1,4 +1,6 @@
 import sys
+import json
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -116,6 +118,52 @@ class InferServerIoTTest(unittest.TestCase):
 
         self.assertEqual(outputs[0]["source"], "python_ppo")
         self.assertEqual(outputs[0]["shard"], 1)
+
+    def test_infer_server_reads_utf8_json_from_go_pipe_with_chinese_model_path(self):
+        shards = 4
+        iot_dim = state_dim(shards, IOT_FEATURE_DIM)
+
+        with TemporaryDirectory() as tmp:
+            model_dir = Path(tmp) / "实验结果7" / "models"
+            model_dir.mkdir(parents=True)
+            model_path = model_dir / "spring_iot_ppo.pt"
+            agent = PPOAgent(
+                state_dim=iot_dim,
+                action_dim=shards,
+                hidden_dim=HIDDEN_DIM,
+                device="cpu",
+            )
+            agent.save(model_path, extra={"model_source": "unit_test_utf8_pipe"})
+
+            req = {
+                "request_id": 10,
+                "shards": shards,
+                "iot_feature_dim": IOT_FEATURE_DIM,
+                "sample": False,
+                "model": str(model_path),
+                "allow_model_init": False,
+                "items": [
+                    {
+                        "address": "iot_state:camera",
+                        "related": "iot_peer:cloud",
+                        "state": [0.0 for _ in range(iot_dim)],
+                    }
+                ],
+            }
+            payload = (json.dumps(req, ensure_ascii=False) + "\n").encode("utf-8")
+            script = Path(__file__).resolve().parent / "infer_server.py"
+
+            completed = subprocess.run(
+                [sys.executable, "-u", str(script)],
+                input=payload,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode("utf-8", errors="replace"))
+        resp = json.loads(completed.stdout.decode("utf-8"))
+        self.assertEqual(resp["items"][0]["source"], "python_ppo")
 
 
 if __name__ == "__main__":

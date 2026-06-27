@@ -412,6 +412,38 @@ func TestSpringRandomPlacementModeIsSeeded(t *testing.T) {
 	}
 }
 
+func TestSpringMinStatePlacementChoosesLeastLoadedShard(t *testing.T) {
+	oldShardNum := params.ShardNum
+	oldSpringMode := params.SpringMode
+	defer func() {
+		params.ShardNum = oldShardNum
+		params.SpringMode = oldSpringMode
+	}()
+	params.ShardNum = 4
+	params.SpringMode = 4
+
+	rthm := &RelayCommitteeModule{
+		springAddrShard: make(map[string]uint64),
+		springShardLoad: []int{9, 8, 1, 7},
+	}
+
+	addr := utils.Address("minstate-candidate")
+	for idx := 0; utils.Addr2Shard(addr) == 2 && idx < 100; idx++ {
+		addr = utils.Address("minstate-candidate-" + strconv.Itoa(idx))
+	}
+	if utils.Addr2Shard(addr) == 2 {
+		t.Fatal("could not find a test address whose hash shard differs from the least-loaded shard")
+	}
+
+	got := rthm.springEnsurePlaced(addr, "", make(map[string]uint64))
+	if got != 2 {
+		t.Fatalf("MinState shard = %d, want least-loaded shard 2", got)
+	}
+	if rthm.springShardLoad[2] != 2 {
+		t.Fatalf("least-loaded shard count = %d, want 2 after placement", rthm.springShardLoad[2])
+	}
+}
+
 func TestSpringCandidateMaskCapacityGuardBlocksOverloadedShard(t *testing.T) {
 	oldShardNum := params.ShardNum
 	oldTopK := params.SpringCandidateTopK

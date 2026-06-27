@@ -11,8 +11,8 @@ import (
 var (
 	// The following parameters can be set in main.go.
 	// default values:
-	NodesInShard = 4 // \# of Nodes in a shard.
-	ShardNum     = 4 // \# of shards.
+	NodesInShard = 4  // \# of Nodes in a shard.
+	ShardNum     = 16 // \# of shards.
 )
 
 // consensus layer & output file path
@@ -39,6 +39,7 @@ var (
 	// 1 = SPRING-Heuristic
 	// 2 = SPRING-PPO
 	// 3 = SPRING-Random baseline（随机基线）
+	// 4 = MinState baseline（最少状态优先）
 	SpringMode = 2
 
 	// SpringOnlineTrain:
@@ -55,11 +56,11 @@ var (
 	// SpringMode = 3 时使用的随机种子，保证 random baseline（随机基线）可复现。
 	SpringRandomSeed int64 = 7
 
-	// Candidate filtering（候选分片过滤）和 capacity guard（容量保护）默认关闭。
-	// 这样旧的 PPO / heuristic / hash / random 实验结果仍然可以复现。
-	SpringCandidateTopK       = 0
-	SpringCapacityGuard       = 0
-	SpringCapacityGuardFactor = 1.2
+	// Candidate filtering（候选分片过滤）默认对应 16 分片 TopK8 Guard1.3 w45-40 调参组。
+	// Capacity guard（容量保护）打开，用于观察负载保护对吞吐、延迟和负载方差的影响。
+	SpringCandidateTopK       = 8
+	SpringCapacityGuard       = 1
+	SpringCapacityGuardFactor = 1.3
 	SpringCandidateLoadWeight = 1.0
 
 	// SpringRewardLambda:
@@ -79,30 +80,30 @@ var (
 	SpringSenderPosMode = 1
 
 	// SpringIOTMode:
-	// 0 = 普通 SPRING MDP（45 维，4 分片时）
-	// 1 = IoT MDP（59 维，4 分片时）：读取 sidecar，追加 current_load 和 10 个轻量场景特征。
-	SpringIOTMode = 0
+	// 0 = 普通 SPRING MDP（11k+1 维）
+	// 1 = IoT MDP（16 分片时 203 维）：读取 sidecar，追加 current_load 和 10 个轻量场景特征。
+	SpringIOTMode = 1
 
 	SpringIOTFeatureDim  = 10
-	SpringIOTSidecarFile = ""
-	SpringModelFile      = "spring_lite/checkpoints/spring_ppo.pt"
+	SpringIOTSidecarFile = "./data_iot/iot_flow_sidecar_multi_anchor_full.csv"
+	SpringModelFile      = `E:\project_iot\实验结果7\models\ppo_top8_guard13_w4540_16s_seed7.pt`
 
 	// IoT dense-balanced reward weights. These defaults match
 	// spring_lite/offline_env.py so online BlockEmulator feedback and
 	// offline PPO training explain the same objective.
-	SpringIOTCSTRWeight       = 0.55
-	SpringIOTBalanceWeight    = 0.30
+	SpringIOTCSTRWeight       = 0.45
+	SpringIOTBalanceWeight    = 0.40
 	SpringIOTCommCostWeight   = 0.10
 	SpringIOTHotspotWeight    = 0.05
 	SpringIOTHotspotThreshold = 0.45
 
-	ExpDataRootDir     = "expTest"                     // The root dir where the experimental data should locate.
-	DataWrite_path     = ExpDataRootDir + "/result/"   // Measurement data result output path
-	LogWrite_path      = ExpDataRootDir + "/log"       // Log output path
-	DatabaseWrite_path = ExpDataRootDir + "/database/" // database write path
+	ExpDataRootDir     = `E:\project_iot\实验结果7\block_eval\ppo_top8_guard13_w4540_16s_2M_seed7\expTest` // The root dir where the experimental data should locate.
+	DataWrite_path     = ExpDataRootDir + "/result/"                                                        // Measurement data result output path
+	LogWrite_path      = ExpDataRootDir + "/log"                                                            // Log output path
+	DatabaseWrite_path = ExpDataRootDir + "/database/"                                                      // database write path
 
-	SupervisorAddr = "127.0.0.1:18800"        // Supervisor ip address
-	DatasetFile    = `./selectedTxs_300K.csv` // The raw BlockTransaction data path
+	SupervisorAddr = "127.0.0.1:18800"                                  // Supervisor ip address
+	DatasetFile    = `./data_iot/selectedTxs_iot_multi_anchor_full.csv` // The raw BlockTransaction data path
 
 	ReconfigTimeGap = 50 // The time gap between epochs. This variable is only used in CLPA / CLPA_Broker now.
 )

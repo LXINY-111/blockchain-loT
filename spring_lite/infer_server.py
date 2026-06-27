@@ -316,8 +316,8 @@ def handle_request(req: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def main() -> None:
-    for line in sys.stdin:
-        line = line.strip()
+    for raw_line in sys.stdin.buffer:
+        line = raw_line.decode("utf-8").strip()
         if not line:
             continue
 
@@ -332,7 +332,10 @@ def main() -> None:
                 "error": f"{type(exc).__name__}: {exc}",
             }
 
-        print(json.dumps(resp, ensure_ascii=False), flush=True)
+        sys.stdout.buffer.write(
+            (json.dumps(resp, ensure_ascii=False) + "\n").encode("utf-8")
+        )
+        sys.stdout.buffer.flush()
 
 
 if __name__ == "__main__":

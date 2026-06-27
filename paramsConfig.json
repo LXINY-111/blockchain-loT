@@ -1,52 +1,39 @@
 {
-  "ConsensusMethod": 3,
-
-  "SpringMode": 1,
-
-  "SpringOnlineTrain": 0,
-
-  "SpringEvalSample": 0,
-  "SpringRandomSeed": 7,
-  "SpringCandidateTopK": 2,
-  "SpringCapacityGuard": 1,
-  "SpringCapacityGuardFactor": 1.3,
-  "SpringCandidateLoadWeight": 1.0,
-
-  "SpringIOTMode": 1,
-  "SpringIOTFeatureDim": 10,
-  "SpringIOTSidecarFile": "./data_iot/iot_flow_sidecar_multi_anchor_full.csv",
-  "SpringModelFile": "spring_lite/checkpoints/spring_iot59_top2_guard13_2M_seed7.pt",
-  "SpringIOTCSTRWeight": 0.55,
-  "SpringIOTBalanceWeight": 0.30,
-  "SpringIOTCommCostWeight": 0.10,
-  "SpringIOTHotspotWeight": 0.05,
-  "SpringIOTHotspotThreshold": 0.45,
-
-  "SpringRewardLambda": 0.5,
-  "SpringRewardBeta": 0.1,
-  "SpringSenderPosMode": 1,
-  
-  "PbftViewChangeTimeOut":600000,
-
-  "ExpDataRootDir": "expTest",
-
-  "Block_Interval": 5000,
-
-  "BlockSize": 1000,
-  "BlocksizeInBytes": 200000,
-  "UseBlocksizeInBytes": 0,
-
-  "InjectSpeed": 1000,
-  "TotalDataSize": 2000000,
-  "TxBatchSize": 1000,
-
-  "BrokerNum": 10,
-  "RelayWithMerkleProof": 0,
-  
-  "DatasetFile": "./data_iot/selectedTxs_iot_multi_anchor_full.csv",
-  "ReconfigTimeGap": 500,
-
-  "Delay": -1,
-  "JitterRange": -1,
-  "Bandwidth":10000000
+    "ConsensusMethod":  3,
+    "SpringMode":  2,
+    "SpringOnlineTrain":  0,
+    "SpringEvalSample":  0,
+    "SpringRandomSeed":  7,
+    "SpringCandidateTopK":  8,
+    "SpringCapacityGuard":  1,
+    "SpringCapacityGuardFactor":  1.3,
+    "SpringCandidateLoadWeight":  1,
+    "SpringIOTMode":  1,
+    "SpringIOTFeatureDim":  10,
+    "SpringIOTSidecarFile":  "./data_iot/iot_flow_sidecar_multi_anchor_full.csv",
+    "SpringModelFile":  "E:\\project_iot\\实验结果7\\models\\ppo_top8_guard13_w4540_16s_seed7.pt",
+    "SpringIOTCSTRWeight":  0.45,
+    "SpringIOTBalanceWeight":  0.4,
+    "SpringIOTCommCostWeight":  0.1,
+    "SpringIOTHotspotWeight":  0.05,
+    "SpringIOTHotspotThreshold":  0.45,
+    "SpringRewardLambda":  0.5,
+    "SpringRewardBeta":  0.1,
+    "SpringSenderPosMode":  1,
+    "PbftViewChangeTimeOut":  600000,
+    "ExpDataRootDir":  "E:\\project_iot\\实验结果7\\block_eval\\ppo_top8_guard13_w4540_16s_2M_seed7_20260627_142633\\expTest",
+    "Block_Interval":  5000,
+    "BlockSize":  1000,
+    "BlocksizeInBytes":  200000,
+    "UseBlocksizeInBytes":  0,
+    "InjectSpeed":  1000,
+    "TotalDataSize":  2000000,
+    "TxBatchSize":  1000,
+    "BrokerNum":  10,
+    "RelayWithMerkleProof":  0,
+    "DatasetFile":  "./data_iot/selectedTxs_iot_multi_anchor_full.csv",
+    "ReconfigTimeGap":  500,
+    "Delay":  -1,
+    "JitterRange":  -1,
+    "Bandwidth":  10000000
 }

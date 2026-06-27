@@ -8,8 +8,13 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config import IOT_FEATURE_DIM, state_dim  # noqa: E402
-from eval_offline import eval_state_dim, load_eval_transactions, make_policy  # noqa: E402
+from config import DEFAULT_IOT_REWARD_MODE, IOT_FEATURE_DIM, REWARD_MODE, state_dim  # noqa: E402
+from eval_offline import (  # noqa: E402
+    eval_state_dim,
+    load_eval_transactions,
+    make_policy,
+    normalize_reward_mode,
+)
 
 
 class IoTEvalEntryTest(unittest.TestCase):
@@ -19,6 +24,13 @@ class IoTEvalEntryTest(unittest.TestCase):
             eval_state_dim(argparse.Namespace(mdp_mode="iot"), 4),
             state_dim(4, IOT_FEATURE_DIM),
         )
+
+    def test_iot_default_reward_mode_uses_dense_balanced_mainline(self):
+        args = argparse.Namespace(mdp_mode="iot", reward_mode=REWARD_MODE)
+
+        normalize_reward_mode(args)
+
+        self.assertEqual(args.reward_mode, DEFAULT_IOT_REWARD_MODE)
 
     def test_load_eval_transactions_uses_iot_sidecar(self):
         with TemporaryDirectory() as tmp:

@@ -47,7 +47,7 @@ func (graph *CLPAState) Encode() []byte {
 func (cs *CLPAState) AddVertex(v Vertex) {
 	cs.NetGraph.AddVertex(v)
 	if val, ok := cs.PartitionMap[v]; !ok {
-		cs.PartitionMap[v] = utils.Addr2Shard(v.Addr)
+		cs.PartitionMap[v] = utils.Addr2ShardWithShardNum(v.Addr, cs.ShardNum)
 	} else {
 		cs.PartitionMap[v] = val
 	}
