@@ -429,7 +429,7 @@ class IoTMDPTest(unittest.TestCase):
         self.assertEqual(len(actions), 1)
         self.assertEqual(metrics.related_known_count, 1)
 
-    def test_iot_batch_loads_use_weighted_multi_anchor_cross_rate(self):
+    def test_iot_batch_loads_separate_primary_execution_from_multi_anchor_relation(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             tx_csv = root / "tx.csv"
@@ -484,8 +484,17 @@ class IoTMDPTest(unittest.TestCase):
 
         _actions, metrics = env.run_batch(txs, primary_policy)
 
-        self.assertAlmostEqual(metrics.cross_rate, 0.5)
-        self.assertAlmostEqual(metrics.cross_tx, 0.5)
+        # The state object is placed with the primary owner, so the actual
+        # BlockEmulator transaction is inner-shard. The peer anchor remains a
+        # weighted communication diagnostic and contributes 0.5 relation cross.
+        self.assertAlmostEqual(metrics.cross_rate, 0.0)
+        self.assertAlmostEqual(metrics.cross_tx, 0.0)
+        self.assertAlmostEqual(metrics.relation_cross_rate, 0.5)
+        self.assertAlmostEqual(sum(metrics.owner_loads), 1.0)
+        self.assertEqual(metrics.owner_loads[primary_shard], 1)
+        self.assertEqual(metrics.loads[primary_shard], 1)
+        self.assertAlmostEqual(metrics.owner_anchor_tps_ceiling, 200.0)
+        self.assertAlmostEqual(metrics.system_stage_tps_ceiling, 200.0)
 
     def test_heuristic_uses_fractional_multi_anchor_sender_pos(self):
         shards = 4
@@ -498,6 +507,40 @@ class IoTMDPTest(unittest.TestCase):
         state[sender_pos_offset + 2] = 0.33
 
         self.assertEqual(heuristic_from_state(state, shards), 0)
+
+    def test_iot_cross_transaction_uses_full_stage_capacity_on_both_shards(self):
+        shards = 2
+        primary_anchor = "0x" + "1" * 40
+        state_object = "0x" + "2" * 40
+        primary_shard = addr2shard(primary_anchor, shards)
+        sender_shard = 1 - primary_shard
+        tx = Tx(
+            sender=state_object,
+            recipient=primary_anchor,
+            related_addresses=(primary_anchor,),
+            related_weights=(1.0,),
+            iot_features=tuple(0.0 for _ in range(IOT_FEATURE_DIM)),
+            communication_cost_weight=0.4,
+        )
+        env = SpringOfflineEnv(
+            shards=shards,
+            iot_feature_dim=IOT_FEATURE_DIM,
+            reward_mode="iot",
+        )
+
+        _actions, metrics = env.run_batch(
+            [tx],
+            lambda _state, _address, _related, _info: PolicyOutput(
+                action=sender_shard
+            ),
+        )
+
+        self.assertAlmostEqual(metrics.cross_rate, 1.0)
+        self.assertEqual(metrics.loads, [1, 1])
+        self.assertAlmostEqual(metrics.effective_loads[primary_shard], 0.5)
+        self.assertAlmostEqual(metrics.effective_loads[sender_shard], 0.5)
+        self.assertAlmostEqual(metrics.communication_cost, 0.4)
+        self.assertAlmostEqual(metrics.stage_max_load_per_tx, 1.0)
 
     def test_iot_env_places_repeated_state_object_once_and_appends_features(self):
         txs = []

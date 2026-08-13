@@ -593,7 +593,10 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
     old_update_count = safe_int(old_extra.get("online_update_count", 0), 0)
     new_update_count = old_update_count + 1
 
+    # Preserve the offline experiment identity so a later inference-server
+    # restart can still verify MDP, reward, and candidate-filter compatibility.
     extra = {
+        **old_extra,
         "online_update_count": new_update_count,
         "last_batch_id": batch_id,
         "last_feedback_epoch": feedback_epoch,

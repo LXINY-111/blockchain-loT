@@ -12,6 +12,7 @@ from config import (
     BACKLOG_PENALTY_WEIGHT,
     BETA,
     CAPACITY_BACKLOG_MODE,
+    DEFAULT_BLOCK_INTERVAL_MS,
     DEFAULT_SENDER_POS_MODE,
     EPS,
     HOTSPOT_PENALTY_WEIGHT,
@@ -27,6 +28,7 @@ from config import (
     LAMBDA_WEIGHT,
     LOAD_PENALTY_WEIGHT,
     LOCAL_REWARD_WEIGHT,
+    LOAD_SEMANTICS_VERSION,
     MIN_ACTIVE_LOAD_SHARE,
     REWARD_MODE,
     state_dim,
@@ -69,6 +71,32 @@ class PolicyOutput:
     confidence: float = 0.0
     entropy: float = 0.0
     source: str = "policy"
+
+
+@dataclass
+class BatchLoadSimulation:
+    # BlockEmulator executes each IoT transaction against one primary owner
+    # anchor. Multi-anchor weights remain a communication-relation diagnostic.
+    stage_loads: List[int]
+    effective_loads: List[float]
+    cross_loads: List[float]
+    owner_loads: List[int]
+    relation_effective_loads: List[float]
+    relation_cross_loads: List[float]
+    total_inner: int
+    total_relay1: int
+    total_relay2: int
+    communication_cost: float
+
+
+@dataclass
+class CapacitySimulation:
+    reward_loads: List[float]
+    committed_stage_loads: List[float]
+    committed_effective_loads: List[float]
+    committed_cross_loads: List[float]
+    pending_stage_loads: List[float]
+    backlog_penalty: float
 
 
 @dataclass
@@ -127,7 +155,19 @@ class BatchMetrics:
     reward: float
     loads: List[int]
     effective_loads: List[float]
+    owner_loads: List[int]
+    relation_effective_loads: List[float]
+    relation_cross_loads: List[float]
+    relation_cross_rate: float
+    owner_max_load_share: float
+    stage_max_load_share: float
+    stage_max_load_per_tx: float
+    per_shard_capacity_tps: float
+    owner_anchor_tps_ceiling: float
+    system_stage_tps_ceiling: float
+    load_semantics_version: str
     reward_loads: List[float]
+    committed_stage_loads: List[float]
     committed_loads: List[float]
     pending_loads: List[float]
     cross_loads: List[float]
@@ -171,7 +211,19 @@ class BatchMetrics:
             "reward": self.reward,
             "loads": self.loads,
             "effective_loads": self.effective_loads,
+            "owner_loads": self.owner_loads,
+            "relation_effective_loads": self.relation_effective_loads,
+            "relation_cross_loads": self.relation_cross_loads,
+            "relation_cross_rate": self.relation_cross_rate,
+            "owner_max_load_share": self.owner_max_load_share,
+            "stage_max_load_share": self.stage_max_load_share,
+            "stage_max_load_per_tx": self.stage_max_load_per_tx,
+            "per_shard_capacity_tps": self.per_shard_capacity_tps,
+            "owner_anchor_tps_ceiling": self.owner_anchor_tps_ceiling,
+            "system_stage_tps_ceiling": self.system_stage_tps_ceiling,
+            "load_semantics_version": self.load_semantics_version,
             "reward_loads": self.reward_loads,
+            "committed_stage_loads": self.committed_stage_loads,
             "committed_loads": self.committed_loads,
             "pending_loads": self.pending_loads,
             "cross_loads": self.cross_loads,
@@ -227,15 +279,37 @@ def parse_tx_row(row: Sequence[str]) -> Optional[Tx]:
     return Tx(sender=sender, recipient=recipient)
 
 
-def load_transactions(csv_path: Path, max_txs: int = 0) -> List[Tx]:
+def validate_tx_window(start_tx: int, max_txs: int) -> None:
+    if int(start_tx) < 0:
+        raise ValueError(f"start_tx must be non-negative, got {start_tx}")
+    if int(max_txs) < 0:
+        raise ValueError(f"max_txs must be non-negative, got {max_txs}")
+
+
+def load_transactions(
+    csv_path: Path,
+    max_txs: int = 0,
+    start_tx: int = 0,
+) -> List[Tx]:
+    """Load a valid-transaction window from the raw CSV.
+
+    ``start_tx`` counts valid transactions after ``parse_tx_row`` filtering,
+    which is the same index space used by the IoT sidecar and Go injector.
+    """
+    validate_tx_window(start_tx, max_txs)
     txs: List[Tx] = []
+    valid_index = 0
     with csv_path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.reader(f)
         for row in reader:
             tx = parse_tx_row(row)
             if tx is None:
                 continue
+            if valid_index < start_tx:
+                valid_index += 1
+                continue
             txs.append(tx)
+            valid_index += 1
             if max_txs > 0 and len(txs) >= max_txs:
                 break
     return txs
@@ -245,6 +319,7 @@ def load_iot_transactions(
     csv_path: Path,
     sidecar_path: Path,
     max_txs: int = 0,
+    start_tx: int = 0,
 ) -> List[Tx]:
     """读取 IoT 交易和 sidecar，把 flow 映射为通信状态对象。
 
@@ -253,46 +328,73 @@ def load_iot_transactions(
     已经把 to_address 做成通信状态对象账户，因此这里优先直接使用
     sidecar 的 to_address/state_object_key，避免训练代码再构造另一套 key。
     """
-    raw_txs = load_transactions(csv_path, max_txs=max_txs)
-    if not raw_txs:
-        return []
-
-    sidecar_rows: List[Dict[str, str]] = []
-    with Path(sidecar_path).open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            sidecar_rows.append(dict(row))
-            if max_txs > 0 and len(sidecar_rows) >= len(raw_txs):
-                break
-
-    if len(sidecar_rows) < len(raw_txs):
-        raise ValueError(
-            f"sidecar row count mismatch: txs={len(raw_txs)}, sidecar={len(sidecar_rows)}"
-        )
-
+    validate_tx_window(start_tx, max_txs)
     txs: List[Tx] = []
     device_protocol_seen: Counter = Counter()
-    for idx, tx in enumerate(raw_txs):
-        row = sidecar_rows[idx]
-        state_key = iot_state_object_key(row)
-        anchor_key = iot_anchor_key(row)
-        related_addresses, related_weights = iot_related_anchors(row, anchor_key)
-        protocol = normalized_iot_protocol(row)
-        device_protocol_key = f"{anchor_key}|{protocol}"
-        prior_frequency = device_protocol_seen[device_protocol_key]
-        device_protocol_seen[device_protocol_key] += 1
+    valid_index = 0
 
-        features = iot_feature_vector(row, prior_frequency)
-        txs.append(
-            Tx(
-                sender=state_key,
-                recipient=anchor_key,
-                related_addresses=related_addresses,
-                related_weights=related_weights,
-                iot_features=tuple(features),
-                communication_cost_weight=iot_communication_cost_weight(row),
+    # Stream the two files together. This validates their shared tx_index while
+    # avoiding a second multi-million-row sidecar list in memory.
+    with csv_path.open("r", encoding="utf-8", newline="") as tx_handle, Path(
+        sidecar_path
+    ).open("r", encoding="utf-8", newline="") as sidecar_handle:
+        tx_reader = csv.reader(tx_handle)
+        sidecar_reader = csv.DictReader(sidecar_handle)
+
+        for raw_row in tx_reader:
+            raw_tx = parse_tx_row(raw_row)
+            if raw_tx is None:
+                continue
+
+            try:
+                row = dict(next(sidecar_reader))
+            except StopIteration as exc:
+                raise ValueError(
+                    f"sidecar ended before valid tx_index={valid_index}"
+                ) from exc
+
+            raw_sidecar_index = str(row.get("tx_index", "")).strip()
+            try:
+                sidecar_index = (
+                    int(raw_sidecar_index) if raw_sidecar_index else valid_index
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"invalid sidecar tx_index={raw_sidecar_index!r} "
+                    f"at valid tx_index={valid_index}"
+                ) from exc
+            if sidecar_index != valid_index:
+                raise ValueError(
+                    "transaction/sidecar index mismatch: "
+                    f"valid_tx_index={valid_index}, sidecar_tx_index={sidecar_index}"
+                )
+
+            source_index = valid_index
+            valid_index += 1
+            if source_index < start_tx:
+                continue
+
+            state_key = iot_state_object_key(row)
+            anchor_key = iot_anchor_key(row)
+            related_addresses, related_weights = iot_related_anchors(row, anchor_key)
+            protocol = normalized_iot_protocol(row)
+            device_protocol_key = f"{anchor_key}|{protocol}"
+            prior_frequency = device_protocol_seen[device_protocol_key]
+            device_protocol_seen[device_protocol_key] += 1
+
+            features = iot_feature_vector(row, prior_frequency)
+            txs.append(
+                Tx(
+                    sender=state_key,
+                    recipient=anchor_key,
+                    related_addresses=related_addresses,
+                    related_weights=related_weights,
+                    iot_features=tuple(features),
+                    communication_cost_weight=iot_communication_cost_weight(row),
+                )
             )
-        )
+            if max_txs > 0 and len(txs) >= max_txs:
+                break
 
     return txs
 
@@ -699,6 +801,22 @@ def clamp(value: float, lo: float, hi: float) -> float:
     return value
 
 
+def max_load_share(loads: Sequence[float]) -> float:
+    total = float(sum(loads))
+    if total <= EPS:
+        return 0.0
+    return clamp(max(float(value) for value in loads) / total, 0.0, 1.0)
+
+
+def tps_ceiling_from_load_per_tx(
+    per_shard_capacity_tps: float,
+    max_load_per_tx: float,
+) -> float:
+    if per_shard_capacity_tps <= EPS or max_load_per_tx <= EPS:
+        return 0.0
+    return float(per_shard_capacity_tps) / float(max_load_per_tx)
+
+
 def normalize_state_value(value: float, max_block_size: int, tx_batch_size: int) -> float:
     denom = float(max(max_block_size, tx_batch_size))
     if denom <= 0:
@@ -935,6 +1053,7 @@ class SpringOfflineEnv:
         shards: int = 4,
         tx_batch_size: int = 1000,
         max_block_size: int = 1000,
+        block_interval_ms: int = DEFAULT_BLOCK_INTERVAL_MS,
         lambda_weight: float = LAMBDA_WEIGHT,
         beta: float = BETA,
         sender_pos_mode: int = DEFAULT_SENDER_POS_MODE,
@@ -963,10 +1082,16 @@ class SpringOfflineEnv:
             raise ValueError("shards must be positive")
         if tx_batch_size <= 0:
             raise ValueError("tx_batch_size must be positive")
+        if block_interval_ms <= 0:
+            raise ValueError("block_interval_ms must be positive")
 
         self.shards = int(shards)
         self.tx_batch_size = int(tx_batch_size)
         self.max_block_size = int(max_block_size)
+        self.block_interval_ms = int(block_interval_ms)
+        self.per_shard_capacity_tps = (
+            float(self.max_block_size) * 1000.0 / float(self.block_interval_ms)
+        )
         self.lambda_weight = float(lambda_weight)
         self.beta = float(beta)
         self.sender_pos_mode = int(sender_pos_mode)
@@ -994,6 +1119,7 @@ class SpringOfflineEnv:
         self.addr_shard: Dict[str, int] = {}
         self.shard_load: List[int] = []
         self.pending_loads: List[float] = []
+        self.pending_effective_loads: List[float] = []
         self.pending_cross_loads: List[float] = []
         self.recent_stats: Deque[Dict[str, List[float]]] = deque(maxlen=5)
         self.temporal_neighbors: Dict[str, Counter] = defaultdict(Counter)
@@ -1004,6 +1130,7 @@ class SpringOfflineEnv:
         self.addr_shard = {}
         self.shard_load = [0 for _ in range(self.shards)]
         self.pending_loads = [0.0 for _ in range(self.shards)]
+        self.pending_effective_loads = [0.0 for _ in range(self.shards)]
         self.pending_cross_loads = [0.0 for _ in range(self.shards)]
         self.recent_stats = deque(maxlen=5)
         for _ in range(5):
@@ -1147,15 +1274,38 @@ class SpringOfflineEnv:
 
     def _candidate_scores(self, addr: str, sender_pos: Sequence[float]) -> List[float]:
         hash_sid = addr2shard(addr, self.shards)
+        pressures = self._candidate_load_pressures()
         scores: List[float] = []
         for sid in range(self.shards):
             related_score = float(sender_pos[sid]) if sid < len(sender_pos) else 0.0
-            load = float(self.shard_load[sid]) if sid < len(self.shard_load) else 0.0
+            load = float(pressures[sid]) if sid < len(pressures) else 0.0
             score = 1000.0 * related_score - self.candidate_load_weight * load
             if sid == hash_sid:
                 score += 0.001
             scores.append(score)
         return scores
+
+    def _candidate_load_pressures(self) -> List[float]:
+        # Keep the 16-dimensional state unchanged while making candidate
+        # pruning aware of both persistent state placement and recent real
+        # block-stage pressure. Go uses the same normalization.
+        placement_total = float(sum(self.shard_load))
+        placement_scale = float(max(1, self.max_block_size))
+        pressures: List[float] = []
+        window_count = float(max(1, len(self.recent_stats)))
+        for sid in range(self.shards):
+            placement = (
+                float(self.shard_load[sid]) / placement_total * placement_scale
+                if placement_total > EPS and sid < len(self.shard_load)
+                else 0.0
+            )
+            recent = sum(
+                float(stat["num"][sid])
+                for stat in self.recent_stats
+                if sid < len(stat["num"])
+            ) / window_count
+            pressures.append(max(0.0, placement + recent))
+        return pressures
 
     def build_candidate_action_mask(
         self,
@@ -1169,13 +1319,14 @@ class SpringOfflineEnv:
 
         mask = [1 for _ in range(self.shards)]
         if self.capacity_guard != 0 and self.shard_load:
-            total_load = float(sum(self.shard_load))
+            pressures = self._candidate_load_pressures()
+            total_load = float(sum(pressures))
             mean_load = total_load / float(max(1, self.shards))
             if mean_load > EPS:
                 threshold = mean_load * self.capacity_guard_factor
                 guarded = [
                     1 if float(load) <= threshold else 0
-                    for load in self.shard_load[: self.shards]
+                    for load in pressures[: self.shards]
                 ]
                 if any(guarded):
                     mask = guarded
@@ -1367,10 +1518,13 @@ class SpringOfflineEnv:
     def _simulate_batch_loads(
         self,
         txs: Sequence[Tx],
-    ) -> Tuple[List[int], List[float], List[float], int, int, int, float]:
-        loads = [0 for _ in range(self.shards)]
+    ) -> BatchLoadSimulation:
+        stage_loads = [0 for _ in range(self.shards)]
         effective_loads = [0.0 for _ in range(self.shards)]
         cross_loads = [0.0 for _ in range(self.shards)]
+        owner_loads = [0 for _ in range(self.shards)]
+        relation_effective_loads = [0.0 for _ in range(self.shards)]
+        relation_cross_loads = [0.0 for _ in range(self.shards)]
         total_inner = 0
         total_relay1 = 0
         total_relay2 = 0
@@ -1383,103 +1537,149 @@ class SpringOfflineEnv:
                 sender_shard = addr2shard(tx.sender, self.shards)
                 self.addr_shard[tx.sender] = sender_shard
 
-            related_pairs = tx_related_weight_pairs(tx)
-            cross_weight = 0.0
-            touched_cross_shards: Set[int] = set()
-            loads[sender_shard] += 1
+            # BlockEmulator rewrites the IoT transaction to
+            # state_object -> primary owner anchor. Capacity therefore follows
+            # this one recipient, not the weighted peer-anchor relation set.
+            recipient_shard = self.addr_shard.get(tx.recipient)
+            if recipient_shard is None:
+                recipient_shard = addr2shard(tx.recipient, self.shards)
+                self.addr_shard[tx.recipient] = recipient_shard
 
-            for anchor, weight in related_pairs:
-                recipient_shard = self.addr_shard.get(anchor)
-                if recipient_shard is None:
-                    recipient_shard = addr2shard(anchor, self.shards)
-                    self.addr_shard[anchor] = recipient_shard
+            owner_loads[recipient_shard] += 1
+            stage_loads[sender_shard] += 1
 
-                if sender_shard == recipient_shard:
-                    effective_loads[sender_shard] += weight
-                    continue
-
-                effective_loads[sender_shard] += 0.5 * weight
-                effective_loads[recipient_shard] += 0.5 * weight
-                cross_loads[sender_shard] += 0.5 * weight
-                cross_loads[recipient_shard] += 0.5 * weight
-                cross_weight += weight
-                touched_cross_shards.add(recipient_shard)
-                communication_cost += float(tx.communication_cost_weight) * weight
-
-            for sid in touched_cross_shards:
-                loads[sid] += 1
-
-            if cross_weight <= EPS:
+            if sender_shard == recipient_shard:
+                effective_loads[sender_shard] += 1.0
                 total_inner += 1
             else:
+                # A relay transaction consumes one full block-body stage on
+                # both shards. Effective reward load uses 0.5 on each side,
+                # exactly like SpringBlockStat in BlockEmulator.
+                stage_loads[recipient_shard] += 1
+                effective_loads[sender_shard] += 0.5
+                effective_loads[recipient_shard] += 0.5
+                cross_loads[sender_shard] += 0.5
+                cross_loads[recipient_shard] += 0.5
                 total_relay1 += 1
                 total_relay2 += 1
 
+            # Multi-anchor relations remain useful for sender_pos, candidate
+            # coverage, and communication diagnostics, but no longer masquerade
+            # as transactions executed by BlockEmulator.
+            related_pairs = tx_related_weight_pairs(tx)
+            for anchor, weight in related_pairs:
+                anchor_shard = self.addr_shard.get(anchor)
+                if anchor_shard is None:
+                    anchor_shard = addr2shard(anchor, self.shards)
+                    self.addr_shard[anchor] = anchor_shard
+
+                if sender_shard == anchor_shard:
+                    relation_effective_loads[sender_shard] += weight
+                    continue
+
+                relation_effective_loads[sender_shard] += 0.5 * weight
+                relation_effective_loads[anchor_shard] += 0.5 * weight
+                relation_cross_loads[sender_shard] += 0.5 * weight
+                relation_cross_loads[anchor_shard] += 0.5 * weight
+
+            # Go records one sidecar-derived communication cost per original
+            # inner/Relay1 transaction, independent of whether peer anchors are
+            # on the same shard.
+            communication_cost += float(tx.communication_cost_weight)
+
         communication_cost = clamp(communication_cost / float(max(1, len(txs))), 0.0, 1.0)
-        return (
-            loads,
-            effective_loads,
-            cross_loads,
-            total_inner,
-            total_relay1,
-            total_relay2,
-            communication_cost,
+        return BatchLoadSimulation(
+            stage_loads=stage_loads,
+            effective_loads=effective_loads,
+            cross_loads=cross_loads,
+            owner_loads=owner_loads,
+            relation_effective_loads=relation_effective_loads,
+            relation_cross_loads=relation_cross_loads,
+            total_inner=total_inner,
+            total_relay1=total_relay1,
+            total_relay2=total_relay2,
+            communication_cost=communication_cost,
         )
 
     def _apply_capacity_backlog(
         self,
+        stage_loads: Sequence[float],
         effective_loads: Sequence[float],
         cross_loads: Sequence[float],
-    ) -> Tuple[List[float], List[float], List[float], List[float], float]:
+    ) -> CapacitySimulation:
         # This is a light-weight stand-in for BlockEmulator's block capacity and
-        # relay backlog. It keeps the SPRING state dimension unchanged, but makes
-        # repeated overload on one shard visible through both reward and recent
-        # block statistics.
+        # relay backlog. Full stage loads consume block capacity; effective and
+        # cross loads are scaled by the same commit ratio for reward/state data.
         if self.capacity_backlog_mode == 0:
             zeros = [0.0 for _ in range(self.shards)]
-            return (
-                [float(v) for v in effective_loads],
-                [float(v) for v in effective_loads],
-                [float(v) for v in cross_loads],
-                zeros,
-                0.0,
+            return CapacitySimulation(
+                reward_loads=[float(v) for v in effective_loads],
+                committed_stage_loads=[float(v) for v in stage_loads],
+                committed_effective_loads=[float(v) for v in effective_loads],
+                committed_cross_loads=[float(v) for v in cross_loads],
+                pending_stage_loads=zeros,
+                backlog_penalty=0.0,
             )
 
         capacity = float(max(1, self.max_block_size))
         reward_loads = [0.0 for _ in range(self.shards)]
+        committed_stage_loads = [0.0 for _ in range(self.shards)]
         committed_loads = [0.0 for _ in range(self.shards)]
         committed_cross_loads = [0.0 for _ in range(self.shards)]
-        next_pending = [0.0 for _ in range(self.shards)]
+        next_pending_stage = [0.0 for _ in range(self.shards)]
+        next_pending_effective = [0.0 for _ in range(self.shards)]
         next_pending_cross = [0.0 for _ in range(self.shards)]
 
         for sid in range(self.shards):
-            incoming = float(effective_loads[sid]) if sid < len(effective_loads) else 0.0
+            incoming_stage = float(stage_loads[sid]) if sid < len(stage_loads) else 0.0
+            incoming_effective = (
+                float(effective_loads[sid]) if sid < len(effective_loads) else 0.0
+            )
             incoming_cross = float(cross_loads[sid]) if sid < len(cross_loads) else 0.0
-            pending = self.pending_loads[sid] if sid < len(self.pending_loads) else 0.0
+            pending_stage = (
+                self.pending_loads[sid] if sid < len(self.pending_loads) else 0.0
+            )
+            pending_effective = (
+                self.pending_effective_loads[sid]
+                if sid < len(self.pending_effective_loads)
+                else 0.0
+            )
             pending_cross = (
                 self.pending_cross_loads[sid]
                 if sid < len(self.pending_cross_loads)
                 else 0.0
             )
 
-            pressure = max(0.0, pending + incoming)
+            stage_pressure = max(0.0, pending_stage + incoming_stage)
+            effective_pressure = max(0.0, pending_effective + incoming_effective)
             cross_pressure = max(0.0, pending_cross + incoming_cross)
-            committed = min(pressure, capacity)
+            committed_stage = min(stage_pressure, capacity)
 
-            commit_ratio = committed / (pressure + EPS) if pressure > EPS else 0.0
-            committed_cross = min(cross_pressure * commit_ratio, committed)
+            commit_ratio = (
+                committed_stage / (stage_pressure + EPS)
+                if stage_pressure > EPS
+                else 0.0
+            )
+            committed_effective = effective_pressure * commit_ratio
+            committed_cross = cross_pressure * commit_ratio
 
-            reward_loads[sid] = pressure
-            committed_loads[sid] = committed
+            reward_loads[sid] = effective_pressure
+            committed_stage_loads[sid] = committed_stage
+            committed_loads[sid] = committed_effective
             committed_cross_loads[sid] = committed_cross
-            next_pending[sid] = max(0.0, pressure - committed)
+            next_pending_stage[sid] = max(0.0, stage_pressure - committed_stage)
+            next_pending_effective[sid] = max(
+                0.0,
+                effective_pressure - committed_effective,
+            )
             next_pending_cross[sid] = max(0.0, cross_pressure - committed_cross)
 
-        self.pending_loads = next_pending
+        self.pending_loads = next_pending_stage
+        self.pending_effective_loads = next_pending_effective
         self.pending_cross_loads = next_pending_cross
 
-        pending_total = float(sum(next_pending))
-        incoming_total = float(sum(effective_loads))
+        pending_total = float(sum(next_pending_stage))
+        incoming_total = float(sum(stage_loads))
         capacity_total = capacity * float(self.shards)
         backlog_penalty = clamp(
             pending_total / (incoming_total + capacity_total + EPS),
@@ -1487,12 +1687,13 @@ class SpringOfflineEnv:
             1.0,
         )
 
-        return (
-            reward_loads,
-            committed_loads,
-            committed_cross_loads,
-            list(next_pending),
-            backlog_penalty,
+        return CapacitySimulation(
+            reward_loads=reward_loads,
+            committed_stage_loads=committed_stage_loads,
+            committed_effective_loads=committed_loads,
+            committed_cross_loads=committed_cross_loads,
+            pending_stage_loads=list(next_pending_stage),
+            backlog_penalty=backlog_penalty,
         )
 
     def run_batch(
@@ -1572,26 +1773,16 @@ class SpringOfflineEnv:
                 if recipient_action is not None:
                     actions.append(recipient_action)
 
-        (
-            loads,
-            effective_loads,
-            cross_loads,
-            total_inner,
-            total_relay1,
-            total_relay2,
-            communication_cost,
-        ) = self._simulate_batch_loads(txs)
-        (
-            reward_loads,
-            committed_loads,
-            committed_cross_loads,
-            pending_loads,
-            backlog_penalty,
-        ) = self._apply_capacity_backlog(effective_loads, cross_loads)
+        load_simulation = self._simulate_batch_loads(txs)
+        capacity = self._apply_capacity_backlog(
+            load_simulation.stage_loads,
+            load_simulation.effective_loads,
+            load_simulation.cross_loads,
+        )
         reward, reward_parts = spring_reward(
-            effective_loads=effective_loads,
-            cross_loads=cross_loads,
-            balance_loads=reward_loads,
+            effective_loads=capacity.committed_effective_loads,
+            cross_loads=capacity.committed_cross_loads,
+            balance_loads=capacity.reward_loads,
             lambda_weight=self.lambda_weight,
             beta=self.beta,
             load_penalty_weight=self.load_penalty_weight,
@@ -1599,10 +1790,10 @@ class SpringOfflineEnv:
             hotspot_penalty_weight=self.hotspot_penalty_weight,
             hotspot_threshold=self.hotspot_threshold,
             min_active_load_share=self.min_active_load_share,
-            backlog_penalty=backlog_penalty,
+            backlog_penalty=capacity.backlog_penalty,
             backlog_penalty_weight=self.backlog_penalty_weight,
             reward_mode=self.reward_mode,
-            communication_cost=communication_cost,
+            communication_cost=load_simulation.communication_cost,
             iot_cstr_weight=self.iot_cstr_weight,
             iot_balance_weight=self.iot_balance_weight,
             iot_comm_cost_weight=self.iot_comm_cost_weight,
@@ -1611,8 +1802,10 @@ class SpringOfflineEnv:
 
         self.recent_stats.append(
             {
-                "num": [float(v) for v in committed_loads],
-                "cross": [float(v) for v in committed_cross_loads],
+                # Go builds the first five state windows from full block-body
+                # stages, not from half-weighted effective transactions.
+                "num": [float(v) for v in capacity.committed_stage_loads],
+                "cross": [float(v) for v in capacity.committed_cross_loads],
             }
         )
         self._update_temporal_neighbors(txs)
@@ -1672,15 +1865,43 @@ class SpringOfflineEnv:
         ]
         min_related_follow_ratio = min(observed_follow) if observed_follow else 0.0
 
-        total_tx = total_inner + total_relay1 + total_relay2
+        total_tx = (
+            load_simulation.total_inner
+            + load_simulation.total_relay1
+            + load_simulation.total_relay2
+        )
+        relation_effective_total = float(sum(load_simulation.relation_effective_loads))
+        relation_cross_total = float(sum(load_simulation.relation_cross_loads))
+        relation_cross_rate = (
+            relation_cross_total / relation_effective_total
+            if relation_effective_total > EPS
+            else 0.0
+        )
+        owner_max_share = max_load_share(load_simulation.owner_loads)
+        stage_max_share = max_load_share(load_simulation.stage_loads)
+        tx_count = max(1, len(txs))
+        stage_max_load_per_tx = (
+            max(float(value) for value in load_simulation.stage_loads)
+            / float(tx_count)
+            if load_simulation.stage_loads
+            else 0.0
+        )
+        owner_anchor_tps_ceiling = tps_ceiling_from_load_per_tx(
+            self.per_shard_capacity_tps,
+            owner_max_share,
+        )
+        system_stage_tps_ceiling = tps_ceiling_from_load_per_tx(
+            self.per_shard_capacity_tps,
+            stage_max_load_per_tx,
+        )
         metrics = BatchMetrics(
             batch_id=batch_id,
             tx_count=len(txs),
             action_count=len(actions),
             total_tx=total_tx,
-            total_inner=total_inner,
-            total_relay1=total_relay1,
-            total_relay2=total_relay2,
+            total_inner=load_simulation.total_inner,
+            total_relay1=load_simulation.total_relay1,
+            total_relay2=load_simulation.total_relay2,
             effective_tx=float(reward_parts["effective_tx"]),
             cross_tx=float(reward_parts["cross_tx"]),
             cross_rate=float(reward_parts["cross_rate"]),
@@ -1697,12 +1918,24 @@ class SpringOfflineEnv:
             backlog_penalty=float(reward_parts["backlog_penalty"]),
             communication_cost=float(reward_parts["communication_cost"]),
             reward=reward,
-            loads=loads,
-            effective_loads=effective_loads,
-            reward_loads=reward_loads,
-            committed_loads=committed_loads,
-            pending_loads=pending_loads,
-            cross_loads=cross_loads,
+            loads=load_simulation.stage_loads,
+            effective_loads=capacity.committed_effective_loads,
+            owner_loads=load_simulation.owner_loads,
+            relation_effective_loads=load_simulation.relation_effective_loads,
+            relation_cross_loads=load_simulation.relation_cross_loads,
+            relation_cross_rate=relation_cross_rate,
+            owner_max_load_share=owner_max_share,
+            stage_max_load_share=stage_max_share,
+            stage_max_load_per_tx=stage_max_load_per_tx,
+            per_shard_capacity_tps=self.per_shard_capacity_tps,
+            owner_anchor_tps_ceiling=owner_anchor_tps_ceiling,
+            system_stage_tps_ceiling=system_stage_tps_ceiling,
+            load_semantics_version=LOAD_SEMANTICS_VERSION,
+            reward_loads=capacity.reward_loads,
+            committed_stage_loads=capacity.committed_stage_loads,
+            committed_loads=capacity.committed_effective_loads,
+            pending_loads=capacity.pending_stage_loads,
+            cross_loads=capacity.committed_cross_loads,
             action_hist=action_hist,
             related_known_count=related_known_count,
             same_as_related_count=same_as_related_count,

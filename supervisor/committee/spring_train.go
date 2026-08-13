@@ -195,7 +195,6 @@ const springPendingFeedbackTTL = 10
 const springFeedbackAggregateWindow = 6
 const springMaxTrainFeedbackMatches = 8
 const springFeedbackDecay = 0.85
-const springLoadPenaltyWeight = 1.25
 const springActionRewardScale = 0.1
 
 func springClampFloat64(v, lo, hi float64) float64 {
@@ -499,7 +498,9 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 	}
 	communicationCost = springClampFloat64(communicationCost, 0.0, 1.0)
 
-	reward := lambda*rCSTR + (1.0-lambda)*rWLB - springLoadPenaltyWeight*normVar
+	// Standard SPRING / Python paper mode reward. IoT mode below replaces it
+	// with the dense-balanced reward used by the IoT mainline experiments.
+	reward := lambda*rCSTR + (1.0-lambda)*rWLB
 	rewardMode := "spring_legacy"
 	if params.SpringIOTMode == 1 {
 		// Match spring_lite/offline_env.py iot_dense_balanced:

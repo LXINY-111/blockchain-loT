@@ -19,6 +19,7 @@ type SpringIOTTxFeature struct {
 	StateObject             string
 	AnchorObject            string
 	AnchorObjects           []string
+	AnchorWeights           []float64
 	DeviceProtocolKey       string
 	Features                []float64
 	CommunicationCostWeight float64
@@ -26,6 +27,10 @@ type SpringIOTTxFeature struct {
 
 func springIOTEnabled() bool {
 	return params.SpringIOTMode == 1
+}
+
+func springIOTIdentityEnabled() bool {
+	return params.SpringIOTMode == 1 || params.SpringIOTIdentityMode == 1
 }
 
 func springIOTFeatureFromRow(row map[string]string, priorFrequency int) (SpringIOTTxFeature, bool) {
@@ -42,6 +47,7 @@ func springIOTFeatureFromRow(row map[string]string, priorFrequency int) (SpringI
 	packets := springIOTNumber(row["srcNumPackets"]) + springIOTNumber(row["dstNumPackets"])
 	duration := springIOTNumber(row["flowDuration"])
 	anchorWeights := springIOTNormalizedWeights(row)
+	anchorObjectWeights := springIOTAnchorObjectWeights(row, anchorKey, anchorObjects, anchorWeights)
 	distances := springIOTNumericList(row, "anchor_distances", "distance", len(anchorWeights))
 	linkQualities := springIOTNumericList(row, "anchor_link_qualities", "link_quality", len(anchorWeights))
 	normalizedDistances := make([]float64, 0, len(distances))
@@ -86,6 +92,7 @@ func springIOTFeatureFromRow(row map[string]string, priorFrequency int) (SpringI
 		StateObject:             stateObject,
 		AnchorObject:            anchorKey,
 		AnchorObjects:           anchorObjects,
+		AnchorWeights:           anchorObjectWeights,
 		DeviceProtocolKey:       anchorKey + "|" + protocol,
 		Features:                features,
 		CommunicationCostWeight: springClamp(distanceNorm*linkLoss*trafficWeight, 0.0, 1.0),
@@ -100,8 +107,23 @@ func springIOTTrafficRateFeature(payload float64, duration float64) float64 {
 }
 
 func springLoadIOTSidecar(path string) (map[uint64]SpringIOTTxFeature, error) {
+	return springLoadIOTSidecarWindow(path, 0, 0)
+}
+
+// springLoadIOTSidecarWindow loads one valid-transaction window and remaps its
+// source tx_index values to local nonces [0, maxTx). The local mapping keeps
+// BlockEmulator batch/reward bookkeeping unchanged when a later dataset split
+// is evaluated. Frequency-like state is intentionally reset at window start,
+// matching spring_lite/offline_env.py.
+func springLoadIOTSidecarWindow(path string, startTx int, maxTx int) (map[uint64]SpringIOTTxFeature, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("SpringIOTSidecarFile is empty")
+	}
+	if startTx < 0 {
+		return nil, fmt.Errorf("sidecar startTx must be non-negative: %d", startTx)
+	}
+	if maxTx < 0 {
+		return nil, fmt.Errorf("sidecar maxTx must be non-negative: %d", maxTx)
 	}
 
 	file, err := os.Open(path)
@@ -119,6 +141,7 @@ func springLoadIOTSidecar(path string) (map[uint64]SpringIOTTxFeature, error) {
 	features := make(map[uint64]SpringIOTTxFeature)
 	deviceProtocolSeen := make(map[string]int)
 	rowIndex := uint64(0)
+	windowStart := uint64(startTx)
 
 	for {
 		record, err := reader.Read()
@@ -135,20 +158,54 @@ func springLoadIOTSidecar(path string) (map[uint64]SpringIOTTxFeature, error) {
 				row[name] = record[idx]
 			}
 		}
-		if strings.TrimSpace(row["tx_index"]) == "" {
-			row["tx_index"] = strconv.FormatUint(rowIndex, 10)
+		rawTxIndex := strings.TrimSpace(row["tx_index"])
+		if rawTxIndex == "" {
+			rawTxIndex = strconv.FormatUint(rowIndex, 10)
 		}
+		sourceTxIndex, err := strconv.ParseUint(springIOTCleanCell(rawTxIndex), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid IoT sidecar tx_index %q at row %d", rawTxIndex, rowIndex)
+		}
+		if sourceTxIndex != rowIndex {
+			return nil, fmt.Errorf(
+				"non-contiguous IoT sidecar tx_index at row %d: got %d",
+				rowIndex,
+				sourceTxIndex,
+			)
+		}
+		rowIndex++
+
+		if sourceTxIndex < windowStart {
+			continue
+		}
+		if maxTx > 0 && len(features) >= maxTx {
+			break
+		}
+
+		localTxIndex := uint64(len(features))
+		row["tx_index"] = strconv.FormatUint(localTxIndex, 10)
 
 		deviceProtocolKey := springIOTAnchorKey(row) + "|" + springIOTProtocol(row)
 		priorFrequency := deviceProtocolSeen[deviceProtocolKey]
 		feature, ok := springIOTFeatureFromRow(row, priorFrequency)
 		if !ok {
-			return nil, fmt.Errorf("invalid IoT sidecar row at index %d", rowIndex)
+			return nil, fmt.Errorf("invalid IoT sidecar row at source index %d", sourceTxIndex)
 		}
 
-		features[feature.TxIndex] = feature
+		feature.TxIndex = localTxIndex
+		features[localTxIndex] = feature
 		deviceProtocolSeen[deviceProtocolKey] = priorFrequency + 1
-		rowIndex++
+		if maxTx > 0 && len(features) >= maxTx {
+			break
+		}
+	}
+	if maxTx > 0 && len(features) != maxTx {
+		return nil, fmt.Errorf(
+			"IoT sidecar window is incomplete: startTx=%d loaded=%d requested=%d",
+			startTx,
+			len(features),
+			maxTx,
+		)
 	}
 
 	return features, nil
@@ -226,6 +283,35 @@ func (rthm *RelayCommitteeModule) springBuildIOTBatchRelatedMap(txlist []*core.T
 	return related
 }
 
+func (rthm *RelayCommitteeModule) springBuildIOTBatchRelatedWeightMap(txlist []*core.Transaction) map[string]map[string]float64 {
+	related := make(map[string]map[string]float64)
+	for _, tx := range txlist {
+		if tx == nil || tx.Sender == "" {
+			continue
+		}
+		key := string(tx.Sender)
+		if _, ok := related[key]; !ok {
+			related[key] = make(map[string]float64)
+		}
+		anchors := rthm.springIOTAnchorsForTx(tx)
+		weights := rthm.springIOTAnchorWeightsForTx(tx, len(anchors))
+		for idx, anchor := range anchors {
+			if anchor == "" || anchor == key {
+				continue
+			}
+			weight := 1.0
+			if idx < len(weights) {
+				weight = weights[idx]
+			}
+			if weight <= 0 {
+				continue
+			}
+			related[key][anchor] += weight
+		}
+	}
+	return related
+}
+
 func (rthm *RelayCommitteeModule) springSeedIOTAnchorShards(
 	txlist []*core.Transaction,
 	batchPlacement map[string]uint64,
@@ -270,6 +356,26 @@ func (rthm *RelayCommitteeModule) springIOTAnchorsForTx(tx *core.Transaction) []
 	return nil
 }
 
+func (rthm *RelayCommitteeModule) springIOTAnchorWeightsForTx(tx *core.Transaction, anchorCount int) []float64 {
+	if anchorCount <= 0 {
+		return nil
+	}
+	if tx != nil && rthm.springIOTByTxIndex != nil {
+		feature, ok := rthm.springIOTByTxIndex[tx.Nonce]
+		if ok && len(feature.AnchorWeights) == anchorCount {
+			weights := make([]float64, anchorCount)
+			copy(weights, feature.AnchorWeights)
+			return weights
+		}
+	}
+	weights := make([]float64, anchorCount)
+	uniform := 1.0 / float64(anchorCount)
+	for idx := range weights {
+		weights[idx] = uniform
+	}
+	return weights
+}
+
 func springIOTStateObjectKey(row map[string]string) string {
 	stateAddress := springIOTCleanCell(row["to_address"])
 	if stateAddress != "" {
@@ -311,6 +417,69 @@ func springIOTAnchorKeys(row map[string]string, primaryAnchor string) []string {
 	}
 	add(primaryAnchor)
 	return anchors
+}
+
+func springIOTAnchorObjectWeights(
+	row map[string]string,
+	primaryAnchor string,
+	anchorObjects []string,
+	rawWeights []float64,
+) []float64 {
+	if len(anchorObjects) == 0 {
+		return nil
+	}
+
+	rawAnchors := springIOTSplitList(row["anchor_addresses"])
+	if len(rawAnchors) == 0 && primaryAnchor != "" {
+		rawAnchors = []string{primaryAnchor}
+	}
+
+	hasPrimary := false
+	for _, anchor := range rawAnchors {
+		if springIOTCleanCell(anchor) == primaryAnchor {
+			hasPrimary = true
+			break
+		}
+	}
+	if primaryAnchor != "" && !hasPrimary {
+		rawAnchors = append(rawAnchors, primaryAnchor)
+		rawWeights = append(rawWeights, 1.0)
+	}
+
+	weightsByAnchor := make(map[string]float64)
+	for idx, anchor := range rawAnchors {
+		anchor = springIOTCleanCell(anchor)
+		if anchor == "" {
+			continue
+		}
+		weight := 1.0
+		if idx < len(rawWeights) {
+			weight = rawWeights[idx]
+		}
+		if weight < 0 {
+			weight = 0
+		}
+		weightsByAnchor[anchor] += weight
+	}
+
+	out := make([]float64, len(anchorObjects))
+	total := 0.0
+	for idx, anchor := range anchorObjects {
+		weight := weightsByAnchor[anchor]
+		out[idx] = weight
+		total += weight
+	}
+	if total <= 0 {
+		uniform := 1.0 / float64(len(out))
+		for idx := range out {
+			out[idx] = uniform
+		}
+		return out
+	}
+	for idx := range out {
+		out[idx] = out[idx] / total
+	}
+	return out
 }
 
 func springIOTDeviceKey(row map[string]string) string {

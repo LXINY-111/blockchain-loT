@@ -124,7 +124,7 @@ class InferServerIoTTest(unittest.TestCase):
         iot_dim = state_dim(shards, IOT_FEATURE_DIM)
 
         with TemporaryDirectory() as tmp:
-            model_dir = Path(tmp) / "实验结果7" / "models"
+            model_dir = Path(tmp) / "实验结果9" / "models"
             model_dir.mkdir(parents=True)
             model_path = model_dir / "spring_iot_ppo.pt"
             agent = PPOAgent(
@@ -164,6 +164,39 @@ class InferServerIoTTest(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr.decode("utf-8", errors="replace"))
         resp = json.loads(completed.stdout.decode("utf-8"))
         self.assertEqual(resp["items"][0]["source"], "python_ppo")
+
+    def test_checkpoint_metadata_mismatch_falls_back_with_explicit_source(self):
+        shards = 4
+        iot_dim = state_dim(shards, IOT_FEATURE_DIM)
+
+        with TemporaryDirectory() as tmp:
+            model_path = Path(tmp) / "wrong_topk.pt"
+            agent = PPOAgent(
+                state_dim=iot_dim,
+                action_dim=shards,
+                hidden_dim=HIDDEN_DIM,
+                device="cpu",
+            )
+            agent.save(model_path, extra={"candidate_top_k": 8})
+
+            with self.assertRaisesRegex(RuntimeError, "checkpoint config mismatch"):
+                infer_items(
+                    items=[
+                        {
+                            "address": "iot_state:camera",
+                            "related": "iot_peer:cloud",
+                            "state": [0.0 for _ in range(iot_dim)],
+                        }
+                    ],
+                    shards=shards,
+                    sample=False,
+                    request_id=11,
+                    model_path=model_path,
+                    iot_feature_dim=IOT_FEATURE_DIM,
+                    allow_model_init=False,
+                    expected_checkpoint={"candidate_top_k": 7},
+                    cache=AgentCache(),
+                )
 
 
 if __name__ == "__main__":

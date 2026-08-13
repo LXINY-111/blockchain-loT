@@ -8,7 +8,13 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from analyze_block_eval import analyze_decisions, build_arg_parser  # noqa: E402
+from analyze_block_eval import (  # noqa: E402
+    analyze_decisions,
+    analyze_injection_pace,
+    analyze_tx_latency_details,
+    build_arg_parser,
+    read_csv_source,
+)
 
 
 class AnalyzeBlockEvalTest(unittest.TestCase):
@@ -17,6 +23,8 @@ class AnalyzeBlockEvalTest(unittest.TestCase):
         args = parser.parse_args([])
 
         self.assertEqual(args.shards, 16)
+        self.assertEqual(args.result_path, "expTest/result")
+        self.assertEqual(args.spring_io_path, "spring_io")
 
     def test_analyze_decisions_reports_action_mask_and_fallback_ratios(self):
         records = [
@@ -61,6 +69,131 @@ class AnalyzeBlockEvalTest(unittest.TestCase):
         self.assertAlmostEqual(result["python_ppo_ratio"], 2.0 / 3.0)
         self.assertAlmostEqual(result["fallback_ratio"], 1.0 / 3.0)
         self.assertEqual(result["fallback_source_hist"], {"heuristic_fallback": 1})
+
+    def test_analyze_decisions_accepts_unpacked_directory(self):
+        record = {
+            "shard": 3,
+            "source": "python_ppo",
+            "confidence": 0.7,
+            "entropy": 0.4,
+            "action_mask": [0, 0, 0, 1],
+        }
+        with TemporaryDirectory() as tmp:
+            spring_io = Path(tmp) / "spring_io"
+            spring_io.mkdir()
+            (spring_io / "decision_records.jsonl").write_text(
+                json.dumps(record) + "\n",
+                encoding="utf-8",
+            )
+
+            result = analyze_decisions(spring_io, shards=4)
+
+        self.assertEqual(result["decision_count"], 1)
+        self.assertEqual(result["action_hist"], [0, 0, 0, 1])
+        self.assertEqual(result["python_ppo_ratio"], 1.0)
+
+    def test_analyze_decisions_distinguishes_major_and_any_related_shard(self):
+        records = []
+        cases = [
+            (2, [0.7, 0.0, 0.3, 0.0]),
+            (0, [0.6, 0.4, 0.0, 0.0]),
+            (3, [0.5, 0.5, 0.0, 0.0]),
+        ]
+        for shard, sender_pos in cases:
+            state = [0.0] * 40 + sender_pos
+            records.append(
+                {
+                    "shard": shard,
+                    "source": "python_ppo",
+                    "state": state,
+                }
+            )
+
+        with TemporaryDirectory() as tmp:
+            spring_io = Path(tmp) / "spring_io"
+            spring_io.mkdir()
+            (spring_io / "decision_records.jsonl").write_text(
+                "\n".join(json.dumps(record) for record in records) + "\n",
+                encoding="utf-8",
+            )
+
+            result = analyze_decisions(spring_io, shards=4)
+
+        self.assertEqual(result["major_related_follow_count"], 1)
+        self.assertAlmostEqual(result["major_related_follow_ratio"], 1.0 / 3.0)
+        self.assertEqual(result["selected_related_mass_count"], 2)
+        self.assertAlmostEqual(result["same_as_related_ratio"], 2.0 / 3.0)
+        self.assertAlmostEqual(result["chosen_related_mass_mean"], 0.3)
+
+    def test_read_csv_source_accepts_unpacked_exp_test_or_result_directory(self):
+        with TemporaryDirectory() as tmp:
+            exp_test = Path(tmp) / "expTest"
+            output_dir = exp_test / "result" / "supervisor_measureOutput"
+            output_dir.mkdir(parents=True)
+            csv_path = output_dir / "Tx_number.csv"
+            csv_path.write_text("EpochID,Total tx # in this epoch\n1,1000\n", encoding="utf-8")
+
+            from_exp_test = read_csv_source(
+                exp_test,
+                "supervisor_measureOutput/Tx_number.csv",
+            )
+            from_result = read_csv_source(
+                exp_test / "result",
+                "supervisor_measureOutput/Tx_number.csv",
+            )
+
+        self.assertEqual(from_exp_test, from_result)
+        self.assertEqual(from_result[0]["EpochID"], "1")
+
+    def test_analyze_injection_pace_reports_actual_offered_tps(self):
+        lines = [
+            (
+                "[INJECTION PACE] batchTx=1000 cumulativeTx=1000 "
+                "targetTPS=300 elapsedSec=3.333400 "
+                "actualOfferedTPS=299.994000 scheduleLagMs=0.067"
+            ),
+            (
+                "[INJECTION PACE] batchTx=1000 cumulativeTx=2000 "
+                "targetTPS=300 elapsedSec=6.666700 "
+                "actualOfferedTPS=299.998500 scheduleLagMs=0.033"
+            ),
+        ]
+        with TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "supervisor.log"
+            log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            result = analyze_injection_pace(log_path)
+
+        self.assertEqual(result["pace_record_count"], 2)
+        self.assertEqual(result["final_cumulative_tx"], 2000)
+        self.assertEqual(result["target_tps"], 300.0)
+        self.assertAlmostEqual(result["actual_offered_tps"], 299.9985)
+        self.assertAlmostEqual(result["attainment_ratio"], 0.999995)
+        self.assertAlmostEqual(result["final_schedule_lag_ms"], 0.033)
+
+    def test_analyze_tx_latency_details_reports_tail_quantiles(self):
+        with TemporaryDirectory() as tmp:
+            result = Path(tmp) / "result"
+            output = result / "supervisor_measureOutput"
+            output.mkdir(parents=True)
+            (output / "Tx_Details.csv").write_text(
+                "TxHash,Confirmed latency of this tx (ms)\n"
+                "a,1000\n"
+                "b,2000\n"
+                "c,10000\n"
+                "d,4000\n",
+                encoding="utf-8",
+            )
+
+            summary = analyze_tx_latency_details(result)
+
+        self.assertEqual(summary["row_count"], 4)
+        self.assertEqual(summary["valid_latency_count"], 4)
+        self.assertAlmostEqual(summary["mean_sec"], 4.25)
+        self.assertAlmostEqual(summary["p50_sec"], 2.0)
+        self.assertAlmostEqual(summary["p95_sec"], 10.0)
+        self.assertAlmostEqual(summary["p99_sec"], 10.0)
+        self.assertAlmostEqual(summary["max_sec"], 10.0)
 
 
 if __name__ == "__main__":

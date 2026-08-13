@@ -42,6 +42,42 @@ func springActionAllowed(mask []int, sid uint64) bool {
 	return idx >= 0 && idx < len(normalized) && normalized[idx] > 0
 }
 
+func (rthm *RelayCommitteeModule) springCandidateLoadPressures() []float64 {
+	shards := params.ShardNum
+	pressures := make([]float64, shards)
+	if rthm == nil || shards <= 0 {
+		return pressures
+	}
+
+	totalPlacement := 0
+	for sid := 0; sid < shards && sid < len(rthm.springShardLoad); sid++ {
+		totalPlacement += rthm.springShardLoad[sid]
+	}
+	placementScale := float64(params.MaxBlockSize_global)
+	if placementScale <= 0 {
+		placementScale = 1.0
+	}
+
+	for sid := 0; sid < shards; sid++ {
+		placementPressure := 0.0
+		if totalPlacement > 0 && sid < len(rthm.springShardLoad) {
+			placementPressure = float64(rthm.springShardLoad[sid]) /
+				float64(totalPlacement) * placementScale
+		}
+
+		// Python initializes five zero windows and then appends one full
+		// block-stage load vector per batch. Dividing by five keeps the online
+		// and offline candidate masks on the same scale during cold start.
+		recentPressure := 0.0
+		for back := 0; back < 5; back++ {
+			recentPressure += float64(rthm.springGetStat(uint64(sid), back).NumTx)
+		}
+		recentPressure /= 5.0
+		pressures[sid] = placementPressure + recentPressure
+	}
+	return pressures
+}
+
 func (rthm *RelayCommitteeModule) springCandidateScores(
 	addr utils.Address,
 	senderPos []float64,
@@ -53,14 +89,15 @@ func (rthm *RelayCommitteeModule) springCandidateScores(
 	if loadWeight <= 0 {
 		loadWeight = 1.0
 	}
+	pressures := rthm.springCandidateLoadPressures()
 	for sid := 0; sid < shards; sid++ {
 		relatedScore := 0.0
 		if sid < len(senderPos) {
 			relatedScore = senderPos[sid]
 		}
 		load := 0.0
-		if rthm != nil && sid < len(rthm.springShardLoad) {
-			load = float64(rthm.springShardLoad[sid])
+		if sid < len(pressures) {
+			load = pressures[sid]
 		}
 		score := relatedScore*1000.0 - loadWeight*load
 		if uint64(sid) == hashSid {
@@ -93,11 +130,12 @@ func (rthm *RelayCommitteeModule) springBuildCandidateActionMask(
 	}
 
 	if params.SpringCapacityGuard != 0 && rthm != nil && len(rthm.springShardLoad) > 0 {
-		totalLoad := 0
-		for sid := 0; sid < shards && sid < len(rthm.springShardLoad); sid++ {
-			totalLoad += rthm.springShardLoad[sid]
+		pressures := rthm.springCandidateLoadPressures()
+		totalLoad := 0.0
+		for sid := 0; sid < shards && sid < len(pressures); sid++ {
+			totalLoad += pressures[sid]
 		}
-		meanLoad := float64(totalLoad) / float64(shards)
+		meanLoad := totalLoad / float64(shards)
 		if meanLoad > 1e-9 {
 			factor := params.SpringCapacityGuardFactor
 			if factor < 1.0 {
@@ -107,8 +145,8 @@ func (rthm *RelayCommitteeModule) springBuildCandidateActionMask(
 			guarded := make([]int, shards)
 			for sid := 0; sid < shards; sid++ {
 				load := 0.0
-				if sid < len(rthm.springShardLoad) {
-					load = float64(rthm.springShardLoad[sid])
+				if sid < len(pressures) {
+					load = pressures[sid]
 				}
 				if load <= threshold {
 					guarded[sid] = 1

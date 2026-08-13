@@ -10,6 +10,7 @@ import (
 	"blockEmulator/utils"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"math"
@@ -77,6 +78,10 @@ type RelayCommitteeModule struct {
 	nowDataNum   int
 	batchDataNum int
 
+	// Keep one rate schedule across input batches so InjectSpeed remains an
+	// exact target even when TxBatchSize is not divisible by InjectSpeed.
+	injectionPacer injectionPacer
+
 	IpNodeTable map[uint64]map[uint64]string
 	sl          *supervisor_log.SupervisorLog
 	Ss          *signal.StopSignal
@@ -113,8 +118,8 @@ type RelayCommitteeModule struct {
 	// SPRING: 真实 TxBatch 编号，用于核对 PPO action 和 block reward 是否对齐
 	springTxBatchSeq uint64
 
-	// IoT MDP: tx_index -> sidecar 特征。打开 SpringIOTMode 后，
-	// Supervisor 会把原始交易地址映射为“状态对象账户 -> 设备锚点账户”。
+	// IoT sidecar: tx_index -> state_object / anchor / feature metadata.
+	// SpringIOTIdentityMode controls identity mapping; SpringIOTMode controls extra IoT MDP features.
 	springIOTByTxIndex map[uint64]SpringIOTTxFeature
 }
 
@@ -141,17 +146,25 @@ func NewRelayCommitteeModule(Ip_nodeTable map[uint64]map[uint64]string, Ss *sign
 		springRandom:          rand.New(rand.NewSource(params.SpringRandomSeed)),
 	}
 
-	if springIOTEnabled() {
-		features, err := springLoadIOTSidecar(params.SpringIOTSidecarFile)
+	if springIOTIdentityEnabled() {
+		features, err := springLoadIOTSidecarWindow(
+			params.SpringIOTSidecarFile,
+			params.DatasetStartTx,
+			dataNum,
+		)
 		if err != nil {
 			log.Panicf("load IoT sidecar failed: %v", err)
 		}
 		rthm.springIOTByTxIndex = features
 		if rthm.sl != nil {
 			rthm.sl.Slog.Printf(
-				"[IOT MDP] loaded sidecar=%s rows=%d feature_dim=%d model=%s\n",
+				"[IOT IDENTITY] loaded sidecar=%s source_start_tx=%d rows=%d local_nonce=[0,%d) identity_mode=%d iot_mdp=%d feature_dim=%d model=%s\n",
 				params.SpringIOTSidecarFile,
+				params.DatasetStartTx,
 				len(features),
+				len(features),
+				params.SpringIOTIdentityMode,
+				params.SpringIOTMode,
 				params.SpringIOTFeatureDim,
 				params.SpringModelFile,
 			)
@@ -164,7 +177,7 @@ func NewRelayCommitteeModule(Ip_nodeTable map[uint64]map[uint64]string, Ss *sign
 // transfrom, data to transaction
 // check whether it is a legal txs meesage. if so, read txs and put it into the txlist
 func data2tx(data []string, nonce uint64) (*core.Transaction, bool) {
-	if data[6] == "0" && data[7] == "0" && len(data[3]) > 16 && len(data[4]) > 16 && data[3] != data[4] {
+	if len(data) >= 9 && data[6] == "0" && data[7] == "0" && len(data[3]) > 16 && len(data[4]) > 16 && data[3] != data[4] {
 		val, ok := new(big.Int).SetString(data[8], 10)
 		if !ok {
 			log.Panic("new int failed\n")
@@ -173,6 +186,33 @@ func data2tx(data []string, nonce uint64) (*core.Transaction, bool) {
 		return tx, true
 	}
 	return &core.Transaction{}, false
+}
+
+// skipValidTransactions advances in the same valid-transaction index space as
+// data2tx. The transactions injected after the skip still receive local nonces
+// starting at zero so existing batch and reward identifiers remain unchanged.
+func skipValidTransactions(reader *csv.Reader, count int) (int, error) {
+	if count < 0 {
+		return 0, fmt.Errorf("transaction skip count must be non-negative: %d", count)
+	}
+	skipped := 0
+	for skipped < count {
+		data, err := reader.Read()
+		if err == io.EOF {
+			return skipped, fmt.Errorf(
+				"transaction dataset ended while skipping: skipped=%d requested=%d",
+				skipped,
+				count,
+			)
+		}
+		if err != nil {
+			return skipped, err
+		}
+		if _, ok := data2tx(data, 0); ok {
+			skipped++
+		}
+	}
+	return skipped, nil
 }
 
 func (rthm *RelayCommitteeModule) HandleOtherMessage([]byte) {}
@@ -205,6 +245,20 @@ func (rthm *RelayCommitteeModule) springEnsurePlaced(
 	case 4:
 		// MinState baseline（最少状态优先）：新状态放到当前状态数量最少的分片，不使用通信关系或 PPO。
 		sid = rthm.springChooseShardMinState()
+
+	case 5:
+		// AnchorOnly baseline: only follow the related anchor shard, without load penalty.
+		sid = rthm.springChooseShardAnchorOnly(addr, related)
+
+	case 6:
+		// NSshard-adapted baseline: weighted graph placement with capacity/load constraint.
+		senderPos, _, relatedKnown, _, _ := rthm.springBuildNSShardWeightedSenderPos(
+			string(addr),
+			related,
+			batchPlacement,
+			nil,
+		)
+		sid = rthm.springChooseShardNSShardAdaptedFromSenderPos(addr, senderPos, relatedKnown)
 
 	default:
 		// SpringMode = 0 或其他非法值：退化为原始 Hash 放置
@@ -318,6 +372,241 @@ func (rthm *RelayCommitteeModule) springChooseShardMinState() uint64 {
 	return uint64(bestSid)
 }
 
+func (rthm *RelayCommitteeModule) springChooseShardAnchorOnly(
+	addr utils.Address,
+	related utils.Address,
+) uint64 {
+	if related != "" {
+		if sid, ok := rthm.springAddrShard[string(related)]; ok {
+			return sid
+		}
+	}
+	return uint64(utils.Addr2Shard(addr))
+}
+
+func (rthm *RelayCommitteeModule) springChooseShardAnchorOnlyFromSenderPos(
+	addr utils.Address,
+	senderPos []float64,
+) uint64 {
+	hashSid := uint64(utils.Addr2Shard(addr))
+	bestSid := hashSid
+	bestScore := 0.0
+
+	for sid := 0; sid < params.ShardNum; sid++ {
+		score := 0.0
+		if sid < len(senderPos) {
+			score = senderPos[sid]
+		}
+		if score > bestScore || (score == bestScore && uint64(sid) == hashSid) {
+			bestScore = score
+			bestSid = uint64(sid)
+		}
+	}
+
+	return bestSid
+}
+
+func (rthm *RelayCommitteeModule) springEnsurePlacedAnchorOnlyWithBatchRelated(
+	addr utils.Address,
+	related utils.Address,
+	batchPlacement map[string]uint64,
+	batchRelated map[string]map[string]bool,
+) uint64 {
+	if sid, ok := rthm.springAddrShard[string(addr)]; ok {
+		return sid
+	}
+
+	senderPos, _, relatedKnown, _, _, _, _ := rthm.springBuildSenderPos(
+		string(addr),
+		related,
+		batchPlacement,
+		batchRelated,
+	)
+
+	sid := rthm.springChooseShardAnchorOnly(addr, related)
+	if relatedKnown {
+		sid = rthm.springChooseShardAnchorOnlyFromSenderPos(addr, senderPos)
+	}
+
+	rthm.springAddrShard[string(addr)] = sid
+	rthm.springShardLoad[sid]++
+	batchPlacement[string(addr)] = sid
+	return sid
+}
+
+func (rthm *RelayCommitteeModule) springNSShardCapacityLimit() int {
+	if params.ShardNum <= 0 {
+		return 1
+	}
+	factor := params.SpringNSShardCapacityFactor
+	if factor < 1.0 {
+		factor = 1.0
+	}
+	totalLoad := 0
+	for _, load := range rthm.springShardLoad {
+		totalLoad += load
+	}
+	limit := int(math.Ceil(float64(totalLoad+1) * factor / float64(params.ShardNum)))
+	if limit < 1 {
+		limit = 1
+	}
+	return limit
+}
+
+func (rthm *RelayCommitteeModule) springNSShardCapacityScore(sid int, capacityLimit int) float64 {
+	if capacityLimit <= 0 {
+		return 0
+	}
+	load := 0
+	if sid >= 0 && sid < len(rthm.springShardLoad) {
+		load = rthm.springShardLoad[sid]
+	}
+	score := 1.0 - float64(load)/float64(capacityLimit)
+	return springClamp(score, 0.0, 1.0)
+}
+
+func (rthm *RelayCommitteeModule) springBuildNSShardWeightedSenderPos(
+	addr string,
+	fallbackRelated utils.Address,
+	batchPlacement map[string]uint64,
+	batchRelatedWeights map[string]map[string]float64,
+) ([]float64, string, bool, int, float64) {
+	senderPos := make([]float64, params.ShardNum)
+	relatedWeights := make(map[string]float64)
+
+	if peers, ok := batchRelatedWeights[addr]; ok {
+		for peer, weight := range peers {
+			if peer != "" && weight > 0 {
+				relatedWeights[peer] += weight
+			}
+		}
+	}
+	if len(relatedWeights) == 0 && fallbackRelated != "" {
+		relatedWeights[string(fallbackRelated)] = 1.0
+	}
+
+	relatedKeys := make([]string, 0, len(relatedWeights))
+	for peer := range relatedWeights {
+		relatedKeys = append(relatedKeys, peer)
+	}
+	sort.Strings(relatedKeys)
+
+	shardWeights := make([]float64, params.ShardNum)
+	totalKnownWeight := 0.0
+	majorShard := -1
+	majorWeight := 0.0
+
+	for _, peer := range relatedKeys {
+		weight := relatedWeights[peer]
+		if weight <= 0 {
+			continue
+		}
+		if batchPlacement != nil {
+			if sid, ok := batchPlacement[peer]; ok && int(sid) < params.ShardNum {
+				shardWeights[int(sid)] += weight
+				totalKnownWeight += weight
+				continue
+			}
+		}
+		if sid, ok := rthm.springAddrShard[peer]; ok && int(sid) < params.ShardNum {
+			shardWeights[int(sid)] += weight
+			totalKnownWeight += weight
+		}
+	}
+
+	if totalKnownWeight > 0 {
+		for sid, weight := range shardWeights {
+			senderPos[sid] = weight / totalKnownWeight
+			if weight > majorWeight {
+				majorWeight = weight
+				majorShard = sid
+			}
+		}
+	}
+
+	summaryKeys := relatedKeys
+	if len(summaryKeys) > 8 {
+		summaryKeys = summaryKeys[:8]
+	}
+	relatedSummary := strings.Join(summaryKeys, ",")
+	if len(relatedKeys) > len(summaryKeys) {
+		relatedSummary = relatedSummary + ",+" + intToString(len(relatedKeys)-len(summaryKeys))
+	}
+	return senderPos, relatedSummary, totalKnownWeight > 0, majorShard, majorWeight
+}
+
+func (rthm *RelayCommitteeModule) springChooseShardNSShardAdaptedFromSenderPos(
+	addr utils.Address,
+	senderPos []float64,
+	relatedKnown bool,
+) uint64 {
+	if !relatedKnown {
+		return rthm.springChooseShardMinState()
+	}
+
+	hashSid := uint64(utils.Addr2Shard(addr))
+	capacityLimit := rthm.springNSShardCapacityLimit()
+	bestSid := uint64(0)
+	bestScore := math.Inf(-1)
+	bestRelatedScore := math.Inf(-1)
+	bestLoad := int(^uint(0) >> 1)
+
+	for sid := 0; sid < params.ShardNum; sid++ {
+		relatedScore := 0.0
+		if sid < len(senderPos) {
+			relatedScore = senderPos[sid]
+		}
+		if relatedScore <= 0 {
+			continue
+		}
+		capacityScore := rthm.springNSShardCapacityScore(sid, capacityLimit)
+		score := relatedScore * capacityScore
+		load := 0
+		if sid < len(rthm.springShardLoad) {
+			load = rthm.springShardLoad[sid]
+		}
+
+		if score > bestScore+1e-12 ||
+			(math.Abs(score-bestScore) <= 1e-12 && relatedScore > bestRelatedScore+1e-12) ||
+			(math.Abs(score-bestScore) <= 1e-12 && math.Abs(relatedScore-bestRelatedScore) <= 1e-12 && load < bestLoad) ||
+			(math.Abs(score-bestScore) <= 1e-12 && math.Abs(relatedScore-bestRelatedScore) <= 1e-12 && load == bestLoad && uint64(sid) == hashSid) {
+			bestScore = score
+			bestRelatedScore = relatedScore
+			bestLoad = load
+			bestSid = uint64(sid)
+		}
+	}
+
+	if bestScore <= 0 {
+		return rthm.springChooseShardMinState()
+	}
+	return bestSid
+}
+
+func (rthm *RelayCommitteeModule) springEnsurePlacedNSShardAdaptedWithBatchWeights(
+	addr utils.Address,
+	related utils.Address,
+	batchPlacement map[string]uint64,
+	batchRelatedWeights map[string]map[string]float64,
+) uint64 {
+	if sid, ok := rthm.springAddrShard[string(addr)]; ok {
+		return sid
+	}
+
+	senderPos, _, relatedKnown, _, _ := rthm.springBuildNSShardWeightedSenderPos(
+		string(addr),
+		related,
+		batchPlacement,
+		batchRelatedWeights,
+	)
+	sid := rthm.springChooseShardNSShardAdaptedFromSenderPos(addr, senderPos, relatedKnown)
+
+	rthm.springAddrShard[string(addr)] = sid
+	rthm.springShardLoad[sid]++
+	batchPlacement[string(addr)] = sid
+	return sid
+}
+
 // SPRING 第一版简单策略：
 // 1. 如果 related 地址已经有分片，优先放到 related 的分片，降低跨片交易
 // 2. 同时考虑当前放置负载，避免所有新地址都堆到一个分片
@@ -378,7 +667,7 @@ func (rthm *RelayCommitteeModule) springPreparePlacement(
 		return batchPlacement
 
 	case 1:
-		if springIOTEnabled() {
+		if springIOTIdentityEnabled() {
 			// IoT heuristic baseline：设备账户是外部锚点，先用 hash（哈希）
 			// 固定到分片；heuristic（启发式）基于多锚点 sender_pos 放置通信状态对象账户。
 			batchRelated := rthm.springBuildIOTBatchRelatedMap(txlist)
@@ -402,7 +691,7 @@ func (rthm *RelayCommitteeModule) springPreparePlacement(
 		return batchPlacement
 
 	case 3:
-		if springIOTEnabled() {
+		if springIOTIdentityEnabled() {
 			// IoT random baseline：设备/锚点仍用 hash（哈希）固定，只有状态对象随机放置。
 			rthm.springSeedIOTAnchorShards(txlist, batchPlacement)
 			for _, tx := range txlist {
@@ -419,11 +708,48 @@ func (rthm *RelayCommitteeModule) springPreparePlacement(
 		return batchPlacement
 
 	case 4:
-		if springIOTEnabled() {
+		if springIOTIdentityEnabled() {
 			// IoT MinState baseline（最少状态优先）：锚点仍用 hash 固定，只把状态对象放到状态数量最少的分片。
 			rthm.springSeedIOTAnchorShards(txlist, batchPlacement)
 			for _, tx := range txlist {
 				rthm.springEnsurePlaced(tx.Sender, tx.Recipient, batchPlacement)
+			}
+			rthm.springFillTouchedPlacement(txlist, batchPlacement)
+			return batchPlacement
+		}
+		for _, tx := range txlist {
+			rthm.springEnsurePlaced(tx.Sender, tx.Recipient, batchPlacement)
+			rthm.springEnsurePlaced(tx.Recipient, tx.Sender, batchPlacement)
+		}
+		rthm.springFillTouchedPlacement(txlist, batchPlacement)
+		return batchPlacement
+
+	case 5:
+		if springIOTIdentityEnabled() {
+			// AnchorOnly baseline：锚点仍用 hash 固定，状态对象只跟随锚点分片，不考虑负载惩罚。
+			batchRelated := rthm.springBuildIOTBatchRelatedMap(txlist)
+			rthm.springSeedIOTAnchorShards(txlist, batchPlacement)
+			for _, tx := range txlist {
+				rthm.springEnsurePlacedAnchorOnlyWithBatchRelated(tx.Sender, tx.Recipient, batchPlacement, batchRelated)
+			}
+			rthm.springFillTouchedPlacement(txlist, batchPlacement)
+			return batchPlacement
+		}
+		for _, tx := range txlist {
+			rthm.springEnsurePlaced(tx.Sender, tx.Recipient, batchPlacement)
+			rthm.springEnsurePlaced(tx.Recipient, tx.Sender, batchPlacement)
+		}
+		rthm.springFillTouchedPlacement(txlist, batchPlacement)
+		return batchPlacement
+
+	case 6:
+		if springIOTIdentityEnabled() {
+			// NSshard-adapted baseline：构建 IoT 加权通信图，状态对象选择
+			// 最大化片内通信权重且满足 capacity/load constraint 的单个分片。
+			batchRelatedWeights := rthm.springBuildIOTBatchRelatedWeightMap(txlist)
+			rthm.springSeedIOTAnchorShards(txlist, batchPlacement)
+			for _, tx := range txlist {
+				rthm.springEnsurePlacedNSShardAdaptedWithBatchWeights(tx.Sender, tx.Recipient, batchPlacement, batchRelatedWeights)
 			}
 			rthm.springFillTouchedPlacement(txlist, batchPlacement)
 			return batchPlacement
@@ -529,17 +855,21 @@ func (rthm *RelayCommitteeModule) springPreparePlacementPPOBatch(
 	// action within the current A-Shard block.
 	trainActions := make([]SpringTrainAction, 0)
 
-	if springIOTEnabled() {
+	if springIOTIdentityEnabled() {
 		// IoT MDP：PPO 只放置通信状态对象账户；设备账户作为外部锚点先稳定哈希分片。
 		batchRelated = rthm.springBuildIOTBatchRelatedMap(txlist)
 		rthm.springSeedIOTAnchorShards(txlist, batchPlacement)
 		for _, tx := range txlist {
+			extraFeatures := []float64(nil)
+			if springIOTEnabled() {
+				extraFeatures = rthm.springIOTFeaturesForTx(tx)
+			}
 			if action, ok := rthm.springPlaceAddressPPOSequential(
 				tx.Sender,
 				tx.Recipient,
 				batchPlacement,
 				batchRelated,
-				rthm.springIOTFeaturesForTx(tx),
+				extraFeatures,
 			); ok {
 				trainActions = append(trainActions, action)
 			}
@@ -801,6 +1131,8 @@ func (rthm *RelayCommitteeModule) txSending(txlist []*core.Transaction) {
 
 	// the txs will be sent
 	sendToShard := make(map[uint64][]*core.Transaction)
+	lastSentIdx := 0
+	lastPace := injectionPaceSnapshot{}
 
 	for idx := 0; idx <= len(txlist); idx++ {
 		if idx > 0 && (idx%params.InjectSpeed == 0 || idx == len(txlist)) {
@@ -844,7 +1176,12 @@ func (rthm *RelayCommitteeModule) txSending(txlist []*core.Transaction) {
 			}
 
 			sendToShard = make(map[uint64][]*core.Transaction)
-			time.Sleep(time.Second)
+			chunkTxCount := idx - lastSentIdx
+			lastPace = rthm.injectionPacer.waitAfter(
+				chunkTxCount,
+				params.InjectSpeed,
+			)
+			lastSentIdx = idx
 		}
 
 		if idx == len(txlist) {
@@ -867,6 +1204,18 @@ func (rthm *RelayCommitteeModule) txSending(txlist []*core.Transaction) {
 
 		sendToShard[sendersid] = append(sendToShard[sendersid], tx)
 	}
+
+	if rthm.sl != nil && lastPace.CumulativeTx > 0 {
+		rthm.sl.Slog.Printf(
+			"[INJECTION PACE] batchTx=%d cumulativeTx=%d targetTPS=%d elapsedSec=%.6f actualOfferedTPS=%.6f scheduleLagMs=%.3f\n",
+			len(txlist),
+			lastPace.CumulativeTx,
+			lastPace.TargetTPS,
+			lastPace.Elapsed.Seconds(),
+			lastPace.ActualOfferedTPS,
+			float64(lastPace.ScheduleLag)/float64(time.Millisecond),
+		)
+	}
 }
 
 // read transactions, the Number of the transactions is - batchDataNum
@@ -877,6 +1226,20 @@ func (rthm *RelayCommitteeModule) MsgSendingControl() {
 	}
 	defer txfile.Close()
 	reader := csv.NewReader(txfile)
+	if params.DatasetStartTx > 0 {
+		skipped, err := skipValidTransactions(reader, params.DatasetStartTx)
+		if err != nil {
+			log.Panic(err)
+		}
+		if rthm.sl != nil {
+			rthm.sl.Slog.Printf(
+				"[DATA WINDOW] source_start_tx=%d skipped_valid_txs=%d local_nonce_start=0 total=%d\n",
+				params.DatasetStartTx,
+				skipped,
+				rthm.dataTotalNum,
+			)
+		}
+	}
 	txlist := make([]*core.Transaction, 0) // save the txs in this epoch (round)
 
 	for {
@@ -888,7 +1251,7 @@ func (rthm *RelayCommitteeModule) MsgSendingControl() {
 			log.Panic(err)
 		}
 		if tx, ok := data2tx(data, uint64(rthm.nowDataNum)); ok {
-			if springIOTEnabled() && !rthm.springApplyIOTTxIdentity(tx) {
+			if springIOTIdentityEnabled() && !rthm.springApplyIOTTxIdentity(tx) {
 				log.Panicf("IoT sidecar missing for tx_index=%d", tx.Nonce)
 			}
 			txlist = append(txlist, tx)

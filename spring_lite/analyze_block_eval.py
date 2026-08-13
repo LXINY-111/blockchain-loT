@@ -6,10 +6,41 @@ import math
 import re
 import statistics
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 from config import DEFAULT_SHARD_NUM
+
+
+@contextmanager
+def open_text_source(source_path: Path, name: str):
+    if source_path.is_file() and zipfile.is_zipfile(source_path):
+        with zipfile.ZipFile(source_path) as zf:
+            with zf.open(name) as raw:
+                with io.TextIOWrapper(
+                    raw,
+                    encoding="utf-8-sig",
+                    errors="replace",
+                    newline="",
+                ) as handle:
+                    yield handle
+        return
+
+    candidates = [source_path / name, source_path / "result" / name]
+    for candidate in candidates:
+        if candidate.is_file():
+            with candidate.open(
+                "r",
+                encoding="utf-8-sig",
+                errors="replace",
+                newline="",
+            ) as handle:
+                yield handle
+            return
+    raise FileNotFoundError(
+        f"result file {name!r} not found under {source_path}"
+    )
 
 
 def as_float(value: object) -> Optional[float]:
@@ -22,9 +53,13 @@ def as_float(value: object) -> Optional[float]:
     return parsed
 
 
-def read_csv_from_zip(zip_path: Path, name: str) -> List[Dict[str, str]]:
-    with zipfile.ZipFile(zip_path) as zf:
-        data = zf.read(name).decode("utf-8-sig", errors="replace")
+def read_text_source(source_path: Path, name: str) -> str:
+    with open_text_source(source_path, name) as handle:
+        return handle.read()
+
+
+def read_csv_source(source_path: Path, name: str) -> List[Dict[str, str]]:
+    data = read_text_source(source_path, name)
     return list(csv.DictReader(io.StringIO(data)))
 
 
@@ -55,6 +90,47 @@ def percentile(values: List[float], q: float) -> float:
     idx = int(math.ceil(q * len(ordered))) - 1
     idx = min(max(idx, 0), len(ordered) - 1)
     return ordered[idx]
+
+
+def analyze_tx_latency_details(result_path: Path) -> Dict[str, object]:
+    name = "supervisor_measureOutput/Tx_Details.csv"
+    try:
+        with open_text_source(result_path, name) as handle:
+            reader = csv.DictReader(handle)
+            values_ms = []
+            row_count = 0
+            for row in reader:
+                row_count += 1
+                value = as_float(row.get("Confirmed latency of this tx (ms)"))
+                if value is not None and value >= 0:
+                    values_ms.append(value)
+    except FileNotFoundError:
+        return {}
+
+    if not values_ms:
+        return {
+            "row_count": row_count,
+            "valid_latency_count": 0,
+            "invalid_latency_count": row_count,
+        }
+
+    values_ms.sort()
+
+    def ordered_percentile(q: float) -> float:
+        idx = int(math.ceil(q * len(values_ms))) - 1
+        idx = min(max(idx, 0), len(values_ms) - 1)
+        return values_ms[idx] / 1000.0
+
+    return {
+        "row_count": row_count,
+        "valid_latency_count": len(values_ms),
+        "invalid_latency_count": row_count - len(values_ms),
+        "mean_sec": statistics.fmean(values_ms) / 1000.0,
+        "p50_sec": ordered_percentile(0.50),
+        "p95_sec": ordered_percentile(0.95),
+        "p99_sec": ordered_percentile(0.99),
+        "max_sec": values_ms[-1] / 1000.0,
+    }
 
 
 def summarize_period(
@@ -152,16 +228,41 @@ def summarize_period(
     }
 
 
-def analyze_decisions(zip_path: Path, shards: int) -> Dict[str, object]:
-    if not zip_path.exists():
+@contextmanager
+def open_decision_lines(source_path: Path):
+    if source_path.is_file() and zipfile.is_zipfile(source_path):
+        with zipfile.ZipFile(source_path) as zf:
+            if "decision_records.jsonl" not in zf.namelist():
+                yield None
+            else:
+                with zf.open("decision_records.jsonl") as handle:
+                    yield handle
+        return
+
+    candidates = [
+        source_path / "decision_records.jsonl",
+        source_path / "spring_io" / "decision_records.jsonl",
+    ]
+    decision_file = next((path for path in candidates if path.is_file()), None)
+    if decision_file is None:
+        yield None
+        return
+    with decision_file.open("rb") as handle:
+        yield handle
+
+
+def analyze_decisions(source_path: Path, shards: int) -> Dict[str, object]:
+    if not source_path.exists():
         return {}
 
-    with zipfile.ZipFile(zip_path) as zf:
-        if "decision_records.jsonl" not in zf.namelist():
+    with open_decision_lines(source_path) as decision_lines:
+        if decision_lines is None:
             return {}
         action_hist = [0 for _ in range(shards)]
         related_shard_hist = [0 for _ in range(shards)]
         same_related_by_shard = [0 for _ in range(shards)]
+        selected_related_mass_count = 0
+        selected_related_mass_sum = 0.0
         confidence_sum = 0.0
         entropy_sum = 0.0
         sender_pos_nonzero = 0
@@ -173,7 +274,7 @@ def analyze_decisions(zip_path: Path, shards: int) -> Dict[str, object]:
         sender_pos_start = 10 * shards
         sender_pos_end = sender_pos_start + shards
 
-        for line in zf.open("decision_records.jsonl"):
+        for line in decision_lines:
             rec = json.loads(line)
             count += 1
             shard = int(rec.get("shard", -1))
@@ -207,6 +308,9 @@ def analyze_decisions(zip_path: Path, shards: int) -> Dict[str, object]:
                     related_shard_hist[related_shard] += 1
                     if shard == related_shard:
                         same_related_by_shard[related_shard] += 1
+                    if 0 <= shard < shards and sender_pos[shard] > 1e-12:
+                        selected_related_mass_count += 1
+                        selected_related_mass_sum += sender_pos[shard]
 
     action_total = sum(action_hist)
     related_total = sum(related_shard_hist)
@@ -268,8 +372,19 @@ def analyze_decisions(zip_path: Path, shards: int) -> Dict[str, object]:
         "sender_pos_nonzero_ratio": sender_pos_nonzero / count if count else 0.0,
         "related_shard_hist": related_shard_hist,
         "same_related_by_shard": same_related_by_shard,
+        "major_related_follow_by_shard": same_related_by_shard,
         "related_follow_by_shard": related_follow_by_shard,
-        "same_as_related_ratio": sum(same_related_by_shard) / related_total
+        "major_related_follow_count": sum(same_related_by_shard),
+        "major_related_follow_ratio": sum(same_related_by_shard) / related_total
+        if related_total
+        else 0.0,
+        # Match the offline environment metric: the selected shard has any
+        # positive sender/anchor relation, not necessarily the largest one.
+        "selected_related_mass_count": selected_related_mass_count,
+        "same_as_related_ratio": selected_related_mass_count / related_total
+        if related_total
+        else 0.0,
+        "chosen_related_mass_mean": selected_related_mass_sum / related_total
         if related_total
         else 0.0,
         "min_related_follow_ratio": min(observed_follow) if observed_follow else 0.0,
@@ -313,18 +428,73 @@ def analyze_send_log(log_path: Path, shards: int) -> Dict[str, object]:
     }
 
 
+def analyze_injection_pace(log_path: Path) -> Dict[str, object]:
+    if not log_path.exists():
+        return {}
+    pattern = re.compile(
+        r"\[INJECTION PACE\].*?"
+        r"batchTx=(\d+).*?"
+        r"cumulativeTx=(\d+).*?"
+        r"targetTPS=(\d+).*?"
+        r"elapsedSec=([0-9.]+).*?"
+        r"actualOfferedTPS=([0-9.]+).*?"
+        r"scheduleLagMs=(-?[0-9.]+)"
+    )
+    rows: List[Dict[str, float]] = []
+    for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        match = pattern.search(line)
+        if not match:
+            continue
+        rows.append(
+            {
+                "batch_tx": float(match.group(1)),
+                "cumulative_tx": float(match.group(2)),
+                "target_tps": float(match.group(3)),
+                "elapsed_sec": float(match.group(4)),
+                "actual_offered_tps": float(match.group(5)),
+                "schedule_lag_ms": float(match.group(6)),
+            }
+        )
+
+    if not rows:
+        return {}
+    final = rows[-1]
+    return {
+        "pace_record_count": len(rows),
+        "final_cumulative_tx": int(final["cumulative_tx"]),
+        "target_tps": final["target_tps"],
+        "elapsed_sec": final["elapsed_sec"],
+        "actual_offered_tps": final["actual_offered_tps"],
+        "attainment_ratio": (
+            final["actual_offered_tps"] / final["target_tps"]
+            if final["target_tps"] > 0
+            else 0.0
+        ),
+        "final_schedule_lag_ms": final["schedule_lag_ms"],
+        "max_abs_schedule_lag_ms": max(
+            abs(row["schedule_lag_ms"]) for row in rows
+        ),
+    }
+
+
 def analyze(args: argparse.Namespace) -> Dict[str, object]:
-    result_zip = Path(args.result_zip)
-    tx_rows = read_csv_from_zip(result_zip, "supervisor_measureOutput/Tx_number.csv")
-    cross_rows = read_csv_from_zip(
-        result_zip, "supervisor_measureOutput/CrossTransaction_ratio.csv"
+    result_value = getattr(args, "result_path", getattr(args, "result_zip", ""))
+    spring_io_value = getattr(
+        args,
+        "spring_io_path",
+        getattr(args, "spring_io_zip", ""),
     )
-    tps_rows = read_csv_from_zip(result_zip, "supervisor_measureOutput/Average_TPS.csv")
-    latency_rows = read_csv_from_zip(
-        result_zip, "supervisor_measureOutput/Transaction_Confirm_Latency.csv"
+    result_path = Path(result_value)
+    tx_rows = read_csv_source(result_path, "supervisor_measureOutput/Tx_number.csv")
+    cross_rows = read_csv_source(
+        result_path, "supervisor_measureOutput/CrossTransaction_ratio.csv"
     )
-    variance_rows = read_csv_from_zip(
-        result_zip, "supervisor_measureOutput/Shard_Load_Variance.csv"
+    tps_rows = read_csv_source(result_path, "supervisor_measureOutput/Average_TPS.csv")
+    latency_rows = read_csv_source(
+        result_path, "supervisor_measureOutput/Transaction_Confirm_Latency.csv"
+    )
+    variance_rows = read_csv_source(
+        result_path, "supervisor_measureOutput/Shard_Load_Variance.csv"
     )
 
     active_rows = [row for row in tx_rows if total_tx(row) > 0]
@@ -371,17 +541,29 @@ def analyze(args: argparse.Namespace) -> Dict[str, object]:
     }
 
     result = {
-        "result_zip": str(result_zip),
-        "spring_io_zip": str(args.spring_io_zip) if args.spring_io_zip else "",
+        "result_path": str(result_path),
+        "spring_io_path": str(spring_io_value) if spring_io_value else "",
+        "result_zip": str(result_path)
+        if result_path.is_file() and zipfile.is_zipfile(result_path)
+        else "",
+        "spring_io_zip": str(spring_io_value)
+        if spring_io_value
+        and Path(spring_io_value).is_file()
+        and zipfile.is_zipfile(Path(spring_io_value))
+        else "",
         "log": str(args.log) if args.log else "",
         "shards": args.shards,
         "periods": periods,
-        "decisions": analyze_decisions(Path(args.spring_io_zip), args.shards)
-        if args.spring_io_zip
+        "decisions": analyze_decisions(Path(spring_io_value), args.shards)
+        if spring_io_value
         else {},
         "send_log": analyze_send_log(Path(args.log), args.shards)
         if args.log
         else {},
+        "injection_pace": analyze_injection_pace(Path(args.log))
+        if args.log
+        else {},
+        "latency_details": analyze_tx_latency_details(result_path),
     }
 
     if args.output_json:
@@ -393,8 +575,20 @@ def analyze(args: argparse.Namespace) -> Dict[str, object]:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--result_zip", default="expTest/result.zip")
-    parser.add_argument("--spring_io_zip", default="spring_io.zip")
+    parser.add_argument(
+        "--result_path",
+        "--result_zip",
+        dest="result_path",
+        default="expTest/result",
+        help="unpacked result directory or legacy result ZIP",
+    )
+    parser.add_argument(
+        "--spring_io_path",
+        "--spring_io_zip",
+        dest="spring_io_path",
+        default="spring_io",
+        help="unpacked spring_io directory or legacy spring_io ZIP",
+    )
     parser.add_argument("--log", default="")
     parser.add_argument("--shards", type=int, default=DEFAULT_SHARD_NUM)
     parser.add_argument("--min_effective_tx", type=float, default=1000.0)

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -139,6 +140,38 @@ func springConfiguredIOTFeatureDim() int {
 		return 10
 	}
 	return params.SpringIOTFeatureDim
+}
+
+func springExpectedCheckpointConfig() map[string]interface{} {
+	mdpMode := "spring"
+	rewardMode := "paper"
+	if params.SpringIOTMode == 1 {
+		mdpMode = "iot"
+		rewardMode = "iot_dense_balanced"
+	}
+	txIdentity := "raw"
+	if params.SpringIOTMode == 1 || params.SpringIOTIdentityMode == 1 {
+		txIdentity = "iot"
+	}
+	return map[string]interface{}{
+		"mdp_mode":               mdpMode,
+		"tx_identity_resolved":   txIdentity,
+		"shards":                 params.ShardNum,
+		"iot_feature_dim":        springConfiguredIOTFeatureDim(),
+		"sender_pos_mode":        params.SpringSenderPosMode,
+		"reward_mode":            rewardMode,
+		"iot_cstr_weight":        params.SpringIOTCSTRWeight,
+		"iot_balance_weight":     params.SpringIOTBalanceWeight,
+		"iot_comm_cost_weight":   params.SpringIOTCommCostWeight,
+		"iot_hotspot_weight":     params.SpringIOTHotspotWeight,
+		"candidate_top_k":        params.SpringCandidateTopK,
+		"capacity_guard":         params.SpringCapacityGuard,
+		"capacity_guard_factor":  params.SpringCapacityGuardFactor,
+		"candidate_load_weight":  params.SpringCandidateLoadWeight,
+		"max_block_size":         params.MaxBlockSize_global,
+		"block_interval_ms":      params.Block_Interval,
+		"load_semantics_version": params.SpringLoadSemanticsVersion,
+	}
 }
 
 // springChooseShardPPO 保留为单地址调试入口。
@@ -285,18 +318,22 @@ func (rthm *RelayCommitteeModule) springCallPythonBatch(items []SpringBatchInfer
 	start := time.Now()
 
 	resp, err := springCallInferServer(springInferServerRequest{
-		RequestID:      reqID,
-		Shards:         params.ShardNum,
-		IOTFeatureDim:  springConfiguredIOTFeatureDim(),
-		AllowModelInit: params.SpringOnlineTrain == 1,
-		Sample:         sampleMode,
-		Model:          modelPath,
-		Items:          items,
+		RequestID:          reqID,
+		Shards:             params.ShardNum,
+		IOTFeatureDim:      springConfiguredIOTFeatureDim(),
+		AllowModelInit:     params.SpringOnlineTrain == 1,
+		Sample:             sampleMode,
+		Model:              modelPath,
+		ExpectedCheckpoint: springExpectedCheckpointConfig(),
+		Items:              items,
 	})
 
 	inferCostUs := time.Since(start).Microseconds()
 
 	if err != nil {
+		if strings.Contains(err.Error(), "frozen model unavailable") {
+			panic(fmt.Sprintf("SPRING frozen PPO preflight failed: %v", err))
+		}
 		rthm.sl.Slog.Printf(
 			"[SPRING PPO BATCH] infer_server failed batch_id=%d items=%d sample=%v cost_us=%d err=%v\n",
 			reqID, len(items), sampleMode, inferCostUs, err,

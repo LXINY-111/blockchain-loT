@@ -1,5 +1,5 @@
 @echo off
-REM Experiment 7: local 16-shard layout, 4 PBFT nodes per shard.
+REM Experiment 8: local 16-shard layout, 4 PBFT nodes per shard.
 REM Keep -S aligned with params.ShardNum / DEFAULT_SHARD_NUM and ipTable.json.
 for /L %%s in (0,1,15) do (
     for /L %%n in (0,1,3) do (

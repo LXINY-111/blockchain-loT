@@ -15,6 +15,7 @@ from config import (
     BACKLOG_PENALTY_WEIGHT,
     BETA,
     CAPACITY_BACKLOG_MODE,
+    DEFAULT_BLOCK_INTERVAL_MS,
     DEFAULT_CANDIDATE_TOP_K,
     DEFAULT_CAPACITY_GUARD,
     DEFAULT_CAPACITY_GUARD_FACTOR,
@@ -23,9 +24,10 @@ from config import (
     DEFAULT_IOT_REWARD_MODE,
     DEFAULT_IOT_CSV_PATH,
     DEFAULT_IOT_SIDECAR_PATH,
-    DEFAULT_MAX_TXS,
     DEFAULT_SENDER_POS_MODE,
     DEFAULT_SHARD_NUM,
+    DEFAULT_TEST_MAX_TXS,
+    DEFAULT_TEST_START_TX,
     DEFAULT_TX_BATCH_SIZE,
     HIDDEN_DIM,
     HOTSPOT_PENALTY_WEIGHT,
@@ -37,6 +39,7 @@ from config import (
     IOT_HOTSPOT_WEIGHT,
     LAMBDA_WEIGHT,
     LOAD_PENALTY_WEIGHT,
+    LOAD_SEMANTICS_VERSION,
     LOCAL_REWARD_WEIGHT,
     MIN_ACTIVE_LOAD_SHARE,
     MODEL_PATH,
@@ -46,6 +49,7 @@ from config import (
 )
 from action_mask import mask_logits, normalize_action_mask
 from action_select import tie_aware_argmax
+from checkpoint_compat import checkpoint_config_mismatches, format_checkpoint_mismatch
 from heuristic import addr2shard, heuristic_from_state
 from offline_env import (
     BatchMetrics,
@@ -59,7 +63,14 @@ from offline_env import (
 from ppo import PPOAgent
 
 
-def new_summary(shards: int) -> Dict[str, object]:
+def new_summary(
+    shards: int,
+    max_block_size: int = 1000,
+    block_interval_ms: int = DEFAULT_BLOCK_INTERVAL_MS,
+) -> Dict[str, object]:
+    per_shard_capacity_tps = (
+        float(max_block_size) * 1000.0 / float(max(1, block_interval_ms))
+    )
     return {
         "batches": 0,
         "tx_count": 0,
@@ -77,6 +88,13 @@ def new_summary(shards: int) -> Dict[str, object]:
         "load_aware_bonus_sum": 0.0,
         "backlog_penalty_sum": 0.0,
         "communication_cost_sum": 0.0,
+        "relation_effective_tx": 0.0,
+        "relation_cross_tx": 0.0,
+        "owner_loads": [0 for _ in range(shards)],
+        "relation_effective_loads": [0.0 for _ in range(shards)],
+        "relation_cross_loads": [0.0 for _ in range(shards)],
+        "per_shard_capacity_tps": per_shard_capacity_tps,
+        "load_semantics_version": LOAD_SEMANTICS_VERSION,
         "related_known_count": 0,
         "same_as_related_count": 0,
         "related_shard_hist": [0 for _ in range(shards)],
@@ -88,6 +106,7 @@ def new_summary(shards: int) -> Dict[str, object]:
         "effective_loads": [0.0 for _ in range(shards)],
         "reward_loads": [0.0 for _ in range(shards)],
         "committed_loads": [0.0 for _ in range(shards)],
+        "committed_stage_loads": [0.0 for _ in range(shards)],
         "pending_loads": [0.0 for _ in range(shards)],
     }
 
@@ -119,6 +138,14 @@ def update_summary(summary: Dict[str, object], metrics: BatchMetrics) -> None:
     summary["communication_cost_sum"] = (
         float(summary["communication_cost_sum"]) + metrics.communication_cost
     )
+    summary["relation_effective_tx"] = (
+        float(summary["relation_effective_tx"])
+        + float(sum(metrics.relation_effective_loads))
+    )
+    summary["relation_cross_tx"] = (
+        float(summary["relation_cross_tx"])
+        + float(sum(metrics.relation_cross_loads))
+    )
     summary["related_known_count"] = int(summary["related_known_count"]) + metrics.related_known_count
     summary["same_as_related_count"] = int(summary["same_as_related_count"]) + metrics.same_as_related_count
     related_shard_hist = summary["related_shard_hist"]
@@ -141,13 +168,21 @@ def update_summary(summary: Dict[str, object], metrics: BatchMetrics) -> None:
     effective_loads = summary["effective_loads"]
     reward_loads = summary["reward_loads"]
     committed_loads = summary["committed_loads"]
+    committed_stage_loads = summary["committed_stage_loads"]
     pending_loads = summary["pending_loads"]
+    owner_loads = summary["owner_loads"]
+    relation_effective_loads = summary["relation_effective_loads"]
+    relation_cross_loads = summary["relation_cross_loads"]
     assert isinstance(action_hist, list)
     assert isinstance(loads, list)
     assert isinstance(effective_loads, list)
     assert isinstance(reward_loads, list)
     assert isinstance(committed_loads, list)
+    assert isinstance(committed_stage_loads, list)
     assert isinstance(pending_loads, list)
+    assert isinstance(owner_loads, list)
+    assert isinstance(relation_effective_loads, list)
+    assert isinstance(relation_cross_loads, list)
 
     for sid, count in enumerate(metrics.action_hist):
         action_hist[sid] += count
@@ -159,8 +194,16 @@ def update_summary(summary: Dict[str, object], metrics: BatchMetrics) -> None:
         reward_loads[sid] += value
     for sid, value in enumerate(metrics.committed_loads):
         committed_loads[sid] += value
+    for sid, value in enumerate(metrics.committed_stage_loads):
+        committed_stage_loads[sid] += value
     for sid, value in enumerate(metrics.pending_loads):
         pending_loads[sid] = value
+    for sid, value in enumerate(metrics.owner_loads):
+        owner_loads[sid] += value
+    for sid, value in enumerate(metrics.relation_effective_loads):
+        relation_effective_loads[sid] += value
+    for sid, value in enumerate(metrics.relation_cross_loads):
+        relation_cross_loads[sid] += value
 
 
 def summary_view(summary: Dict[str, object]) -> Dict[str, object]:
@@ -207,7 +250,45 @@ def summary_view(summary: Dict[str, object]) -> Dict[str, object]:
         value / committed_load_total if committed_load_total else 0.0
         for value in committed_loads
     ]
+    committed_stage_loads = list(summary["committed_stage_loads"])
+    committed_stage_total = sum(committed_stage_loads)
+    committed_stage_dist = [
+        value / committed_stage_total if committed_stage_total else 0.0
+        for value in committed_stage_loads
+    ]
     pending_loads = list(summary["pending_loads"])
+    owner_loads = list(summary["owner_loads"])
+    owner_total = float(sum(owner_loads))
+    owner_load_dist = [
+        float(value) / owner_total if owner_total > 0 else 0.0
+        for value in owner_loads
+    ]
+    stage_total = float(sum(loads))
+    stage_load_dist = [
+        float(value) / stage_total if stage_total > 0 else 0.0
+        for value in loads
+    ]
+    owner_max_load_share = max(owner_load_dist) if owner_load_dist else 0.0
+    stage_max_load_share = max(stage_load_dist) if stage_load_dist else 0.0
+    tx_count = int(summary["tx_count"])
+    stage_max_load_per_tx = (
+        max(float(value) for value in loads) / float(tx_count)
+        if tx_count > 0 and loads
+        else 0.0
+    )
+    per_shard_capacity_tps = float(summary["per_shard_capacity_tps"])
+    owner_anchor_tps_ceiling = (
+        per_shard_capacity_tps / owner_max_load_share
+        if owner_max_load_share > 0
+        else 0.0
+    )
+    system_stage_tps_ceiling = (
+        per_shard_capacity_tps / stage_max_load_per_tx
+        if stage_max_load_per_tx > 0
+        else 0.0
+    )
+    relation_effective = float(summary["relation_effective_tx"])
+    relation_cross = float(summary["relation_cross_tx"])
 
     return {
         "batches": int(summary["batches"]),
@@ -227,6 +308,21 @@ def summary_view(summary: Dict[str, object]) -> Dict[str, object]:
         "load_aware_bonus_mean": float(summary["load_aware_bonus_sum"]) / batches,
         "backlog_penalty_mean": float(summary["backlog_penalty_sum"]) / batches,
         "communication_cost_mean": float(summary["communication_cost_sum"]) / batches,
+        "relation_cross_ratio": (
+            relation_cross / relation_effective if relation_effective > 0 else 0.0
+        ),
+        "owner_loads": owner_loads,
+        "owner_load_dist": owner_load_dist,
+        "owner_max_load_share": owner_max_load_share,
+        "stage_load_dist": stage_load_dist,
+        "stage_max_load_share": stage_max_load_share,
+        "stage_max_load_per_tx": stage_max_load_per_tx,
+        "per_shard_capacity_tps": per_shard_capacity_tps,
+        "owner_anchor_tps_ceiling": owner_anchor_tps_ceiling,
+        "system_stage_tps_ceiling": system_stage_tps_ceiling,
+        "relation_effective_loads": list(summary["relation_effective_loads"]),
+        "relation_cross_loads": list(summary["relation_cross_loads"]),
+        "load_semantics_version": summary["load_semantics_version"],
         "same_as_related_ratio": (
             int(summary["same_as_related_count"]) / related_known if related_known else 0.0
         ),
@@ -247,12 +343,23 @@ def summary_view(summary: Dict[str, object]) -> Dict[str, object]:
         "reward_load_dist": reward_load_dist,
         "committed_loads": committed_loads,
         "committed_load_dist": committed_load_dist,
+        "committed_stage_loads": committed_stage_loads,
+        "committed_stage_load_dist": committed_stage_dist,
         "pending_loads": pending_loads,
     }
 
 
 def is_iot_mdp(args: argparse.Namespace) -> bool:
     return str(getattr(args, "mdp_mode", "spring")).strip().lower() == "iot"
+
+
+def uses_iot_identity(args: argparse.Namespace) -> bool:
+    mode = str(getattr(args, "tx_identity", "auto")).strip().lower()
+    if mode == "iot":
+        return True
+    if mode == "raw":
+        return False
+    return is_iot_mdp(args)
 
 
 def normalize_reward_mode(args: argparse.Namespace) -> None:
@@ -273,7 +380,7 @@ def resolve_csv_path(args: argparse.Namespace) -> Path:
     csv_arg = str(getattr(args, "csv", "")).strip()
     if csv_arg:
         return Path(csv_arg)
-    return DEFAULT_IOT_CSV_PATH if is_iot_mdp(args) else DEFAULT_CSV_PATH
+    return DEFAULT_IOT_CSV_PATH if uses_iot_identity(args) else DEFAULT_CSV_PATH
 
 
 def resolve_iot_sidecar_path(args: argparse.Namespace) -> Path:
@@ -282,13 +389,45 @@ def resolve_iot_sidecar_path(args: argparse.Namespace) -> Path:
 
 
 def load_eval_transactions(args: argparse.Namespace, csv_path: Path):
-    if is_iot_mdp(args):
+    start_tx = int(getattr(args, "start_tx", 0))
+    if uses_iot_identity(args):
         sidecar_path = resolve_iot_sidecar_path(args)
         if not sidecar_path.exists():
             raise FileNotFoundError(f"IoT sidecar not found: {sidecar_path}")
         args.sidecar = str(sidecar_path)
-        return load_iot_transactions(csv_path, sidecar_path, max_txs=args.max_txs)
-    return load_transactions(csv_path, max_txs=args.max_txs)
+        return load_iot_transactions(
+            csv_path,
+            sidecar_path,
+            max_txs=args.max_txs,
+            start_tx=start_tx,
+        )
+    return load_transactions(
+        csv_path,
+        max_txs=args.max_txs,
+        start_tx=start_tx,
+    )
+
+
+def expected_checkpoint_config(args: argparse.Namespace) -> Dict[str, object]:
+    return {
+        "mdp_mode": args.mdp_mode,
+        "tx_identity_resolved": "iot" if uses_iot_identity(args) else "raw",
+        "shards": args.shards,
+        "iot_feature_dim": iot_feature_dim_for_args(args),
+        "sender_pos_mode": args.sender_pos_mode,
+        "reward_mode": args.reward_mode,
+        "iot_cstr_weight": args.iot_cstr_weight,
+        "iot_balance_weight": args.iot_balance_weight,
+        "iot_comm_cost_weight": args.iot_comm_cost_weight,
+        "iot_hotspot_weight": args.iot_hotspot_weight,
+        "candidate_top_k": args.candidate_top_k,
+        "capacity_guard": args.capacity_guard,
+        "capacity_guard_factor": args.capacity_guard_factor,
+        "candidate_load_weight": args.candidate_load_weight,
+        "max_block_size": args.max_block_size,
+        "block_interval_ms": args.block_interval_ms,
+        "load_semantics_version": LOAD_SEMANTICS_VERSION,
+    }
 
 
 def load_agent(args: argparse.Namespace) -> Optional[PPOAgent]:
@@ -313,6 +452,14 @@ def load_agent(args: argparse.Namespace) -> Optional[PPOAgent]:
             "checkpoint dimension mismatch: "
             f"state_dim={ckpt_state_dim}, action_dim={ckpt_action_dim}"
         )
+    mismatches = checkpoint_config_mismatches(
+        payload.get("extra", {}),
+        expected_checkpoint_config(args),
+    )
+    if mismatches and not bool(
+        getattr(args, "allow_checkpoint_config_mismatch", False)
+    ):
+        raise ValueError(format_checkpoint_mismatch(mismatches))
     agent.net.eval()
     return agent
 
@@ -412,6 +559,11 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
     txs = load_eval_transactions(args, csv_path)
     if not txs:
         raise RuntimeError(f"no valid transactions loaded from {csv_path}")
+    if args.max_txs > 0 and len(txs) != args.max_txs:
+        raise RuntimeError(
+            f"evaluation window is incomplete: loaded={len(txs)}, "
+            f"requested={args.max_txs}"
+        )
 
     agent = load_agent(args)
     policy = make_policy(args, agent)
@@ -419,6 +571,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
         shards=args.shards,
         tx_batch_size=args.tx_batch_size,
         max_block_size=args.max_block_size,
+        block_interval_ms=args.block_interval_ms,
         lambda_weight=args.lambda_weight,
         beta=args.beta,
         sender_pos_mode=args.sender_pos_mode,
@@ -444,7 +597,11 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
         candidate_load_weight=args.candidate_load_weight,
     )
 
-    summary = new_summary(args.shards)
+    summary = new_summary(
+        args.shards,
+        args.max_block_size,
+        args.block_interval_ms,
+    )
     for batch_idx, batch in enumerate(iter_batches(txs, args.tx_batch_size), start=1):
         _actions, metrics = env.run_batch(batch, policy)
         update_summary(summary, metrics)
@@ -455,8 +612,13 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
                 "[EVAL] "
                 f"batch={batch_idx} tx={view['tx_count']} "
                 f"cross={view['cross_ratio']:.4f} "
+                f"relCross={view['relation_cross_ratio']:.4f} "
                 f"normVar={view['norm_var_mean']:.4f} "
                 f"hotspot={view['max_load_share_mean']:.4f} "
+                f"ownerHot={view['owner_max_load_share']:.4f} "
+                f"stageHot={view['stage_max_load_share']:.4f} "
+                f"ownerCap={view['owner_anchor_tps_ceiling']:.2f} "
+                f"stageCap={view['system_stage_tps_ceiling']:.2f} "
                 f"active={view['active_shards_mean']:.2f} "
                 f"backlog={view['backlog_penalty_mean']:.4f} "
                 f"conf={view['confidence_mean']:.4f} "
@@ -471,13 +633,19 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
         "model": str(args.model) if args.policy == "ppo" else "",
         "csv": str(csv_path),
         "sidecar": args.sidecar,
+        "dataset_start_tx": args.start_tx,
+        "dataset_end_tx_exclusive": args.start_tx + len(txs),
+        "dataset_window_state": "window_local_cold_start",
         "mdp_mode": args.mdp_mode,
+        "tx_identity": args.tx_identity,
         "loaded_txs": len(txs),
         "shards": args.shards,
         "state_dim": eval_state_dim(args),
         "iot_feature_dim": iot_feature_dim_for_args(args),
         "tx_batch_size": args.tx_batch_size,
         "max_block_size": args.max_block_size,
+        "block_interval_ms": args.block_interval_ms,
+        "load_semantics_version": LOAD_SEMANTICS_VERSION,
         "sender_pos_mode": args.sender_pos_mode,
         "reward_mode": args.reward_mode,
         "lambda_weight": args.lambda_weight,
@@ -512,13 +680,20 @@ def main() -> None:
     parser.add_argument("--csv", type=str, default="")
     parser.add_argument("--sidecar", type=str, default="")
     parser.add_argument("--mdp_mode", choices=["spring", "iot"], default="iot")
+    parser.add_argument("--tx_identity", choices=["auto", "raw", "iot"], default="auto")
     parser.add_argument("--model", type=str, default=str(MODEL_PATH))
     parser.add_argument("--policy", choices=["ppo", "heuristic", "hash", "random"], default="ppo")
     parser.add_argument("--sample", action="store_true")
     parser.add_argument("--shards", type=int, default=DEFAULT_SHARD_NUM)
-    parser.add_argument("--max_txs", type=int, default=DEFAULT_MAX_TXS)
+    parser.add_argument("--start_tx", type=int, default=DEFAULT_TEST_START_TX)
+    parser.add_argument("--max_txs", type=int, default=DEFAULT_TEST_MAX_TXS)
     parser.add_argument("--tx_batch_size", type=int, default=DEFAULT_TX_BATCH_SIZE)
     parser.add_argument("--max_block_size", type=int, default=1000)
+    parser.add_argument(
+        "--block_interval_ms",
+        type=int,
+        default=DEFAULT_BLOCK_INTERVAL_MS,
+    )
     parser.add_argument("--sender_pos_mode", type=int, default=DEFAULT_SENDER_POS_MODE)
     parser.add_argument("--temporal_top_k", type=int, default=8)
     parser.add_argument(
@@ -558,6 +733,11 @@ def main() -> None:
     parser.add_argument("--hidden_dim", type=int, default=HIDDEN_DIM)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument(
+        "--allow_checkpoint_config_mismatch",
+        action="store_true",
+        help="diagnostic only: allow a checkpoint whose saved experiment metadata differs",
+    )
     parser.add_argument("--log_interval_batches", type=int, default=0)
     parser.add_argument("--log_jsonl", type=str, default=str(DEFAULT_EVAL_LOG_JSONL))
 

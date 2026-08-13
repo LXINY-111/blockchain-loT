@@ -22,6 +22,7 @@ from config import (
     CAPACITY_BACKLOG_MODE,
     CHECKPOINT_DIR,
     CLIP_EPS,
+    DEFAULT_BLOCK_INTERVAL_MS,
     DEFAULT_CANDIDATE_TOP_K,
     DEFAULT_CAPACITY_GUARD,
     DEFAULT_CAPACITY_GUARD_FACTOR,
@@ -30,11 +31,14 @@ from config import (
     DEFAULT_IOT_REWARD_MODE,
     DEFAULT_IOT_CSV_PATH,
     DEFAULT_IOT_SIDECAR_PATH,
-    DEFAULT_MAX_TXS,
     DEFAULT_OFFLINE_EPOCHS,
     DEFAULT_SENDER_POS_MODE,
     DEFAULT_SHARD_NUM,
+    DEFAULT_TRAIN_MAX_TXS,
+    DEFAULT_TRAIN_START_TX,
     DEFAULT_TX_BATCH_SIZE,
+    DEFAULT_VALIDATION_MAX_TXS,
+    DEFAULT_VALIDATION_START_TX,
     ENTROPY_COEF,
     GAE_LAMBDA,
     GAMMA,
@@ -49,6 +53,7 @@ from config import (
     LAMBDA_WEIGHT,
     LEARNING_RATE,
     LOAD_PENALTY_WEIGHT,
+    LOAD_SEMANTICS_VERSION,
     LOCAL_REWARD_WEIGHT,
     MIN_ACTIVE_LOAD_SHARE,
     MODEL_PATH,
@@ -61,6 +66,7 @@ from config import (
 )
 from action_mask import mask_logits, normalize_action_mask
 from action_select import distribution_floor_shortfall, tie_aware_argmax
+from checkpoint_compat import checkpoint_config_mismatches, format_checkpoint_mismatch
 from offline_env import (
     BatchMetrics,
     PlacementAction,
@@ -86,6 +92,15 @@ def is_iot_mdp(args: argparse.Namespace) -> bool:
     return str(getattr(args, "mdp_mode", "spring")).strip().lower() == "iot"
 
 
+def uses_iot_identity(args: argparse.Namespace) -> bool:
+    mode = str(getattr(args, "tx_identity", "auto")).strip().lower()
+    if mode == "iot":
+        return True
+    if mode == "raw":
+        return False
+    return is_iot_mdp(args)
+
+
 def normalize_reward_mode(args: argparse.Namespace) -> None:
     if is_iot_mdp(args) and args.reward_mode == REWARD_MODE:
         args.reward_mode = DEFAULT_IOT_REWARD_MODE
@@ -100,11 +115,33 @@ def agent_state_dim(args: argparse.Namespace, shards: Optional[int] = None) -> i
     return state_dim(shard_count, iot_feature_dim_for_args(args))
 
 
+def expected_checkpoint_config(args: argparse.Namespace) -> Dict[str, object]:
+    return {
+        "mdp_mode": args.mdp_mode,
+        "tx_identity_resolved": "iot" if uses_iot_identity(args) else "raw",
+        "shards": args.shards,
+        "iot_feature_dim": iot_feature_dim_for_args(args),
+        "sender_pos_mode": args.sender_pos_mode,
+        "reward_mode": args.reward_mode,
+        "iot_cstr_weight": args.iot_cstr_weight,
+        "iot_balance_weight": args.iot_balance_weight,
+        "iot_comm_cost_weight": args.iot_comm_cost_weight,
+        "iot_hotspot_weight": args.iot_hotspot_weight,
+        "candidate_top_k": args.candidate_top_k,
+        "capacity_guard": args.capacity_guard,
+        "capacity_guard_factor": args.capacity_guard_factor,
+        "candidate_load_weight": args.candidate_load_weight,
+        "max_block_size": args.max_block_size,
+        "block_interval_ms": args.block_interval_ms,
+        "load_semantics_version": LOAD_SEMANTICS_VERSION,
+    }
+
+
 def resolve_csv_path(args: argparse.Namespace) -> Path:
     csv_arg = str(getattr(args, "csv", "")).strip()
     if csv_arg:
         return Path(csv_arg)
-    return DEFAULT_IOT_CSV_PATH if is_iot_mdp(args) else DEFAULT_CSV_PATH
+    return DEFAULT_IOT_CSV_PATH if uses_iot_identity(args) else DEFAULT_CSV_PATH
 
 
 def resolve_iot_sidecar_path(args: argparse.Namespace) -> Path:
@@ -113,7 +150,8 @@ def resolve_iot_sidecar_path(args: argparse.Namespace) -> Path:
 
 
 def load_training_transactions(args: argparse.Namespace, csv_path: Path):
-    if is_iot_mdp(args):
+    start_tx = int(getattr(args, "start_tx", 0))
+    if uses_iot_identity(args):
         sidecar_path = resolve_iot_sidecar_path(args)
         if not sidecar_path.exists():
             raise FileNotFoundError(f"IoT sidecar not found: {sidecar_path}")
@@ -122,8 +160,62 @@ def load_training_transactions(args: argparse.Namespace, csv_path: Path):
             csv_path,
             sidecar_path,
             max_txs=args.max_txs,
+            start_tx=start_tx,
         )
-    return load_transactions(csv_path, max_txs=args.max_txs)
+    return load_transactions(csv_path, max_txs=args.max_txs, start_tx=start_tx)
+
+
+def resolve_validation_csv_path(args: argparse.Namespace, train_csv_path: Path) -> Path:
+    csv_arg = str(getattr(args, "validation_csv", "")).strip()
+    return Path(csv_arg) if csv_arg else train_csv_path
+
+
+def resolve_validation_sidecar_path(args: argparse.Namespace) -> Path:
+    sidecar_arg = str(getattr(args, "validation_sidecar", "")).strip()
+    return Path(sidecar_arg) if sidecar_arg else resolve_iot_sidecar_path(args)
+
+
+def load_validation_transactions(
+    args: argparse.Namespace,
+    validation_csv_path: Path,
+):
+    start_tx = int(args.validation_start_tx)
+    max_txs = int(args.validation_max_txs)
+    if uses_iot_identity(args):
+        sidecar_path = resolve_validation_sidecar_path(args)
+        if not sidecar_path.exists():
+            raise FileNotFoundError(f"validation IoT sidecar not found: {sidecar_path}")
+        args.validation_sidecar = str(sidecar_path)
+        return load_iot_transactions(
+            validation_csv_path,
+            sidecar_path,
+            max_txs=max_txs,
+            start_tx=start_tx,
+        )
+    return load_transactions(
+        validation_csv_path,
+        max_txs=max_txs,
+        start_tx=start_tx,
+    )
+
+
+def data_windows_overlap(
+    first_start: int,
+    first_count: int,
+    second_start: int,
+    second_count: int,
+) -> bool:
+    first_end = first_start + first_count if first_count > 0 else float("inf")
+    second_end = second_start + second_count if second_count > 0 else float("inf")
+    return first_start < second_end and second_start < first_end
+
+
+def require_exact_window(name: str, loaded_count: int, requested_count: int) -> None:
+    if requested_count > 0 and loaded_count != requested_count:
+        raise RuntimeError(
+            f"{name} window is incomplete: loaded={loaded_count}, "
+            f"requested={requested_count}"
+        )
 
 
 def make_agent(args: argparse.Namespace) -> PPOAgent:
@@ -156,6 +248,12 @@ def make_agent(args: argparse.Namespace) -> PPOAgent:
                 "checkpoint dimension mismatch: "
                 f"state_dim={ckpt_state_dim}, action_dim={ckpt_action_dim}"
             )
+        mismatches = checkpoint_config_mismatches(
+            payload.get("extra", {}),
+            expected_checkpoint_config(args),
+        )
+        if mismatches:
+            raise ValueError(format_checkpoint_mismatch(mismatches))
         print(f"[RESUME] loaded checkpoint: {model_path}")
 
     return agent
@@ -262,7 +360,14 @@ def add_actions_to_buffer(buffer: RolloutBuffer, actions: List[PlacementAction])
         )
 
 
-def new_summary(shards: int) -> Dict[str, object]:
+def new_summary(
+    shards: int,
+    max_block_size: int = 1000,
+    block_interval_ms: int = DEFAULT_BLOCK_INTERVAL_MS,
+) -> Dict[str, object]:
+    per_shard_capacity_tps = (
+        float(max_block_size) * 1000.0 / float(max(1, block_interval_ms))
+    )
     return {
         "batches": 0,
         "tx_count": 0,
@@ -279,6 +384,14 @@ def new_summary(shards: int) -> Dict[str, object]:
         "load_aware_bonus_sum": 0.0,
         "backlog_penalty_sum": 0.0,
         "communication_cost_sum": 0.0,
+        "relation_effective_tx": 0.0,
+        "relation_cross_tx": 0.0,
+        "owner_loads": [0 for _ in range(shards)],
+        "stage_loads": [0 for _ in range(shards)],
+        "relation_effective_loads": [0.0 for _ in range(shards)],
+        "relation_cross_loads": [0.0 for _ in range(shards)],
+        "per_shard_capacity_tps": per_shard_capacity_tps,
+        "load_semantics_version": LOAD_SEMANTICS_VERSION,
         "related_known_count": 0,
         "same_as_related_count": 0,
         "related_shard_hist": [0 for _ in range(shards)],
@@ -317,6 +430,27 @@ def update_summary(summary: Dict[str, object], metrics: BatchMetrics) -> None:
     summary["communication_cost_sum"] = (
         float(summary["communication_cost_sum"]) + metrics.communication_cost
     )
+    summary["relation_effective_tx"] = (
+        float(summary["relation_effective_tx"])
+        + float(sum(metrics.relation_effective_loads))
+    )
+    summary["relation_cross_tx"] = (
+        float(summary["relation_cross_tx"])
+        + float(sum(metrics.relation_cross_loads))
+    )
+    owner_loads = summary["owner_loads"]
+    stage_loads = summary["stage_loads"]
+    relation_effective_loads = summary["relation_effective_loads"]
+    relation_cross_loads = summary["relation_cross_loads"]
+    assert isinstance(owner_loads, list)
+    assert isinstance(stage_loads, list)
+    assert isinstance(relation_effective_loads, list)
+    assert isinstance(relation_cross_loads, list)
+    for sid in range(len(owner_loads)):
+        owner_loads[sid] += metrics.owner_loads[sid]
+        stage_loads[sid] += metrics.loads[sid]
+        relation_effective_loads[sid] += metrics.relation_effective_loads[sid]
+        relation_cross_loads[sid] += metrics.relation_cross_loads[sid]
     summary["related_known_count"] = int(summary["related_known_count"]) + metrics.related_known_count
     summary["same_as_related_count"] = int(summary["same_as_related_count"]) + metrics.same_as_related_count
     related_shard_hist = summary["related_shard_hist"]
@@ -373,6 +507,39 @@ def summary_view(summary: Dict[str, object]) -> Dict[str, object]:
     min_related_follow_ratio = (
         min(observed_related_follow) if observed_related_follow else 0.0
     )
+    tx_count = int(summary["tx_count"])
+    owner_loads = list(summary["owner_loads"])
+    stage_loads = list(summary["stage_loads"])
+    owner_total = float(sum(owner_loads))
+    stage_total = float(sum(stage_loads))
+    owner_load_dist = [
+        float(value) / owner_total if owner_total > 0 else 0.0
+        for value in owner_loads
+    ]
+    stage_load_dist = [
+        float(value) / stage_total if stage_total > 0 else 0.0
+        for value in stage_loads
+    ]
+    owner_max_load_share = max(owner_load_dist) if owner_load_dist else 0.0
+    stage_max_load_share = max(stage_load_dist) if stage_load_dist else 0.0
+    stage_max_load_per_tx = (
+        max(float(value) for value in stage_loads) / float(tx_count)
+        if tx_count > 0 and stage_loads
+        else 0.0
+    )
+    per_shard_capacity_tps = float(summary["per_shard_capacity_tps"])
+    owner_anchor_tps_ceiling = (
+        per_shard_capacity_tps / owner_max_load_share
+        if owner_max_load_share > 0
+        else 0.0
+    )
+    system_stage_tps_ceiling = (
+        per_shard_capacity_tps / stage_max_load_per_tx
+        if stage_max_load_per_tx > 0
+        else 0.0
+    )
+    relation_effective = float(summary["relation_effective_tx"])
+    relation_cross = float(summary["relation_cross_tx"])
 
     return {
         "batches": int(summary["batches"]),
@@ -389,6 +556,22 @@ def summary_view(summary: Dict[str, object]) -> Dict[str, object]:
         "load_aware_bonus_mean": float(summary["load_aware_bonus_sum"]) / batches,
         "backlog_penalty_mean": float(summary["backlog_penalty_sum"]) / batches,
         "communication_cost_mean": float(summary["communication_cost_sum"]) / batches,
+        "relation_cross_ratio": (
+            relation_cross / relation_effective if relation_effective > 0 else 0.0
+        ),
+        "owner_loads": owner_loads,
+        "owner_load_dist": owner_load_dist,
+        "owner_max_load_share": owner_max_load_share,
+        "stage_loads": stage_loads,
+        "stage_load_dist": stage_load_dist,
+        "stage_max_load_share": stage_max_load_share,
+        "stage_max_load_per_tx": stage_max_load_per_tx,
+        "per_shard_capacity_tps": per_shard_capacity_tps,
+        "owner_anchor_tps_ceiling": owner_anchor_tps_ceiling,
+        "system_stage_tps_ceiling": system_stage_tps_ceiling,
+        "relation_effective_loads": list(summary["relation_effective_loads"]),
+        "relation_cross_loads": list(summary["relation_cross_loads"]),
+        "load_semantics_version": summary["load_semantics_version"],
         "same_as_related_ratio": (
             int(summary["same_as_related_count"]) / related_known if related_known else 0.0
         ),
@@ -421,6 +604,7 @@ def make_env(args: argparse.Namespace) -> SpringOfflineEnv:
         shards=args.shards,
         tx_batch_size=args.tx_batch_size,
         max_block_size=args.max_block_size,
+        block_interval_ms=args.block_interval_ms,
         lambda_weight=args.lambda_weight,
         beta=args.beta,
         sender_pos_mode=args.sender_pos_mode,
@@ -453,7 +637,11 @@ def evaluate_agent_argmax(
     txs: Sequence,
 ) -> Dict[str, object]:
     env = make_env(args)
-    summary = new_summary(args.shards)
+    summary = new_summary(
+        args.shards,
+        args.max_block_size,
+        args.block_interval_ms,
+    )
     was_training = agent.net.training
     agent.net.eval()
 
@@ -517,6 +705,89 @@ def validation_score(
         "cross_excess": cross_excess,
         "related_follow_shortfall": related_follow_shortfall,
         "same_related_shortfall": same_related_shortfall,
+        "owner_max_load_share": float(view.get("owner_max_load_share", 0.0)),
+        "stage_max_load_share": float(view.get("stage_max_load_share", 0.0)),
+        "owner_anchor_tps_ceiling": float(
+            view.get("owner_anchor_tps_ceiling", 0.0)
+        ),
+        "system_stage_tps_ceiling": float(
+            view.get("system_stage_tps_ceiling", 0.0)
+        ),
+    }
+
+
+def checkpoint_pareto_metrics(record: Dict[str, object]) -> Dict[str, float]:
+    summary = record.get("summary", {})
+    if not isinstance(summary, dict):
+        summary = {}
+    return {
+        "cross_ratio": float(summary.get("cross_ratio", 1.0)),
+        "stage_max_load_share": float(
+            summary.get("stage_max_load_share", 1.0)
+        ),
+        "active_shards_mean": float(summary.get("active_shards_mean", 0.0)),
+    }
+
+
+def checkpoint_dominates(
+    left: Dict[str, object],
+    right: Dict[str, object],
+    eps: float = 1e-12,
+) -> bool:
+    left_metrics = checkpoint_pareto_metrics(left)
+    right_metrics = checkpoint_pareto_metrics(right)
+    no_worse = (
+        left_metrics["cross_ratio"] <= right_metrics["cross_ratio"] + eps
+        and left_metrics["stage_max_load_share"]
+        <= right_metrics["stage_max_load_share"] + eps
+        and left_metrics["active_shards_mean"] + eps
+        >= right_metrics["active_shards_mean"]
+    )
+    strictly_better = (
+        left_metrics["cross_ratio"] < right_metrics["cross_ratio"] - eps
+        or left_metrics["stage_max_load_share"]
+        < right_metrics["stage_max_load_share"] - eps
+        or left_metrics["active_shards_mean"]
+        > right_metrics["active_shards_mean"] + eps
+    )
+    return no_worse and strictly_better
+
+
+def checkpoint_pareto_frontier(
+    records: Sequence[Dict[str, object]],
+) -> List[Dict[str, object]]:
+    return [
+        record
+        for idx, record in enumerate(records)
+        if not any(
+            checkpoint_dominates(other, record)
+            for other_idx, other in enumerate(records)
+            if other_idx != idx
+        )
+    ]
+
+
+def checkpoint_manifest_view(record: Dict[str, object]) -> Dict[str, object]:
+    summary = record.get("summary", {})
+    score_parts = record.get("score_parts", {})
+    if not isinstance(summary, dict):
+        summary = {}
+    if not isinstance(score_parts, dict):
+        score_parts = {}
+    return {
+        "event": record.get("event"),
+        "epoch": record.get("epoch"),
+        "update_count": record.get("update_count"),
+        "checkpoint_path": record.get("checkpoint_path"),
+        "validation_score": record.get("score"),
+        "cross_ratio": summary.get("cross_ratio"),
+        "relation_cross_ratio": summary.get("relation_cross_ratio"),
+        "active_shards_mean": summary.get("active_shards_mean"),
+        "owner_max_load_share": summary.get("owner_max_load_share"),
+        "stage_max_load_share": summary.get("stage_max_load_share"),
+        "system_stage_tps_ceiling": score_parts.get(
+            "system_stage_tps_ceiling"
+        ),
     }
 
 
@@ -535,15 +806,57 @@ def train(args: argparse.Namespace) -> None:
     txs = load_training_transactions(args, csv_path)
     if not txs:
         raise RuntimeError(f"no valid transactions loaded from {csv_path}")
+    require_exact_window("training", len(txs), args.max_txs)
+
+    validation_txs = []
+    validation_csv_path = resolve_validation_csv_path(args, csv_path)
+    args.validation_csv = str(validation_csv_path)
+    if not args.disable_best_checkpoint:
+        if not validation_csv_path.exists():
+            raise FileNotFoundError(f"validation CSV not found: {validation_csv_path}")
+        if (
+            validation_csv_path.resolve() == csv_path.resolve()
+            and data_windows_overlap(
+                args.start_tx,
+                args.max_txs,
+                args.validation_start_tx,
+                args.validation_max_txs,
+            )
+        ):
+            raise ValueError(
+                "training and validation windows overlap: "
+                f"train=[{args.start_tx}, "
+                f"{args.start_tx + args.max_txs if args.max_txs > 0 else 'EOF'}), "
+                f"validation=[{args.validation_start_tx}, "
+                f"{args.validation_start_tx + args.validation_max_txs if args.validation_max_txs > 0 else 'EOF'})"
+            )
+        validation_txs = load_validation_transactions(args, validation_csv_path)
+        if not validation_txs:
+            raise RuntimeError(
+                f"no valid validation transactions loaded from {validation_csv_path}"
+            )
+        require_exact_window(
+            "validation",
+            len(validation_txs),
+            args.validation_max_txs,
+        )
 
     print(
         "[DATA] "
-        f"txs={len(txs)} csv={csv_path} shards={args.shards} "
+        f"split=train start_tx={args.start_tx} txs={len(txs)} csv={csv_path} "
+        f"shards={args.shards} "
         f"tx_batch_size={args.tx_batch_size} sender_pos_mode={args.sender_pos_mode} "
-        f"mdp_mode={args.mdp_mode} reward_mode={args.reward_mode} "
+        f"mdp_mode={args.mdp_mode} tx_identity={args.tx_identity} reward_mode={args.reward_mode} "
         f"entropy_coef={args.entropy_coef} "
         f"supervised_coef={args.supervised_coef}"
     )
+    if validation_txs:
+        print(
+            "[DATA] "
+            f"split=validation start_tx={args.validation_start_tx} "
+            f"txs={len(validation_txs)} csv={validation_csv_path} "
+            f"window_local_state=1"
+        )
 
     agent = make_agent(args)
     buffer = RolloutBuffer()
@@ -551,21 +864,50 @@ def train(args: argparse.Namespace) -> None:
 
     update_count = 0
     start_time = time.time()
-    overall = new_summary(args.shards)
-    validation_txs = txs[: args.eval_max_txs] if args.eval_max_txs > 0 else txs
+    overall = new_summary(
+        args.shards,
+        args.max_block_size,
+        args.block_interval_ms,
+    )
     last_model_path = (
         Path(args.last_model)
         if args.last_model
         else model_path.with_name(f"{model_path.stem}_last{model_path.suffix}")
     )
+    epoch_checkpoint_dir: Optional[Path] = None
+    pareto_manifest_path: Optional[Path] = None
+    if args.epoch_checkpoint_dir:
+        if args.disable_best_checkpoint:
+            raise ValueError(
+                "epoch checkpoints require validation; "
+                "do not combine with --disable_best_checkpoint"
+            )
+        epoch_checkpoint_dir = Path(args.epoch_checkpoint_dir)
+        epoch_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        pareto_manifest_path = (
+            Path(args.pareto_manifest)
+            if args.pareto_manifest
+            else epoch_checkpoint_dir / "pareto_manifest.json"
+        )
+        pareto_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    elif args.pareto_manifest:
+        raise ValueError(
+            "--pareto_manifest requires --epoch_checkpoint_dir"
+        )
+
     best_score: Optional[float] = None
     best_record: Optional[Dict[str, object]] = None
+    validation_records: List[Dict[str, object]] = []
 
     for epoch in range(1, args.epochs + 1):
         if epoch == 1 or not args.keep_placement:
             env.reset()
 
-        epoch_summary = new_summary(args.shards)
+        epoch_summary = new_summary(
+            args.shards,
+            args.max_block_size,
+            args.block_interval_ms,
+        )
         print(f"\n[TRAIN] epoch={epoch}/{args.epochs}")
 
         for batch_idx, batch in enumerate(iter_batches(txs, args.tx_batch_size), start=1):
@@ -636,8 +978,13 @@ def train(args: argparse.Namespace) -> None:
                     "[PROGRESS] "
                     f"epoch={epoch} batch={batch_idx} tx={view['tx_count']} "
                     f"actions={view['action_count']} cross={view['cross_ratio']:.4f} "
+                    f"relCross={view['relation_cross_ratio']:.4f} "
                     f"normVar={view['norm_var_mean']:.4f} "
                     f"hotspot={view['max_load_share_mean']:.4f} "
+                    f"ownerHot={view['owner_max_load_share']:.4f} "
+                    f"stageHot={view['stage_max_load_share']:.4f} "
+                    f"ownerCap={view['owner_anchor_tps_ceiling']:.2f} "
+                    f"stageCap={view['system_stage_tps_ceiling']:.2f} "
                     f"active={view['active_shards_mean']:.2f} "
                     f"backlog={view['backlog_penalty_mean']:.4f} "
                     f"conf={view['confidence_mean']:.4f} "
@@ -661,8 +1008,13 @@ def train(args: argparse.Namespace) -> None:
             "[EPOCH DONE] "
             f"epoch={epoch} tx={epoch_view['tx_count']} actions={epoch_view['action_count']} "
             f"cross={epoch_view['cross_ratio']:.4f} "
+            f"relCross={epoch_view['relation_cross_ratio']:.4f} "
             f"normVar={epoch_view['norm_var_mean']:.4f} "
             f"hotspot={epoch_view['max_load_share_mean']:.4f} "
+                f"ownerHot={epoch_view['owner_max_load_share']:.4f} "
+                f"stageHot={epoch_view['stage_max_load_share']:.4f} "
+                f"ownerCap={epoch_view['owner_anchor_tps_ceiling']:.2f} "
+                f"stageCap={epoch_view['system_stage_tps_ceiling']:.2f} "
                 f"active={epoch_view['active_shards_mean']:.2f} "
                 f"backlog={epoch_view['backlog_penalty_mean']:.4f} "
                 f"conf={epoch_view['confidence_mean']:.4f} "
@@ -688,13 +1040,45 @@ def train(args: argparse.Namespace) -> None:
                 "score_parts": score_parts,
                 "summary": validation_view,
             }
+            if epoch_checkpoint_dir is not None:
+                epoch_checkpoint_path = (
+                    epoch_checkpoint_dir / f"epoch_{epoch:03d}.pt"
+                )
+                validation_record["checkpoint_path"] = str(
+                    epoch_checkpoint_path.resolve()
+                )
+                agent.save(
+                    epoch_checkpoint_path,
+                    extra=build_extra(
+                        args,
+                        len(txs),
+                        update_count,
+                        summary_view(overall),
+                        validation_summary=validation_view,
+                        validation_score_value=score,
+                        validation_score_parts=score_parts,
+                        checkpoint_kind="epoch",
+                        checkpoint_epoch=epoch,
+                        best_record=best_record,
+                    ),
+                )
+                print(
+                    "[CHECKPOINT] "
+                    f"epoch={epoch} saved={epoch_checkpoint_path}"
+                )
+            validation_records.append(validation_record)
             write_jsonl(args.log_jsonl, validation_record)
             print(
                 "[VALID] "
                 f"epoch={epoch} score={score:.6f} "
                 f"cross={validation_view['cross_ratio']:.4f} "
+                f"relCross={validation_view['relation_cross_ratio']:.4f} "
                 f"normVar={validation_view['norm_var_mean']:.4f} "
                 f"hotspot={validation_view['max_load_share_mean']:.4f} "
+                f"ownerHot={validation_view['owner_max_load_share']:.4f} "
+                f"stageHot={validation_view['stage_max_load_share']:.4f} "
+                f"ownerCap={validation_view['owner_anchor_tps_ceiling']:.2f} "
+                f"stageCap={validation_view['system_stage_tps_ceiling']:.2f} "
                 f"active={validation_view['active_shards_mean']:.2f} "
                 f"backlog={validation_view['backlog_penalty_mean']:.4f} "
                 f"conf={validation_view['confidence_mean']:.4f} "
@@ -748,11 +1132,13 @@ def train(args: argparse.Namespace) -> None:
         final_score, final_score_parts = validation_score(final_validation_view, args)
         final_record = {
             "event": "final_validation",
+            "epoch": args.epochs,
             "update_count": update_count,
             "elapsed_sec": time.time() - start_time,
             "score": final_score,
             "score_parts": final_score_parts,
             "summary": final_validation_view,
+            "checkpoint_path": str(last_model_path.resolve()),
         }
         write_jsonl(args.log_jsonl, final_record)
 
@@ -771,6 +1157,7 @@ def train(args: argparse.Namespace) -> None:
             ),
         )
         print(f"[LAST] score={final_score:.6f} saved={last_model_path}")
+        validation_records.append(final_record)
 
         if best_score is None or final_score > best_score:
             best_score = final_score
@@ -793,6 +1180,35 @@ def train(args: argparse.Namespace) -> None:
 
         final_model_path = model_path
 
+    if pareto_manifest_path is not None:
+        frontier = checkpoint_pareto_frontier(validation_records)
+        manifest = {
+            "schema_version": 1,
+            "objectives": {
+                "minimize": [
+                    "cross_ratio",
+                    "stage_max_load_share",
+                ],
+                "maximize": ["active_shards_mean"],
+            },
+            "all_checkpoints": [
+                checkpoint_manifest_view(record)
+                for record in validation_records
+            ],
+            "pareto_frontier": [
+                checkpoint_manifest_view(record)
+                for record in frontier
+            ],
+        }
+        pareto_manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(
+            "[PARETO] "
+            f"candidates={len(frontier)} saved={pareto_manifest_path}"
+        )
+
     print("\n[DONE]")
     print(f"model saved to: {final_model_path}")
     if not args.disable_best_checkpoint:
@@ -811,14 +1227,24 @@ def build_extra(
     validation_score_value: Optional[float] = None,
     validation_score_parts: Optional[Dict[str, float]] = None,
     checkpoint_kind: str = "unknown",
+    checkpoint_epoch: Optional[int] = None,
     best_record: Optional[Dict[str, object]] = None,
 ) -> Dict[str, object]:
     return {
         "model_source": "train_offline",
         "checkpoint_kind": checkpoint_kind,
+        "checkpoint_epoch": checkpoint_epoch,
         "loaded_txs": loaded_txs,
+        "csv": args.csv,
+        "dataset_start_tx": args.start_tx,
+        "dataset_end_tx_exclusive": (
+            args.start_tx + loaded_txs
+        ),
+        "dataset_window_state": "window_local_cold_start",
         "offline_update_count": update_count,
         "mdp_mode": args.mdp_mode,
+        "tx_identity": args.tx_identity,
+        "tx_identity_resolved": "iot" if uses_iot_identity(args) else "raw",
         "sidecar": args.sidecar,
         "shards": args.shards,
         "state_dim": agent_state_dim(args),
@@ -835,6 +1261,8 @@ def build_extra(
         "batch_size": args.batch_size,
         "tx_batch_size": args.tx_batch_size,
         "max_block_size": args.max_block_size,
+        "block_interval_ms": args.block_interval_ms,
+        "load_semantics_version": LOAD_SEMANTICS_VERSION,
         "sender_pos_mode": args.sender_pos_mode,
         "temporal_top_k": args.temporal_top_k,
         "reward_mode": args.reward_mode,
@@ -862,7 +1290,15 @@ def build_extra(
         "argmax_balance_coef": args.argmax_balance_coef,
         "argmax_balance_temperature": args.argmax_balance_temperature,
         "eval_every_epochs": args.eval_every_epochs,
-        "eval_max_txs": args.eval_max_txs,
+        "validation_csv": args.validation_csv,
+        "validation_sidecar": args.validation_sidecar,
+        "validation_start_tx": args.validation_start_tx,
+        "validation_max_txs": args.validation_max_txs,
+        "validation_end_tx_exclusive": (
+            args.validation_start_tx + args.validation_max_txs
+            if args.validation_max_txs > 0
+            else None
+        ),
         "best_min_active_shards": args.best_min_active_shards,
         "best_max_hotspot": args.best_max_hotspot,
         "best_max_cross": args.best_max_cross,
@@ -890,13 +1326,20 @@ def main() -> None:
     parser.add_argument("--csv", type=str, default="")
     parser.add_argument("--sidecar", type=str, default="")
     parser.add_argument("--mdp_mode", choices=["spring", "iot"], default="iot")
+    parser.add_argument("--tx_identity", choices=["auto", "raw", "iot"], default="auto")
     parser.add_argument("--model", type=str, default=str(MODEL_PATH))
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--shards", type=int, default=DEFAULT_SHARD_NUM)
     parser.add_argument("--epochs", type=int, default=DEFAULT_OFFLINE_EPOCHS)
-    parser.add_argument("--max_txs", type=int, default=DEFAULT_MAX_TXS)
+    parser.add_argument("--start_tx", type=int, default=DEFAULT_TRAIN_START_TX)
+    parser.add_argument("--max_txs", type=int, default=DEFAULT_TRAIN_MAX_TXS)
     parser.add_argument("--tx_batch_size", type=int, default=DEFAULT_TX_BATCH_SIZE)
     parser.add_argument("--max_block_size", type=int, default=1000)
+    parser.add_argument(
+        "--block_interval_ms",
+        type=int,
+        default=DEFAULT_BLOCK_INTERVAL_MS,
+    )
     parser.add_argument("--sender_pos_mode", type=int, default=DEFAULT_SENDER_POS_MODE)
     parser.add_argument("--temporal_top_k", type=int, default=8)
     parser.add_argument("--keep_placement", action="store_true")
@@ -953,9 +1396,40 @@ def main() -> None:
     parser.add_argument("--argmax_tie_eps", type=float, default=ARGMAX_TIE_EPS)
 
     parser.add_argument("--eval_every_epochs", type=int, default=1)
-    parser.add_argument("--eval_max_txs", type=int, default=DEFAULT_MAX_TXS)
+    parser.add_argument("--validation_csv", type=str, default="")
+    parser.add_argument("--validation_sidecar", type=str, default="")
+    parser.add_argument(
+        "--validation_start_tx",
+        type=int,
+        default=DEFAULT_VALIDATION_START_TX,
+    )
+    parser.add_argument(
+        "--validation_max_txs",
+        "--eval_max_txs",
+        dest="validation_max_txs",
+        type=int,
+        default=DEFAULT_VALIDATION_MAX_TXS,
+        help="validation window size; --eval_max_txs is kept as a legacy alias",
+    )
     parser.add_argument("--disable_best_checkpoint", action="store_true")
     parser.add_argument("--last_model", type=str, default="")
+    parser.add_argument(
+        "--epoch_checkpoint_dir",
+        type=str,
+        default="",
+        help=(
+            "optional directory for one validation checkpoint per epoch; "
+            "also enables a Pareto frontier manifest"
+        ),
+    )
+    parser.add_argument(
+        "--pareto_manifest",
+        type=str,
+        default="",
+        help=(
+            "optional Pareto manifest path; requires --epoch_checkpoint_dir"
+        ),
+    )
     parser.add_argument("--best_min_active_shards", type=float, default=12.0)
     parser.add_argument("--best_max_hotspot", type=float, default=0.65)
     parser.add_argument("--best_max_cross", type=float, default=0.70)

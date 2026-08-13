@@ -13,13 +13,14 @@ import (
 )
 
 type springInferServerRequest struct {
-	RequestID      uint64                 `json:"request_id"`
-	Shards         int                    `json:"shards"`
-	IOTFeatureDim  int                    `json:"iot_feature_dim,omitempty"`
-	AllowModelInit bool                   `json:"allow_model_init"`
-	Sample         bool                   `json:"sample"`
-	Model          string                 `json:"model"`
-	Items          []SpringBatchInferItem `json:"items"`
+	RequestID          uint64                 `json:"request_id"`
+	Shards             int                    `json:"shards"`
+	IOTFeatureDim      int                    `json:"iot_feature_dim,omitempty"`
+	AllowModelInit     bool                   `json:"allow_model_init"`
+	Sample             bool                   `json:"sample"`
+	Model              string                 `json:"model"`
+	ExpectedCheckpoint map[string]interface{} `json:"expected_checkpoint,omitempty"`
+	Items              []SpringBatchInferItem `json:"items"`
 }
 
 type springInferServerResponse struct {

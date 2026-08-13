@@ -101,6 +101,79 @@ class IoTTrainEntryTest(unittest.TestCase):
             self.assertEqual(txs[0].sender, to_addr)
             self.assertEqual(txs[0].recipient, from_addr)
 
+    def test_original_spring_can_use_iot_identity_without_iot_feature_dim(self):
+        self.assertEqual(
+            agent_state_dim(argparse.Namespace(mdp_mode="spring", tx_identity="iot"), 4),
+            state_dim(4),
+        )
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tx_csv = root / "tx.csv"
+            sidecar_csv = root / "sidecar.csv"
+            from_addr = "0x" + "1" * 40
+            to_addr = "0x" + "2" * 40
+
+            with tx_csv.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                row = [""] * 18
+                row[3] = from_addr
+                row[4] = to_addr
+                row[6] = "0"
+                row[7] = "0"
+                row[8] = "1"
+                writer.writerow(row)
+
+            with sidecar_csv.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "tx_index",
+                        "device_label",
+                        "device_mac",
+                        "srcIp",
+                        "dstIp",
+                        "dstPort",
+                        "protocol",
+                        "srcNumPackets",
+                        "dstNumPackets",
+                        "srcPayloadSize",
+                        "dstPayloadSize",
+                        "from_address",
+                        "to_address",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "tx_index": "0",
+                        "device_label": "Camera",
+                        "device_mac": "aa:bb:cc:dd:ee:ff",
+                        "srcIp": "192.168.1.2",
+                        "dstIp": "8.8.8.8",
+                        "dstPort": "443",
+                        "protocol": "tls",
+                        "srcNumPackets": "1",
+                        "dstNumPackets": "1",
+                        "srcPayloadSize": "10",
+                        "dstPayloadSize": "20",
+                        "from_address": from_addr,
+                        "to_address": to_addr,
+                    }
+                )
+
+            args = argparse.Namespace(
+                mdp_mode="spring",
+                tx_identity="iot",
+                sidecar=str(sidecar_csv),
+                max_txs=1,
+            )
+            txs = load_training_transactions(args, tx_csv)
+
+            self.assertEqual(len(txs), 1)
+            self.assertEqual(txs[0].sender, to_addr)
+            self.assertEqual(txs[0].recipient, from_addr)
+
 
 if __name__ == "__main__":
     unittest.main()

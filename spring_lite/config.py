@@ -5,19 +5,45 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_CSV_PATH = ROOT_DIR / "selectedTxs_300K.csv"
 DEFAULT_IOT_CSV_PATH = ROOT_DIR / "data_iot" / "selectedTxs_iot_multi_anchor_full.csv"
 DEFAULT_IOT_SIDECAR_PATH = ROOT_DIR / "data_iot" / "iot_flow_sidecar_multi_anchor_full.csv"
-EXPERIMENT_ROOT = Path(r"E:\project_iot\实验结果7")
+# Use Unicode escapes so Windows PowerShell 5.1 cannot turn the Chinese result
+# directory into mojibake when it launches Python with a legacy code page.
+# Result9 is the canonical root for the frozen protocol and all later runs.
+EXPERIMENT_ROOT = ROOT_DIR.parent / "\u5b9e\u9a8c\u7ed3\u679c9"
 OFFLINE_TRAINING_DIR = EXPERIMENT_ROOT / "offline_training"
 OFFLINE_EVAL_DIR = EXPERIMENT_ROOT / "offline_eval"
 BLOCK_EVAL_DIR = EXPERIMENT_ROOT / "block_eval"
 CHECKPOINT_DIR = EXPERIMENT_ROOT / "models"
-MODEL_PATH = CHECKPOINT_DIR / "ppo_top8_guard13_w4540_16s_seed7.pt"
-DEFAULT_TRAIN_LOG_JSONL = OFFLINE_TRAINING_DIR / "ppo_top8_guard13_w4540_16s_seed7_train.jsonl"
-DEFAULT_EVAL_LOG_JSONL = OFFLINE_EVAL_DIR / "ppo_top8_guard13_w4540_16s_seed7_eval.jsonl"
+MODEL_PATH = CHECKPOINT_DIR / "ppo_top7_w5530_pareto_16s_seed7.pt"
+DEFAULT_TRAIN_LOG_JSONL = (
+    OFFLINE_TRAINING_DIR / "ppo_top7_w5530_pareto_16s_seed7_train.jsonl"
+)
+DEFAULT_EVAL_LOG_JSONL = (
+    OFFLINE_EVAL_DIR / "ppo_top7_w5530_pareto_16s_seed7_eval.jsonl"
+)
 
 DEFAULT_SHARD_NUM = 16
 DEFAULT_OFFLINE_EPOCHS = 15
-DEFAULT_MAX_TXS = 2_000_000
 DEFAULT_TX_BATCH_SIZE = 1000
+DEFAULT_BLOCK_INTERVAL_MS = 5000
+
+# Checkpoints created before this version used weighted multi-anchor relations
+# as the execution load. The BlockEmulator path executes against the primary
+# owner anchor, so those checkpoints must not be mixed with the aligned MDP.
+LOAD_SEMANTICS_VERSION = "primary_owner_execution_v1"
+
+# Formal chronological split for the 4,944,019 valid IoT transactions.
+# Each window is addressed by valid-transaction index, not physical CSV row.
+DATASET_TOTAL_TXS = 4_944_019
+DEFAULT_TRAIN_START_TX = 0
+DEFAULT_TRAIN_MAX_TXS = 2_500_000
+DEFAULT_VALIDATION_START_TX = 2_500_000
+DEFAULT_VALIDATION_MAX_TXS = 444_019
+DEFAULT_TEST_START_TX = 2_944_019
+DEFAULT_TEST_MAX_TXS = 2_000_000
+
+# Backward-compatible evaluation default. New training code uses the explicit
+# train/validation constants above instead of sharing one ambiguous limit.
+DEFAULT_MAX_TXS = DEFAULT_TEST_MAX_TXS
 
 # SPRING paper state dimension: 11k + 1.
 # It contains five recent windows of num_tx, five recent windows of cross_tx,
@@ -38,8 +64,8 @@ IOT_FEATURE_DIM = 10
 
 # IoT MDP v1 奖励权重。第一阶段先保证能跑通和收敛，所以仍然以
 # CSTR（跨分片率）和 balance（负载均衡）为主，通信代价和热点为辅。
-IOT_CSTR_WEIGHT = 0.45
-IOT_BALANCE_WEIGHT = 0.40
+IOT_CSTR_WEIGHT = 0.55
+IOT_BALANCE_WEIGHT = 0.30
 IOT_COMM_COST_WEIGHT = 0.10
 IOT_HOTSPOT_WEIGHT = 0.05
 
@@ -73,9 +99,9 @@ BETA = 0.1
 # path below only uses lambda * r_cstr + (1 - lambda) * r_wlb.
 IOT_DENSE_BALANCED_REWARD_MODE = "iot_dense_balanced"
 DEFAULT_IOT_REWARD_MODE = IOT_DENSE_BALANCED_REWARD_MODE
-DEFAULT_CANDIDATE_TOP_K = 8
-DEFAULT_CAPACITY_GUARD = 1
-DEFAULT_CAPACITY_GUARD_FACTOR = 1.3
+DEFAULT_CANDIDATE_TOP_K = 7
+DEFAULT_CAPACITY_GUARD = 0
+DEFAULT_CAPACITY_GUARD_FACTOR = 1.5
 REWARD_MODE_CHOICES = (
     "paper",
     "enhanced",

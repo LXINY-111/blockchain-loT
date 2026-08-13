@@ -14,6 +14,7 @@ from torch.distributions import Categorical
 
 from action_mask import mask_logits, normalize_action_mask
 from action_select import tie_aware_argmax
+from checkpoint_compat import checkpoint_config_mismatches, format_checkpoint_mismatch
 from config import (
     ARGMAX_TIE_BREAK,
     ARGMAX_TIE_EPS,
@@ -32,6 +33,7 @@ class AgentCache:
         self.state_dim: int = -1
         self.model_path: str = ""
         self.model_mtime_ns: int = -1
+        self.checkpoint_config_signature: str = ""
 
     def _create_fresh_agent(self, shards: int, iot_feature_dim: int = 0) -> PPOAgent:
         return PPOAgent(
@@ -52,10 +54,16 @@ class AgentCache:
         model_path: Path,
         iot_feature_dim: int = 0,
         allow_model_init: bool = True,
+        expected_checkpoint: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Optional[PPOAgent], str]:
         expected_dim = state_dim(shards, iot_feature_dim)
         current_mtime = self._model_mtime(model_path)
         model_path_key = str(model_path)
+        checkpoint_config_signature = json.dumps(
+            expected_checkpoint or {},
+            ensure_ascii=True,
+            sort_keys=True,
+        )
 
         # 如果模型已经加载，且模型文件没有变化，就直接复用内存里的 agent。
         if (
@@ -64,6 +72,7 @@ class AgentCache:
             and self.state_dim == expected_dim
             and self.model_path == model_path_key
             and self.model_mtime_ns == current_mtime
+            and self.checkpoint_config_signature == checkpoint_config_signature
         ):
             self.agent.net.eval()
             return self.agent, "python_ppo"
@@ -79,6 +88,7 @@ class AgentCache:
             agent.save(
                 model_path,
                 extra={
+                    **(expected_checkpoint or {}),
                     "model_source": "init_by_infer_server",
                     "online_update_count": 0,
                     "iot_feature_dim": int(iot_feature_dim),
@@ -89,6 +99,7 @@ class AgentCache:
             self.state_dim = expected_dim
             self.model_path = model_path_key
             self.model_mtime_ns = self._model_mtime(model_path)
+            self.checkpoint_config_signature = checkpoint_config_signature
             agent.net.eval()
             return agent, "python_ppo"
 
@@ -106,6 +117,13 @@ class AgentCache:
                     f"ckpt_action_dim={ckpt_action_dim}, expected_dim={expected_dim}, shards={shards}"
                 )
 
+            mismatches = checkpoint_config_mismatches(
+                payload.get("extra", {}),
+                expected_checkpoint or {},
+            )
+            if mismatches:
+                return None, format_checkpoint_mismatch(mismatches)
+
             agent.net.load_state_dict(payload["model_state_dict"])
 
         except Exception as exc:
@@ -117,6 +135,7 @@ class AgentCache:
         self.state_dim = expected_dim
         self.model_path = model_path_key
         self.model_mtime_ns = self._model_mtime(model_path)
+        self.checkpoint_config_signature = checkpoint_config_signature
         agent.net.eval()
         return agent, "python_ppo"
 
@@ -182,6 +201,7 @@ def infer_items(
     model_path: Path,
     iot_feature_dim: int = 0,
     allow_model_init: bool = True,
+    expected_checkpoint: Optional[Dict[str, Any]] = None,
     cache: Optional[AgentCache] = None,
 ) -> List[Dict[str, Any]]:
     expected_dim = state_dim(shards, iot_feature_dim)
@@ -191,9 +211,12 @@ def infer_items(
         model_path,
         iot_feature_dim,
         allow_model_init,
+        expected_checkpoint,
     )
 
     if agent is None:
+        if expected_checkpoint:
+            raise RuntimeError(f"frozen model unavailable: {model_status}")
         return [safe_heuristic(item, shards, model_status, request_id) for item in items]
 
     outputs: List[Optional[Dict[str, Any]]] = [None for _ in items]
@@ -290,6 +313,9 @@ def handle_request(req: Dict[str, Any]) -> Dict[str, Any]:
     allow_model_init = bool(req.get("allow_model_init", True))
     sample = bool(req.get("sample", False))
     model_path = Path(str(req.get("model", MODEL_PATH)))
+    expected_checkpoint = req.get("expected_checkpoint", {})
+    if not isinstance(expected_checkpoint, dict):
+        expected_checkpoint = {}
 
     if shards <= 0:
         return {
@@ -307,6 +333,7 @@ def handle_request(req: Dict[str, Any]) -> Dict[str, Any]:
         model_path=model_path,
         iot_feature_dim=iot_feature_dim,
         allow_model_init=allow_model_init,
+        expected_checkpoint=expected_checkpoint,
     )
 
     return {
