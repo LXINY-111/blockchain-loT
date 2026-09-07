@@ -1,0 +1,56 @@
+package pbft_all
+
+import (
+    "blockEmulator/core"
+    "blockEmulator/message"
+    "blockEmulator/params"
+    "blockEmulator/shard"
+    "blockEmulator/consensus_shard/pbft_all/pbft_log"
+    "encoding/json"
+    "io"
+    "log"
+    "testing"
+    "time"
+)
+
+func TestAuditRepeatedSenderCountsOnlyOnce(t *testing.T) {
+    p := &PbftConsensusNode{cntCommitConfirm: make(map[string]map[*shard.Node]bool)}
+    wire, _ := json.Marshal(message.Commit{SenderNode: &shard.Node{ShardID: 0, NodeID: 1}})
+    for i := 0; i < 3; i++ {
+        var decoded message.Commit
+        if err := json.Unmarshal(wire, &decoded); err != nil { t.Fatal(err) }
+        p.set2DMap(false, "digest", decoded.SenderNode)
+    }
+    if got := len(p.cntCommitConfirm["digest"]); got != 1 {
+        t.Fatalf("same sender counted %d times; want one distinct voter", got)
+    }
+}
+
+func TestAuditProposeWaitsForHandlerDrain(t *testing.T) {
+    p := newShutdownTestNode()
+    p.pbftChainConfig = &params.ChainConfig{BlockInterval: 3600000}
+    p.pl = &pbft_log.PbftLog{Plog: log.New(io.Discard, "", 0)}
+    p.lastCommitTime.Store(time.Now().Add(time.Hour).UnixMilli())
+    release := make(chan struct{})
+    finished := make(chan struct{})
+    p.launchTrackedHandler(func() { <-release; close(finished) })
+    defer close(release)
+    returned := make(chan struct{})
+    go func() { p.Propose(); close(returned) }()
+    time.Sleep(5100 * time.Millisecond)
+    p.beginStop()
+    select {
+    case <-returned:
+        select {
+        case <-finished:
+        default: t.Fatal("Propose returned to main while admitted handler is still blocked")
+        }
+    case <-time.After(200 * time.Millisecond):
+    }
+}
+
+func TestAuditDeleteElementsKeepsNonmatchingTransactions(t *testing.T) {
+    tx := &core.Transaction{TxHash: []byte("keep")}
+    got := DeleteElementsInList([]*core.Transaction{tx}, nil)
+    if len(got) != 1 { t.Fatalf("deleting no transactions returned %d; want 1", len(got)) }
+}

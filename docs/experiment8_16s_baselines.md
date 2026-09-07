@@ -15,7 +15,14 @@
 
 - `anchoronly`：只跟随 IoT 锚点，不加负载惩罚，`SpringMode=5`。
 
-加上最终冻结的 proposed（提出方法），正式 seed=7 主表共有 8 个方案；主方法已经冻结为
+严格匹配基线另有 1 个：
+
+- `candidate_only`：保留 Proposed 的 IoT 身份、10 维 IoT 特征、顺序状态更新、
+  `TopK=7` 候选构造、负载压力和容量保护，但不启动 Python、不读取 PPO 模型，
+  直接选择候选得分最高的分片，`SpringMode=7`。它用于隔离“候选生成本身”与
+  “PPO 在候选中决策”各自的贡献。
+
+加上最终冻结的 proposed（提出方法），完整 seed=7 对照表共有 9 个方案；主方法已经冻结为
 `ppo_top7_w5530`。所有对照组固定使用
 有效交易 `[2944019, 4944019)`、16 分片、2,000,000 笔交易和窗口内冷启动。
 
@@ -299,7 +306,8 @@ function Prepare-Exp8Run {
       "random",
       "minstate",
       "anchoronly",
-      "nsshard_adapted"
+      "nsshard_adapted",
+      "candidate_only"
     )]
     [string]$Scheme,
     [Parameter(Mandatory = $true)]
@@ -357,7 +365,7 @@ Get-Content -LiteralPath "$($run.run_root)\process_logs\supervisor.stdout.log" `
 再执行 `Finish-Exp8Run`。收尾工具会归档 `spring_io`、运行最终链状态检查并生成
 `analysis.json`。
 
-## 5. 七个对照项的逐项命令
+## 5. 八个对照项的逐项命令
 
 每项必须完整执行准备、启动、等待结束、收尾后，才能开始下一项。建议顺序如下。
 
@@ -461,6 +469,41 @@ $result = Finish-Exp8Run $run
 $result.all_active | Format-List
 ```
 
+### 5.8 Candidate-Only / No-PPO 严格匹配基线
+
+该基线不需要训练或 checkpoint。第一次只在 validation444k、seed7、250 TPS
+运行；确认 `action_mask_size_mean=7`、`candidate_only_ratio=1`、
+`python_ppo_ratio=0`、`fallback_ratio=0` 后，才能进入正式 test2M。
+
+```powershell
+$run = Prepare-Exp8Run `
+  -Scheme "candidate_only" `
+  -Window "validation" `
+  -InjectSpeed 250 `
+  -Seed 7
+Start-Exp8Run $run
+# 等待全部 BlockEmulator 进程自然结束
+$result = Finish-Exp8Run $run
+$result.all_active | Format-List
+$result.decisions | Select-Object `
+  action_mask_size_mean,candidate_only_ratio,python_ppo_ratio,fallback_ratio |
+  Format-List
+```
+
+验证通过后，正式测试只改窗口，不改其他配置：
+
+```powershell
+$run = Prepare-Exp8Run `
+  -Scheme "candidate_only" `
+  -Window "test" `
+  -InjectSpeed 250 `
+  -Seed 7
+Start-Exp8Run $run
+# 等待全部 BlockEmulator 进程自然结束
+$result = Finish-Exp8Run $run
+$result.all_active | Format-List
+```
+
 ## 6. 每轮必须核对
 
 - `effective_total=2000000`：有效交易完整。
@@ -469,6 +512,8 @@ $result.all_active | Format-List
 - PPO 方案还需满足 `python_ppo_ratio=1`、`fallback_ratio=0`。
 - Original SPRING-PPO 的 `action_mask_size_mean` 应为 16；提出的方法应等于书面冻结的
   `CandidateTopK`，当前候选值为 7。
+- Candidate-Only 的 `action_mask_size_mean` 必须为 7、`candidate_only_ratio=1`，并且
+  `python_ppo_ratio=0`、`fallback_ratio=0`；否则不属于严格匹配基线。
 - 正式比较只使用 `analysis.json -> periods -> all_active` 的统一口径。
 
 第一轮 seed=7 是完整性与趋势确认。论文正式表格还应至少补 3 个独立运行种子并报告

@@ -47,6 +47,7 @@ var (
 	// 4 = MinState baseline（最少状态优先）
 	// 5 = AnchorOnly baseline（只按 IoT 锚点同片，不加负载惩罚）
 	// 6 = NSshard-adapted baseline（加权通信图 + capacity/load constraint 的单分片放置）
+	// 7 = Candidate-Only / No-PPO matched baseline（复用 Proposed 候选逻辑，直接选最高分候选）
 	SpringMode = 2
 
 	// SpringOnlineTrain:

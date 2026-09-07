@@ -1,0 +1,16 @@
+Traceback (most recent call last):
+  File "E:\project_iot\block-emulator-main-iot\spring_lite\finalize_exp8_block_run.py", line 25, in ensure_results8_run_root
+    resolved.relative_to(allowed)
+  File "D:\Anaconda\Lib\pathlib.py", line 682, in relative_to
+    raise ValueError(f"{str(self)!r} is not in the subpath of {str(other)!r}")
+ValueError: 'E:\\project_iot\\ʵ����10\\block_eval\\ppo_top7_w5530_pareto_16s_test2M_i250_seed27_20260905_202840' is not in the subpath of 'E:\\project_iot\\ʵ����9\\block_eval'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "E:\project_iot\block-emulator-main-iot\spring_lite\finalize_exp8_block_run.py", line 27, in ensure_results8_run_root
+    raise ValueError(f"run_root must stay under {allowed}") from exc
+ValueError: run_root must stay under E:\project_iot\ʵ����9\block_eval
+current_run=E:\project_iot\ʵ����10\block_eval\ppo_top7_w5530_pareto_16s_test2M_i250_seed27_20260905_202840
+allowed=E:\project_iot\ʵ����9\block_eval

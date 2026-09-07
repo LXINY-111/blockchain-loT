@@ -1,0 +1,41 @@
+test_failed_protocol_run_excluded_from_comparison_mean (__main__.AuditMetrics.test_failed_protocol_run_excluded_from_comparison_mean) ... FAIL
+test_incomplete_latency_coverage_cannot_pass_protocol (__main__.AuditMetrics.test_incomplete_latency_coverage_cannot_pass_protocol) ... FAIL
+test_overcounted_transactions_cannot_pass_protocol (__main__.AuditMetrics.test_overcounted_transactions_cannot_pass_protocol) ... FAIL
+test_skipped_state_check_not_marked_passed (__main__.AuditMetrics.test_skipped_state_check_not_marked_passed) ... FAIL
+
+======================================================================
+FAIL: test_failed_protocol_run_excluded_from_comparison_mean (__main__.AuditMetrics.test_failed_protocol_run_excluded_from_comparison_mean)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\project_iot\block-emulator-main-iot\analysis_outputs\project_audit_20260905\python_probes.py", line 42, in test_failed_protocol_run_excluded_from_comparison_mean
+    self.assertEqual(group["weighted_cross_ratio_mean"], 0.8,
+AssertionError: 0.4 != 0.8 : failed run changed official comparison mean
+
+======================================================================
+FAIL: test_incomplete_latency_coverage_cannot_pass_protocol (__main__.AuditMetrics.test_incomplete_latency_coverage_cannot_pass_protocol)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\project_iot\block-emulator-main-iot\analysis_outputs\project_audit_20260905\python_probes.py", line 30, in test_incomplete_latency_coverage_cannot_pass_protocol
+    self.assertFalse(row["protocol_ok"], "one valid latency row passed a two-million-transaction protocol")
+AssertionError: True is not false : one valid latency row passed a two-million-transaction protocol
+
+======================================================================
+FAIL: test_overcounted_transactions_cannot_pass_protocol (__main__.AuditMetrics.test_overcounted_transactions_cannot_pass_protocol)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\project_iot\block-emulator-main-iot\analysis_outputs\project_audit_20260905\python_probes.py", line 34, in test_overcounted_transactions_cannot_pass_protocol
+    self.assertFalse(row["protocol_ok"], "completion_ratio above 1 still passed protocol")
+AssertionError: True is not false : completion_ratio above 1 still passed protocol
+
+======================================================================
+FAIL: test_skipped_state_check_not_marked_passed (__main__.AuditMetrics.test_skipped_state_check_not_marked_passed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\project_iot\block-emulator-main-iot\analysis_outputs\project_audit_20260905\python_probes.py", line 71, in test_skipped_state_check_not_marked_passed
+    self.assertNotEqual(complete["state_check"], "passed", "SKIP and empty analysis were finalized as passed")
+AssertionError: 'passed' == 'passed' : SKIP and empty analysis were finalized as passed
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.009s
+
+FAILED (failures=4)

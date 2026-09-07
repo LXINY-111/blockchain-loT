@@ -1,0 +1,13 @@
+package vrf
+
+import (
+    "os"
+    "testing"
+)
+
+func TestMain(m *testing.M) {
+    root, err := os.MkdirTemp(`E:\project_iot\block-emulator-main-iot\analysis_outputs\project_audit_20260905`, "vrf-test-")
+    if err != nil { panic(err) }
+    dataDir = root
+    os.Exit(m.Run())
+}

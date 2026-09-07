@@ -15,28 +15,51 @@ import (
 func (p *PbftConsensusNode) Propose() {
 	// wait other nodes to start TCPlistening, sleep 5 sec.
 	time.Sleep(5 * time.Second)
+	if p.stopSignal.Load() {
+		return
+	}
 
 	nextRoundBeginSignal := make(chan bool)
 
 	go func() {
+		ticker := time.NewTicker(time.Duration(int64(p.pbftChainConfig.BlockInterval)) * time.Millisecond)
+		defer ticker.Stop()
 		// go into the next round
 		for {
-			time.Sleep(time.Duration(int64(p.pbftChainConfig.BlockInterval)) * time.Millisecond)
+			select {
+			case <-p.stopCh:
+				return
+			case <-ticker.C:
+			}
 			// send a signal to another GO-Routine. It will block until a GO-Routine try to fetch data from this channel.
 			for p.pbftStage.Load() != 1 {
-				time.Sleep(time.Millisecond * 100)
+				select {
+				case <-p.stopCh:
+					return
+				case <-time.After(time.Millisecond * 100):
+				}
 			}
-			nextRoundBeginSignal <- true
+			select {
+			case <-p.stopCh:
+				return
+			case nextRoundBeginSignal <- true:
+			}
 		}
 	}()
 
 	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
 		// check whether to view change
 		for {
-			time.Sleep(time.Second)
+			select {
+			case <-p.stopCh:
+				return
+			case <-ticker.C:
+			}
 			if time.Now().UnixMilli()-p.lastCommitTime.Load() > int64(params.PbftViewChangeTimeOut) {
 				p.lastCommitTime.Store(time.Now().UnixMilli())
-				go p.viewChangePropose()
+				p.launchTrackedHandler(p.viewChangePropose)
 			}
 		}
 	}()
@@ -44,7 +67,7 @@ func (p *PbftConsensusNode) Propose() {
 	for {
 		select {
 		case <-nextRoundBeginSignal:
-			go func() {
+			p.launchTrackedHandler(func() {
 				// if this node is not leader, do not propose.
 				if uint64(p.view.Load()) != p.NodeID {
 					return
@@ -75,9 +98,9 @@ func (p *PbftConsensusNode) Propose() {
 				networks.Broadcast(p.RunningNode.IPaddr, p.getNeighborNodes(), msg_send)
 				networks.TcpDial(msg_send, p.RunningNode.IPaddr)
 				p.pbftStage.Store(2)
-			}()
+			})
 
-		case <-p.pStop:
+		case <-p.stopCh:
 			p.pl.Plog.Printf("S%dN%d get stopSignal in Propose Routine, now stop...\n", p.ShardID, p.NodeID)
 			return
 		}
@@ -100,10 +123,13 @@ func (p *PbftConsensusNode) handlePrePrepare(content []byte) {
 	curView := p.view.Load()
 	p.pbftLock.Lock()
 	defer p.pbftLock.Unlock()
-	for p.pbftStage.Load() < 1 && ppmsg.SeqID >= p.sequenceID && p.view.Load() == curView {
+	for !p.stopSignal.Load() && p.pbftStage.Load() < 1 && ppmsg.SeqID >= p.sequenceID && p.view.Load() == curView {
 		p.conditionalVarpbftLock.Wait()
 	}
 	defer p.conditionalVarpbftLock.Broadcast()
+	if p.stopSignal.Load() {
+		return
+	}
 
 	// if this message is out of date, return.
 	if ppmsg.SeqID < p.sequenceID || p.view.Load() != curView {
@@ -160,10 +186,13 @@ func (p *PbftConsensusNode) handlePrepare(content []byte) {
 	curView := p.view.Load()
 	p.pbftLock.Lock()
 	defer p.pbftLock.Unlock()
-	for p.pbftStage.Load() < 2 && pmsg.SeqID >= p.sequenceID && p.view.Load() == curView {
+	for !p.stopSignal.Load() && p.pbftStage.Load() < 2 && pmsg.SeqID >= p.sequenceID && p.view.Load() == curView {
 		p.conditionalVarpbftLock.Wait()
 	}
 	defer p.conditionalVarpbftLock.Broadcast()
+	if p.stopSignal.Load() {
+		return
+	}
 
 	// if this message is out of date, return.
 	if pmsg.SeqID < p.sequenceID || p.view.Load() != curView {
@@ -221,10 +250,13 @@ func (p *PbftConsensusNode) handleCommit(content []byte) {
 	curView := p.view.Load()
 	p.pbftLock.Lock()
 	defer p.pbftLock.Unlock()
-	for p.pbftStage.Load() < 3 && cmsg.SeqID >= p.sequenceID && p.view.Load() == curView {
+	for !p.stopSignal.Load() && p.pbftStage.Load() < 3 && cmsg.SeqID >= p.sequenceID && p.view.Load() == curView {
 		p.conditionalVarpbftLock.Wait()
 	}
 	defer p.conditionalVarpbftLock.Broadcast()
+	if p.stopSignal.Load() {
+		return
+	}
 
 	if cmsg.SeqID < p.sequenceID || p.view.Load() != curView {
 		return

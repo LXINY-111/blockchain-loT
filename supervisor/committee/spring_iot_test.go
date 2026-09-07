@@ -823,3 +823,57 @@ func TestSpringCandidateLoadPressureIncludesRecentBlockStages(t *testing.T) {
 		t.Fatalf("pressures = %v, want recent hot shard 0 to be higher", pressures)
 	}
 }
+
+func TestSpringCandidateOnlyChoosesHighestScoreInsideSameTopKMask(t *testing.T) {
+	oldShardNum := params.ShardNum
+	oldTopK := params.SpringCandidateTopK
+	oldGuard := params.SpringCapacityGuard
+	oldLoadWeight := params.SpringCandidateLoadWeight
+	oldBlockSize := params.MaxBlockSize_global
+	defer func() {
+		params.ShardNum = oldShardNum
+		params.SpringCandidateTopK = oldTopK
+		params.SpringCapacityGuard = oldGuard
+		params.SpringCandidateLoadWeight = oldLoadWeight
+		params.MaxBlockSize_global = oldBlockSize
+	}()
+
+	params.ShardNum = 4
+	params.SpringCandidateTopK = 2
+	params.SpringCapacityGuard = 0
+	params.SpringCandidateLoadWeight = 1.0
+	params.MaxBlockSize_global = 1000
+
+	rthm := &RelayCommitteeModule{
+		springShardLoad: []int{2, 2, 2, 2},
+		springStats: map[uint64][]SpringBlockStat{
+			0: {},
+			1: {},
+			2: {},
+			3: {},
+		},
+	}
+	addr := utils.Address("candidate-only-test-address")
+	senderPos := []float64{0.10, 0.80, 0.30, 0.0}
+
+	got, mask := rthm.springChooseCandidateOnlyShard(addr, senderPos)
+	if springActionMaskCount(mask) != 2 {
+		t.Fatalf("candidate-only mask = %v, want exactly two candidates", mask)
+	}
+	if mask[1] != 1 || mask[2] != 1 {
+		t.Fatalf("candidate-only mask = %v, want relation-ranked shards 1 and 2", mask)
+	}
+	if got != 1 {
+		t.Fatalf("candidate-only shard = %d, want highest-score shard 1", got)
+	}
+
+	// 直接调用共享函数复核：matched baseline 没有第二套候选公式。
+	want := rthm.springBestCandidateShard(
+		addr,
+		senderPos,
+		rthm.springBuildCandidateActionMask(addr, senderPos),
+	)
+	if got != want {
+		t.Fatalf("candidate-only shard = %d, shared candidate result = %d", got, want)
+	}
+}

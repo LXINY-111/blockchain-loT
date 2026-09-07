@@ -39,6 +39,9 @@ class BaselineProfile:
     spring_mode: int
     requires_model: bool = False
     nsshard_capacity_factor: float = 1.2
+    candidate_top_k: int = 0
+    iot_mode: int = 0
+    iot_feature_dim: int = 0
 
 
 BASELINE_PROFILES: Dict[str, BaselineProfile] = {
@@ -69,6 +72,18 @@ BASELINE_PROFILES: Dict[str, BaselineProfile] = {
         "nsshard_adapted_cap12",
         "baseline",
         6,
+    ),
+    # Matched learning baseline: keep the full Proposed IoT state and the exact
+    # TopK7 relation/load candidate construction, but replace PPO inference with
+    # the deterministic highest candidate score. No model is read or trained.
+    "candidate_only": BaselineProfile(
+        "candidate_only",
+        "candidate_only_top7_w5530",
+        "matched_baseline",
+        7,
+        candidate_top_k=7,
+        iot_mode=1,
+        iot_feature_dim=10,
     ),
 }
 
@@ -123,16 +138,17 @@ def build_baseline_config(
             "SpringOnlineTrain": 0,
             "SpringEvalSample": 0,
             "SpringRandomSeed": seed,
-            "SpringCandidateTopK": 0,
+            "SpringCandidateTopK": profile.candidate_top_k,
             "SpringCapacityGuard": 0,
             "SpringCapacityGuardFactor": 1.5,
             "SpringCandidateLoadWeight": 1.0,
             "SpringNSShardCapacityFactor": profile.nsshard_capacity_factor,
             # All comparators use the same IoT state-object/anchor identities.
-            # Only the proposed PPO enables the extra 10-dimensional IoT vector.
-            "SpringIOTMode": 0,
+            # Candidate-Only additionally keeps the Proposed 10-dimensional IoT
+            # vector so its recorded state and candidate context are identical.
+            "SpringIOTMode": profile.iot_mode,
             "SpringIOTIdentityMode": 1,
-            "SpringIOTFeatureDim": 0,
+            "SpringIOTFeatureDim": profile.iot_feature_dim,
             "SpringIOTSidecarFile": (
                 "./data_iot/iot_flow_sidecar_multi_anchor_full.csv"
             ),

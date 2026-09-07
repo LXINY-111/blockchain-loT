@@ -761,6 +761,14 @@ func (rthm *RelayCommitteeModule) springPreparePlacement(
 		rthm.springFillTouchedPlacement(txlist, batchPlacement)
 		return batchPlacement
 
+	case 7:
+		// Candidate-Only / No-PPO matched baseline：与 Proposed PPO 使用完全
+		// 相同的 IoT 身份、sender_pos、最近负载、Top-K 和 capacity guard，
+		// 但不启动 Python，也不读取模型；最终直接选择候选得分最高的分片。
+		rthm.springPreparePlacementCandidateOnlyBatch(txlist, batchPlacement)
+		rthm.springFillTouchedPlacement(txlist, batchPlacement)
+		return batchPlacement
+
 	default:
 		// 非法模式兜底：当作 Hash 放置，但仍同步 PlacementMap，避免空映射导致异常。
 		for _, tx := range txlist {
@@ -920,6 +928,148 @@ func (rthm *RelayCommitteeModule) springPreparePlacementPPOBatch(
 			params.SpringOnlineTrain,
 		)
 	}
+}
+
+// springPreparePlacementCandidateOnlyBatch 保持与
+// springPreparePlacementPPOBatch 相同的顺序语义。特别是 IoT 场景中，
+// 设备/锚点仍先按 hash 固定，通信状态对象仍按交易顺序逐个放置；因此
+// 后一个对象看到的 sender_pos、已有放置和负载状态与 PPO 路径一致。
+func (rthm *RelayCommitteeModule) springPreparePlacementCandidateOnlyBatch(
+	txlist []*core.Transaction,
+	batchPlacement map[string]uint64,
+) {
+	rthm.springTxBatchSeq++
+	txBatchID := rthm.springTxBatchSeq
+
+	rthm.sl.Slog.Printf(
+		"[SPRING CANDIDATE ONLY PREPARE] tx_batch_id=%d tx_count=%d inject_speed=%d tx_batch_size=%d\n",
+		txBatchID,
+		len(txlist),
+		params.InjectSpeed,
+		params.TxBatchSize,
+	)
+
+	batchRelated := springBuildBatchRelatedMap(txlist)
+	if springIOTIdentityEnabled() {
+		batchRelated = rthm.springBuildIOTBatchRelatedMap(txlist)
+		rthm.springSeedIOTAnchorShards(txlist, batchPlacement)
+		for _, tx := range txlist {
+			extraFeatures := []float64(nil)
+			if springIOTEnabled() {
+				extraFeatures = rthm.springIOTFeaturesForTx(tx)
+			}
+			rthm.springPlaceAddressCandidateOnlySequential(
+				txBatchID,
+				tx.Sender,
+				tx.Recipient,
+				batchPlacement,
+				batchRelated,
+				extraFeatures,
+			)
+		}
+		return
+	}
+
+	if params.SpringSenderPosMode == 1 {
+		// 与 PPO 路径一致：先放置 sender，再放置 recipient，使 recipient 的
+		// sender_pos 表示当前块中已放置 sender 的分片分布。
+		for _, tx := range txlist {
+			rthm.springPlaceAddressCandidateOnlySequential(
+				txBatchID,
+				tx.Sender,
+				"",
+				batchPlacement,
+				batchRelated,
+			)
+		}
+		for _, tx := range txlist {
+			rthm.springPlaceAddressCandidateOnlySequential(
+				txBatchID,
+				tx.Recipient,
+				tx.Sender,
+				batchPlacement,
+				batchRelated,
+			)
+		}
+		return
+	}
+
+	for _, tx := range txlist {
+		rthm.springPlaceAddressCandidateOnlySequential(
+			txBatchID,
+			tx.Sender,
+			tx.Recipient,
+			batchPlacement,
+			batchRelated,
+		)
+		rthm.springPlaceAddressCandidateOnlySequential(
+			txBatchID,
+			tx.Recipient,
+			tx.Sender,
+			batchPlacement,
+			batchRelated,
+		)
+	}
+}
+
+// springPlaceAddressCandidateOnlySequential 只替换 PPO 动作选择器；状态构造、
+// 候选掩码和顺序落表都与 springPlaceAddressPPOSequential 保持一致。
+// decision record 仍完整保存 state 和 action_mask，但 source 明确标记为
+// go_candidate_only，防止后续把它误计为 PPO 推理或 fallback。
+func (rthm *RelayCommitteeModule) springPlaceAddressCandidateOnlySequential(
+	txBatchID uint64,
+	addr utils.Address,
+	related utils.Address,
+	batchPlacement map[string]uint64,
+	batchRelated map[string]map[string]bool,
+	iotFeatures ...[]float64,
+) bool {
+	key := string(addr)
+	if key == "" {
+		return false
+	}
+	if _, ok := rthm.springAddrShard[key]; ok {
+		return false
+	}
+
+	senderPos, relatedSummary, _, _, _, _, relatedCount := rthm.springBuildSenderPos(
+		key,
+		related,
+		batchPlacement,
+		batchRelated,
+	)
+	extraFeatures := []float64(nil)
+	if len(iotFeatures) > 0 {
+		extraFeatures = iotFeatures[0]
+	}
+	state := rthm.springBuildStateFromSenderPos(
+		senderPos,
+		springAddressFlagFromRelatedCount(relatedCount),
+		extraFeatures,
+	)
+	sid, actionMask := rthm.springChooseCandidateOnlyShard(addr, senderPos)
+
+	// 与 PPO sequential 路径相同：当前决定立刻写入全局和当前批次放置表。
+	rthm.springAddrShard[key] = sid
+	rthm.springShardLoad[sid]++
+	batchPlacement[key] = sid
+
+	rthm.springAppendDecisionRecord(
+		txBatchID,
+		key,
+		relatedSummary,
+		sid,
+		"go_candidate_only",
+		0.0,
+		0.0,
+		0.0,
+		0.0,
+		state,
+		0,
+		1,
+		actionMask,
+	)
+	return true
 }
 
 func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
@@ -1123,7 +1273,8 @@ func (rthm *RelayCommitteeModule) txSending(txlist []*core.Transaction) {
 
 	batchPlacement := make(map[string]uint64)
 
-	// SpringMode = 1 或 2 时，才进行 SPRING 新地址放置
+	// 所有非 Hash 模式都需要先建立新地址放置表；其中 mode 2 使用 PPO，
+	// mode 7 使用与 PPO 严格匹配的 Candidate-Only 动作选择器。
 	// SpringMode = 0 时，直接走原始 Hash Relay
 	if useSpringPlacement {
 		batchPlacement = rthm.springPreparePlacement(txlist)

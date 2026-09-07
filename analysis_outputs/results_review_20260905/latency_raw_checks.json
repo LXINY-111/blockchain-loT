@@ -1,0 +1,107 @@
+[
+  {
+    "run": "hash_16s_test2M_i250_seed7_20260810_230854",
+    "path": "E:\\project_iot\\实验结果9\\block_eval\\hash_16s_test2M_i250_seed7_20260810_230854\\expTest\\result\\supervisor_measureOutput\\Tx_Details.csv",
+    "rows": 2000000,
+    "invalid": 0,
+    "hash_fingerprint_duplicates": 0,
+    "mean_sec": 24.192438351999996,
+    "p50_sec": 6.858,
+    "p95_sec": 166.92,
+    "p99_sec": 241.951,
+    "max_sec": 262.97,
+    "gt30_sec_ratio": 0.1242415,
+    "gt60_sec_ratio": 0.1060285,
+    "gt120_sec_ratio": 0.074389,
+    "timestamp_outside_rounding_tolerance": 0,
+    "timestamp_offsets_ms": {
+      "0.0": 996656,
+      "1.0": 1003344
+    },
+    "mean_vs_archived_delta": -3.552713678800501e-15
+  },
+  {
+    "run": "nsshard_adapted_cap12_16s_test2M_i250_seed7_20260812_121736",
+    "path": "E:\\project_iot\\实验结果9\\block_eval\\nsshard_adapted_cap12_16s_test2M_i250_seed7_20260812_121736\\expTest\\result\\supervisor_measureOutput\\Tx_Details.csv",
+    "rows": 2000000,
+    "invalid": 0,
+    "hash_fingerprint_duplicates": 0,
+    "mean_sec": 24.577793851000003,
+    "p50_sec": 7.219,
+    "p95_sec": 162.084,
+    "p99_sec": 280.126,
+    "max_sec": 319.134,
+    "gt30_sec_ratio": 0.1225925,
+    "gt60_sec_ratio": 0.102286,
+    "gt120_sec_ratio": 0.0714265,
+    "timestamp_outside_rounding_tolerance": 0,
+    "timestamp_offsets_ms": {
+      "0.0": 994098,
+      "1.0": 1005902
+    },
+    "mean_vs_archived_delta": 3.552713678800501e-15
+  },
+  {
+    "run": "ppo_top7_w5530_pareto_16s_test2M_i250_seed7_20260810_181017",
+    "path": "E:\\project_iot\\实验结果9\\block_eval\\ppo_top7_w5530_pareto_16s_test2M_i250_seed7_20260810_181017\\expTest\\result\\supervisor_measureOutput\\Tx_Details.csv",
+    "rows": 2000000,
+    "invalid": 0,
+    "hash_fingerprint_duplicates": 0,
+    "mean_sec": 23.706037340500007,
+    "p50_sec": 5.946,
+    "p95_sec": 163.042,
+    "p99_sec": 282.078,
+    "max_sec": 318.072,
+    "gt30_sec_ratio": 0.121084,
+    "gt60_sec_ratio": 0.102208,
+    "gt120_sec_ratio": 0.0716475,
+    "timestamp_outside_rounding_tolerance": 0,
+    "timestamp_offsets_ms": {
+      "0.0": 999353,
+      "1.0": 1000647
+    },
+    "mean_vs_archived_delta": 7.105427357601002e-15
+  },
+  {
+    "run": "candidate_only_top7_w5530_16s_validation444k_i250_seed7_20260904_163601",
+    "path": "E:\\project_iot\\实验结果10\\block_eval\\candidate_only_top7_w5530_16s_validation444k_i250_seed7_20260904_163601\\expTest\\result\\supervisor_measureOutput\\Tx_Details.csv",
+    "rows": 444019,
+    "invalid": 0,
+    "hash_fingerprint_duplicates": 0,
+    "mean_sec": 5.579946506793626,
+    "p50_sec": 5.555,
+    "p95_sec": 9.574,
+    "p99_sec": 11.562,
+    "max_sec": 12.609,
+    "gt30_sec_ratio": 0.0,
+    "gt60_sec_ratio": 0.0,
+    "gt120_sec_ratio": 0.0,
+    "timestamp_outside_rounding_tolerance": 0,
+    "timestamp_offsets_ms": {
+      "0.0": 220532,
+      "1.0": 223487
+    },
+    "mean_vs_archived_delta": -1.7763568394002505e-15
+  },
+  {
+    "run": "ppo_top7_w5530_pareto_16s_validation444k_i250_seed7_20260904_183631",
+    "path": "E:\\project_iot\\实验结果10\\block_eval\\ppo_top7_w5530_pareto_16s_validation444k_i250_seed7_20260904_183631\\expTest\\result\\supervisor_measureOutput\\Tx_Details.csv",
+    "rows": 444019,
+    "invalid": 0,
+    "hash_fingerprint_duplicates": 0,
+    "mean_sec": 5.527784561021036,
+    "p50_sec": 5.305,
+    "p95_sec": 10.759,
+    "p99_sec": 11.764,
+    "max_sec": 14.703,
+    "gt30_sec_ratio": 0.0,
+    "gt60_sec_ratio": 0.0,
+    "gt120_sec_ratio": 0.0,
+    "timestamp_outside_rounding_tolerance": 0,
+    "timestamp_offsets_ms": {
+      "0.0": 224184,
+      "1.0": 219835
+    },
+    "mean_vs_archived_delta": -8.881784197001252e-16
+  }
+]

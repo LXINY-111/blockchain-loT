@@ -1,0 +1,244 @@
+"""Create the report from reviewed snapshots only; no experiment files are changed."""
+import csv
+import io
+import json
+import sqlite3
+import statistics as st
+from datetime import datetime, timezone
+from pathlib import Path
+
+OUT = Path(__file__).resolve().parent
+summary = json.loads((OUT / 'summary.json').read_text(encoding='utf-8'))
+runs = json.loads((OUT / 'run_metrics.json').read_text(encoding='utf-8'))
+checks = json.loads((OUT / 'latency_raw_checks.json').read_text(encoding='utf-8'))
+now = datetime.now(timezone.utc).isoformat()
+formal = sorted([r for r in summary['groups'] if r['result_set'].endswith('9')
+                 and r['window'] == 'test2M' and r['target_tps'] == 250], key=lambda r: r['cross_ratio'])
+physical = summary['queue_and_physical_load']
+paired = []
+for r in summary['paired_result10']:
+    paired.append({'seed': r['seed'], 'candidate_cross_pct': 100*r['cross_ratio_candidate'],
+                   'ppo_cross_pct': 100*r['cross_ratio_ppo'], 'cross_delta_pp': 100*r['cross_ratio_delta'],
+                   'candidate_mean_sec': r['latency_mean_sec_candidate'], 'ppo_mean_sec': r['latency_mean_sec_ppo'],
+                   'candidate_p95_sec': r['latency_p95_sec_candidate'], 'ppo_p95_sec': r['latency_p95_sec_ppo']})
+formal_table = [dict(method=r['label'], n=r['n'], cross_pct=100*r['cross_ratio'],
+                     cross_sd_pp=100*r['cross_ratio_sd'] if r['cross_ratio_sd'] is not None else None,
+                     mean_sec=r['latency_mean_sec'], p95_sec=r['latency_p95_sec'],
+                     p99_sec=r['latency_p99_sec'], wall_tps=r['wall_tps'],
+                     epoch_proxy_max_pct=100*r['mean_max_share'], epoch_proxy_jain=r['mean_jain']) for r in formal]
+load_table = []
+for m, label in [('candidate_only_top7_w5530','Candidate-Only'),('ppo_top7_w5530_pareto','PPO TopK7')]:
+    rr = [r for r in runs if r['result_set'].endswith('10') and r['method'] == m]
+    pp = [r for r in physical if r['result_set'].endswith('10') and r['method'] == m]
+    load_table.append(dict(method=label, n=len(rr),
+        proxy_max_pct=100*st.fmean(r['aggregate_max_share'] for r in rr),
+        proxy_jain=st.fmean(r['aggregate_jain'] for r in rr),
+        stages_max_pct=100*st.fmean(r['physical_aggregate_maxshare'] for r in pp),
+        stages_jain=st.fmean(r['physical_aggregate_jain'] for r in pp),
+        busiest_stages=st.fmean(max(r['physical_loads']) for r in pp),
+        total_stages=st.fmean(r['physical_stages'] for r in pp)))
+load_chart = [{'method':r['method'], 'metric':label, 'max_share_pct':r[field], 'n':r['n'],
+               'busiest_stages':r['busiest_stages'], 'total_stages':r['total_stages']}
+              for r in load_table for field,label in [('proxy_max_pct','折算交易数'),('stages_max_pct','打包交易阶段数')]]
+pressure = sorted([r for r in runs if r['result_set'].endswith('9') and r['method']=='ppo_top7_w5530_pareto'
+                   and r['window']=='test2M' and r['seed']==7], key=lambda r:r['target_tps'])
+pressure_chart = [{'rate':str(r['target_tps']), 'statistic':label, 'seconds':r[field],
+                   'seed':r['seed'], 'transaction_count':r['expected_total'], 'wall_tps':r['wall_tps']}
+                  for r in pressure for field,label in [('latency_mean_sec','均值'),('latency_p95_sec','P95'),('latency_p99_sec','P99')]]
+datasets = {'formal':formal_table,'paired':paired,'load_table':load_table,'load_chart':load_chart,'pressure':pressure_chart}
+
+title = '实验结果9与10：结果可信度与算法效果复核'
+sections = [
+('opening', f'''# {title}
+
+**已完成结果整体自洽，PPO 有降低跨片率的作用，但尚未形成稳定、全面的系统优势。** 相比 Hash 的收益较清楚；相比 NSshard-adapted 和 Candidate-Only，增量较小且存在种子退步。当前最需要收紧的是“负载均衡提升”和“吞吐能力提升”的表述。
+
+本报告只分析归档完成的运行及已有模型选择记录。实际目录为 `E:\\project_iot\\实验结果9`、`E:\\project_iot\\实验结果10`。结果9纳入32次，结果10纳入6次；排除指定的运行中目录及另一条无完成标记的历史目录。未查看或干预65个运行进程，未修改项目问题或原始结果。'''),
+('quality', '''## 数据是否有问题
+
+**目前未发现足以推翻这些已完成结果的数据完整性错误。** 38次运行的实际状态校验日志均为执行后的 PASS，预期账户数、正确账户数、发现账户数一致，重复账户数为0，均报告16个分片。交易计数、跨片两阶段计数、注入总数、有效交易总数、分片折算负载总数相互吻合，未发现重复 epoch 或缺失的有效 epoch 负载。
+
+进一步完整读取了5次代表运行的交易明细，共6,888,038行：未发现无效延迟、重复交易哈希指纹或超过1毫秒取整容差的时间戳差异；重新计算的延迟均值和分位数与归档一致。对22次正式测试/消融运行重新累计16分片区块记录，打包阶段总数均等于 normal + relay1 + relay2。
+
+这支持使用当前结果做比较，但并非对全部数据库及64个副本作了重新验证。状态检查覆盖每分片N0；38次的全部逐交易明细没有逐一重扫。manifest记载的输入数据和sidecar散列一致，3个冻结模型文件重新计算的散列均匹配；输入大文件本次未重新全量散列。'''),
+('formal', '''## 正式测试：PPO 的优势主要在降低跨片率
+
+下表是结果9、16分片、固定test2M窗口、输入250 TPS的运行均值。Hash、Random、NSshard-adapted、PPO各3次；其他方法各1次。跨片率越低越好，延迟单位为秒。跨片率标准差按运行计算，单位为百分点；n=1不报告标准差。
+
+PPO 平均跨片率75.92%，比Hash低7.39个百分点，比Random低19.75个百分点；但只比NSshard-adapted低0.47个百分点，而PPO自身跨种子标准差达4.25个百分点。AnchorOnly与Heuristic跨片率更低，代价是折算负载更集中，不能单按跨片率判优。
+
+PPO平均延迟23.84秒，比NSshard-adapted约低4.31%，比Hash约低1.15%；P99却达到281.81秒，高于Hash的241.08秒约16.89%。各方法全窗口墙钟吞吐约249.75–249.83 TPS，主要受250 TPS输入限制，不能据此证明PPO提高了饱和吞吐能力。'''),
+('ablation', '''## 结果10：PPO 相比 Candidate-Only 的独立增量较弱
+
+这6次已完成运行都是validation444k窗口、250 TPS的配对验证，不能当作新的test2M结果。两种方法各3个种子。PPO跨片率从Candidate-Only的平均67.65%降至66.50%，只改善1.15个百分点；seed27反而恶化2.17个百分点。
+
+平均延迟从5.514降至5.323秒，约改善3.47%；P95从9.834降至9.710秒，约改善1.27%。seed7的P95却由9.574升至10.759秒。PPO跨片率的种子间标准差为3.22个百分点，Candidate-Only仅0.14个百分点。
+
+日志显示PPO三个运行均实际使用Python策略，fallback为0；Candidate-Only三个运行的对应来源占比为100%。因此不是“PPO没有生效”，而是目前观察到的新增收益有限且不稳定。相同种子不表示两种方法经历完全相同的候选状态轨迹，此处是算法整体消融比较。'''),
+('load', '''## 负载口径：最忙分片的打包量没有下降
+
+原有Shard_Load_Variance把本地交易计1次、跨片交易在两个阶段各计0.5次，这是“有效交易折算量”。PBFT区块记录的交易体长度则把每次打包阶段均计1次，跨片交易合计2次。二者回答的问题不同。
+
+在结果10中，按完整窗口累计、再对3次运行取均值，PPO使折算量的最忙分片占比由33.10%降至28.50%；但按打包阶段数计算，占比由32.98%变为33.21%，Jain由0.3923降至0.3547（越高越均匀）。两种方法最忙分片的平均累计打包阶段数甚至相同，均约245,497；PPO减少的是总打包阶段数，744,408→739,304，约0.69%。
+
+**因此可以说减少了一部分跨片开销，不能说实际热点处理量明显下降或整体处理负载更均衡。** Jain和最大占比的分母也随跨片数量变化，必须同时看绝对阶段数。阶段数仍不是CPU时间、字节数或网络开销的直接测量。
+
+原有按有效epoch平均的热点占比33.38%→29.51%方向相同，但按区块高度对齐的统计不等于同步墙钟时间负载；启动和排空尾段会影响等权均值。本报告以上述全窗口累计比较为主要依据。结果9正式测试中，PPO按打包阶段数计算的累计Jain约0.3501，也未优于NSshard-adapted的0.3534。'''),
+('pressure', '''## 尾延迟和高负载：目前最明显的系统效果短板
+
+结果9的PPO seed7在相同test2M窗口中，输入从250升至300 TPS（+20%），平均延迟从23.71升至105.39秒，约4.45倍；P95从163.04升至435.23秒，P99从282.08升至665.25秒。对应归档区块记录中的队列峰值由50,528升至84,528。300 TPS只完成了一个种子的该项对照，不能作为多种子稳定容量结论。
+
+在250 TPS的PPO seed7中，约10.22%的交易等待超过60秒，约7.16%超过120秒；中位数仅5.946秒，说明长尾突出。Hash与NSshard-adapted的代表运行也有类似长尾，不能将其全部归因于PPO。全部交易最终确认表示队列排空，不表示过程中没有拥塞。
+
+验证窗口与测试窗口的交易和热点分布不同：归档profile中主owner最热分片占比约55.29%→63.69%。因此验证集约5秒和测试集约24秒不是同一负载条件下的直接退化对照。现有证据支持检查热点与排队，不足以区分共识、调度、主机竞争等各因素的贡献；本次没有查看运行中的进程。'''),
+('protocol', '''## 选模、重复与可复现性边界
+
+当前冻结协议为2026年8月4日的层级约束版本，明确替代8月2日的严格约束版本。seed7满足严格条件；seed17和seed27没有达到平均活跃分片数≥8的严格门槛，分别为7.6809和7.8292，使用预先记录的5%活跃数容差，热点上限没有放宽。应如实披露“1个严格可行、2个容差选择”，不能写成3个都满足原严格约束。
+
+冻结记录早于已归档正式测试，训练、验证、测试交易窗口不重叠；本次未发现基于这些固定测试结果再改选模型的证据。但38次manifest均记载dirty工作区，不能仅凭git commit重建准确源代码与二进制；这限制完全可复现性，不等于结果数值无效。
+
+结果9与结果10的同种子PPO使用同一冻结模型，它们是模型的系统重跑，不能合并成6个独立训练种子。重复时跨片率几乎不变，平均延迟却可变化约8%、P95约±10%，因此结果10几个百分点的延迟改善仍需谨慎。跨批次也涉及历史版本及运行条件，不能把这种差异全部当作随机噪声。
+
+离线TopK与权重筛选提供调参依据，但TopK7相对TopK8的验证跨片率差约0.14个百分点，来自单种子，不能宣称稳健最优。不同权重在关系加权跨片率等指标上存在取舍。
+
+候选剪枝本身已有较有价值的可行性证据：TopK0去剪枝消融的3个种子均完成15个epoch，但没有产生符合最终选模准则的checkpoint；完整TopK7方案的3个种子均可按最终严格/容差规则选出模型。这支持在当前训练预算下改善验证可行性，不等于证明测试吞吐提升，不能把选模失败计为0 TPS。
+
+NSshard-adapted应按改编实现标注。原始SPRING-PPO的适配训练也存在，但未选出合格checkpoint，且同时涉及状态、奖励等差异；本次已完成区块实验中没有其完整系统对照，不能据此主张全面优于原论文或所有先进方法。'''),
+('decision', '''## 当前可以成立的结论
+
+可以保留：完成结果在已核查范围内自洽；PPO相比Hash/Random减少跨片；相比Candidate-Only减少少量总打包阶段；候选剪枝在当前预算下改善验证选模可行性；方法体现跨片与分布均匀性的取舍。
+
+需要收紧：PPO相对NSshard-adapted的跨片优势很小，P99没有全面改善；PPO独立增量尚不稳定；折算负载改善不等于实际热点打包量下降；输入受限吞吐不代表更高容量。
+
+尚不能成立：全面提升吞吐、尾延迟和负载均衡，所有种子均满足严格选模约束，或已经得到统计上稳健的全面领先。若以后继续评价，优先看固定测试窗口的Candidate-Only配对对照、更多独立训练种子、相同模型的系统重复，以及热点绝对工作量和真实资源成本。本次仅提出分析方向，没有启动补实验或修改项目。'''),
+('sources', '''## 复核依据与可复算材料
+
+原始依据包括两个结果目录中带run_complete.json的38次历史运行：experiment_manifest.json、paramsConfig.snapshot.json、state_check.txt、analysis.json，以及supervisor_measureOutput的交易数、跨片率、TPS、分片负载、延迟CSV。22次运行另用pbft_shardNum=16内的Shard0–15 CSV累计阶段和队列；5次运行完整读取Tx_Details.csv。
+
+本目录保留逐运行汇总run_metrics.csv/json、配对与分组summary.json、逐交易抽查latency_raw_checks.json、清单inventory.json和复算脚本。analysis_review.ipynb读取已核查快照并展示关键表格；它默认不重新访问实验目录。数值先在运行内计算，再对种子等权平均，P95/P99是各运行分位数的均值，不是合并交易后的分位数。没有把区块、交易或epoch当作独立训练重复，也没有把3个种子的描述性差异称作显著性结果。''')]
+
+sources = [
+ {'id':'completed','label':'38次已完成运行的原始CSV复算','path':str(OUT/'run_metrics.csv'),
+  'query':{'description':'review_results.py从完成归档复算；按窗口/输入速率/方法分组，运行等权平均。跨片率=跨片有效交易数/有效总交易数；延迟为交易确认时刻减注入时刻。',
+           'language':'python','tables_used':['Tx_number.csv','CrossTransaction_ratio.csv','Average_TPS.csv','Shard_Load_Variance.csv','run_complete.json'],
+           'filters':['只纳入已完成的38次历史运行','指定运行目录完全排除','正式主比较test2M、250 TPS；validation444k单独报告']}},
+ {'id':'stage','label':'22次运行的PBFT区块阶段与队列复算','path':str(OUT/'summary.json'),
+  'query':{'description':'build_summary.py累计每分片区块Body交易数；总阶段=normal+relay1+relay2。Jain=(sum(load))^2/(16*sum(load^2))；主比较使用完整窗口累计，3次运行等权平均。',
+           'language':'python','tables_used':['pbft_shardNum=16/Shard0..15.csv','Shard_Load_Variance.csv'],
+           'filters':['结果9已完成test2M','结果10已完成validation444k','不读取未完成或指定排除目录']}},
+ {'id':'latency','label':'5次运行的完整交易明细复核','path':str(OUT/'latency_raw_checks.json')},
+ {'id':'freeze','label':'2026-08-04冻结协议','path':r'E:\project_iot\实验结果9\protocol_freeze_current_top7_w5530_16s.json'},
+]
+
+charts = [
+ {'id':'formal_cross','title':'正式测试各方法跨片率（%）','subtitle':'PPO相对Hash降低跨片率，相对NSshard-adapted差距较小。',
+  'type':'bar','dataset':'formal','sourceId':'completed','options':{'orientation':'vertical','grouping':'grouped'},
+  'encodings':{'x':{'field':'method','type':'nominal','label':'方法'},'y':{'field':'cross_pct','type':'quantitative','label':'跨片率（%）'},
+               'tooltip':[{'field':'n','type':'quantitative','label':'运行数'},{'field':'cross_sd_pp','type':'quantitative','label':'标准差（百分点）'},{'field':'p99_sec','type':'quantitative','label':'P99（秒）'}]}},
+ {'id':'load_compare','title':'结果10最忙分片占比：两种计数口径（%）','subtitle':'按打包阶段数计算，最忙分片占比没有下降。',
+  'type':'bar','dataset':'load_chart','sourceId':'stage','options':{'orientation':'vertical','grouping':'grouped','legend':True},
+  'encodings':{'x':{'field':'metric','type':'nominal','label':'完整窗口累计口径'},'y':{'field':'max_share_pct','type':'quantitative','label':'最大占比（%）'},
+               'color':{'field':'method','type':'nominal','label':'方法'}}},
+ {'id':'pressure_latency','title':'PPO seed7正式测试延迟与输入速率','subtitle':'输入增加20%时，平均延迟增至约4.45倍。',
+  'type':'bar','dataset':'pressure','sourceId':'completed','options':{'orientation':'vertical','grouping':'grouped','legend':True},
+  'encodings':{'x':{'field':'rate','type':'nominal','label':'输入速率（TPS）'},'y':{'field':'seconds','type':'quantitative','label':'延迟（秒）'},
+               'color':{'field':'statistic','type':'nominal','label':'延迟统计'}}},
+]
+def table(tid,title,data,source,sort,columns):
+    return {'id':tid,'title':title,'dataset':data,'sourceId':source,'defaultSort':{'field':sort,'direction':'asc'},
+            'columns':[{'field':f,'label':l,'type':'text' if f=='method' else 'number'} for f,l in columns]}
+tables = [
+ table('formal_detail','正式测试方法比较','formal','completed','cross_pct',[
+     ('method','方法'),('n','运行数'),('cross_pct','跨片率（%）'),('cross_sd_pp','标准差（百分点）'),
+     ('mean_sec','平均延迟（秒）'),('p95_sec','P95（秒）'),('p99_sec','P99（秒）'),('wall_tps','墙钟TPS')]),
+ table('paired_detail','结果10逐种子配对','paired','completed','seed',[
+     ('seed','种子'),('candidate_cross_pct','Candidate跨片率（%）'),('ppo_cross_pct','PPO跨片率（%）'),('cross_delta_pp','PPO−Candidate（百分点）'),
+     ('candidate_p95_sec','Candidate P95（秒）'),('ppo_p95_sec','PPO P95（秒）')]),
+ table('load_detail','结果10全窗口累计负载','load_table','stage','method',[
+     ('method','方法'),('proxy_max_pct','折算热点（%）'),('proxy_jain','折算Jain'),('stages_max_pct','阶段热点（%）'),('stages_jain','阶段Jain'),
+     ('busiest_stages','最忙片阶段数'),('total_stages','总阶段数')])]
+blocks=[]
+after={'formal':[{'type':'chart','chartId':'formal_cross'},{'type':'table','tableId':'formal_detail'}],
+       'ablation':[{'type':'table','tableId':'paired_detail'}],
+       'load':[{'type':'chart','chartId':'load_compare'},{'type':'table','tableId':'load_detail'}],
+       'pressure':[{'type':'chart','chartId':'pressure_latency'}]}
+for sid,body in sections:
+    blocks.append({'id':sid,'type':'markdown','body':body})
+    for i,b in enumerate(after.get(sid,[])): blocks.append({'id':f'{sid}_visual_{i}',**b})
+payload={'surface':'report','manifest':{'version':1,'surface':'report','title':title,
+        'description':'已完成历史运行的只读复核；数据完整性、方法对比、消融、负载口径和高负载边界。',
+        'generatedAt':now,'blocks':blocks,'charts':charts,'tables':tables,'sources':sources},
+        'snapshot':{'version':1,'status':'ready','generatedAt':now,'datasets':datasets},'sources':sources}
+# The report renderer requires executed SQL provenance. Materialize the reviewed
+# small tables locally, then use the actual SELECT results as its bounded snapshot.
+db = sqlite3.connect(OUT/'report_data.sqlite')
+db.row_factory = sqlite3.Row
+for key, rows in datasets.items():
+    columns = list(rows[0])
+    types = {c:('REAL' if any(isinstance(r[c],(int,float)) for r in rows) else 'TEXT') for c in columns}
+    declaration = ', '.join('"'+c+'" '+types[c] for c in columns)
+    db.execute('CREATE TABLE IF NOT EXISTS "'+key+'" ('+declaration+')')
+    db.execute('DELETE FROM "'+key+'"')
+    db.executemany('INSERT INTO "'+key+'" VALUES ('+','.join('?' for _ in columns)+')',
+                   [[r[c] for c in columns] for r in rows])
+    query = 'SELECT '+', '.join('"'+c+'"' for c in columns)+' FROM "'+key+'" ORDER BY rowid'
+    reviewed = [dict(r) for r in db.execute(query)]
+    assert reviewed == rows
+    payload['snapshot']['datasets'][key] = reviewed
+    src = {'id':'dataset_'+key, 'label':'已核查快照：'+key, 'path':str(OUT/'report_data.sqlite'),
+           'query':{'sql':query,'language':'sql','engine':'sqlite','tables_used':[key],
+                    'description':'从本地已核查结果快照取报告行；上游为review_results.py与build_summary.py对历史完成归档的复算。',
+                    'executed_at':now,'filters':['固定复核快照；不查询活动实验']}}
+    sources.append(src)
+    for asset in charts+tables:
+        if asset['dataset'] == key:
+            asset['sourceId'] = src['id']
+            asset['source'] = src
+db.commit()
+db.close()
+(OUT/'artifact.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8')
+
+# A readable evidence companion, from the same narrative and reviewed tables.
+def mdtable(rows,cols):
+    head='| '+' | '.join(label for _,label in cols)+' |\n| '+' | '.join('---' for _ in cols)+' |'
+    lines=[]
+    for r in rows:
+        values=[]
+        for field,_ in cols:
+            v=r.get(field)
+            values.append('—' if v is None else (f'{v:.3f}' if isinstance(v,float) else str(v)))
+        lines.append('| '+' | '.join(values)+' |')
+    return head+'\n'+'\n'.join(lines)
+md=[]
+for sid,body in sections:
+    md.append(body)
+    for b in after.get(sid,[]):
+        if b['type']=='table':
+            t=next(x for x in tables if x['id']==b['tableId'])
+            md.append(mdtable(datasets[t['dataset']],[(c['field'],c['label']) for c in t['columns']]))
+(OUT/'分析说明.md').write_text('\n\n'.join(md)+'\n',encoding='utf-8')
+for key,rows in datasets.items():
+    with (OUT/f'{key}.csv').open('w',encoding='utf-8-sig',newline='') as f:
+        w=csv.DictWriter(f,fieldnames=list(rows[0]));w.writeheader();w.writerows(rows)
+
+# This notebook only opens the audited snapshots; no experiment execution or directory scan.
+cells=[{'cell_type':'markdown','metadata':{},'source':[
+    '# 实验结果9与10：复核快照\n','本笔记本默认只读取本目录中的已核查快照，不访问实验目录，不查看进程，不训练模型。\n',
+    '原始复算分别见 review_results.py、check_latency_details.py、build_summary.py；报告生成见 build_report.py。\n',
+    '表中均值以运行为单位；每个独立训练种子只算一次。']}]
+code="from pathlib import Path\nimport json\nimport pandas as pd\nbase = Path.cwd()\nif not (base / 'artifact.json').is_file():\n    base = base / 'analysis_outputs' / 'results_review_20260905'\npayload = json.loads((base / 'artifact.json').read_text(encoding='utf-8'))\nsummary = json.loads((base / 'summary.json').read_text(encoding='utf-8'))\n"
+cells.append({'cell_type':'code','metadata':{},'execution_count':None,'outputs':[],'source':code.splitlines(True)})
+for key,caption in [('formal','正式测试各方法'),('paired','结果10逐种子消融'),('load_table','完整窗口负载口径'),('pressure','单种子压力对照')]:
+    cells.append({'cell_type':'markdown','metadata':{},'source':[f'## {caption}\n']})
+    output=json.dumps(datasets[key],ensure_ascii=False,indent=2)
+    cells.append({'cell_type':'code','metadata':{},'execution_count':None,'outputs':[],
+                  'source':[f"pd.DataFrame(payload['snapshot']['datasets']['{key}'])\n"]})
+notebook={'cells':cells,'metadata':{'kernelspec':{'display_name':'Python 3','language':'python','name':'python3'},
+                                 'language_info':{'name':'python','version':'3'}},'nbformat':4,'nbformat_minor':5}
+(OUT/'analysis_review.ipynb').write_text(json.dumps(notebook,ensure_ascii=False,indent=2),encoding='utf-8')
+assert len(runs)==38 and all(r['quality_ok'] for r in runs)
+assert sum(c['rows'] for c in checks)==6_888_038
+assert len(physical)==22 and all(r['physical_stages']==r['expected_physical_stages'] for r in physical)
+assert all(x['matches'] for x in summary['frozen_model_hash_checks'])
+print(json.dumps({'artifact':str(OUT/'artifact.json'),'report_rows':{k:len(v) for k,v in datasets.items()},
+                  'charts':len(charts),'tables':len(tables),'quality_assertions':'passed'},ensure_ascii=True))

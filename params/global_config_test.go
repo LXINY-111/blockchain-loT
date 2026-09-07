@@ -69,8 +69,8 @@ func TestParamsConfigJSONTargetsResult9ValidationRun(t *testing.T) {
 		t.Fatalf("paramsConfig.json should parse with Go json.Unmarshal: %v", err)
 	}
 
-	if config.SpringMode < 0 || config.SpringMode > 6 {
-		t.Fatalf("SpringMode = %d, want a supported mode in [0, 6]", config.SpringMode)
+	if config.SpringMode < 0 || config.SpringMode > 7 {
+		t.Fatalf("SpringMode = %d, want a supported mode in [0, 7]", config.SpringMode)
 	}
 	if config.SpringOnlineTrain != 0 {
 		t.Fatalf("SpringOnlineTrain = %d, want 0 for fixed-model BlockEmulator evaluation", config.SpringOnlineTrain)
@@ -117,6 +117,22 @@ func TestParamsConfigJSONTargetsResult9ValidationRun(t *testing.T) {
 			!strings.Contains(config.SpringModelFile, wantModel) {
 			t.Fatalf("SpringModelFile = %q, want Result9 Pareto-selected TopK7 w55-30 model %q", config.SpringModelFile, wantModel)
 		}
+	} else if config.SpringMode == 7 {
+		// Candidate-Only 必须保留 Proposed 的 IoT 状态和 TopK7 候选构造，
+		// 唯一移除的是 PPO 模型推理，因此模型必须明确为 NOT_APPLICABLE。
+		if config.SpringIOTMode != 1 || config.SpringIOTIdentityMode != 1 || config.SpringIOTFeatureDim != 10 {
+			t.Fatalf("candidate-only IoT mode/identity/features = %d/%d/%d, want 1/1/10", config.SpringIOTMode, config.SpringIOTIdentityMode, config.SpringIOTFeatureDim)
+		}
+		if config.SpringCandidateTopK != 7 {
+			t.Fatalf("candidate-only SpringCandidateTopK = %d, want 7", config.SpringCandidateTopK)
+		}
+		if config.SpringModelFile != "NOT_APPLICABLE" {
+			t.Fatalf("candidate-only SpringModelFile = %q, want NOT_APPLICABLE", config.SpringModelFile)
+		}
+		assertConfigWeight("SpringIOTCSTRWeight", config.SpringIOTCSTRWeight, 0.55)
+		assertConfigWeight("SpringIOTBalanceWeight", config.SpringIOTBalanceWeight, 0.30)
+		assertConfigWeight("SpringIOTCommCostWeight", config.SpringIOTCommCostWeight, 0.10)
+		assertConfigWeight("SpringIOTHotspotWeight", config.SpringIOTHotspotWeight, 0.05)
 	} else {
 		if config.SpringIOTMode != 0 || config.SpringIOTIdentityMode != 1 || config.SpringIOTFeatureDim != 0 {
 			t.Fatalf("baseline IoT mode/identity/features = %d/%d/%d, want 0/1/0", config.SpringIOTMode, config.SpringIOTIdentityMode, config.SpringIOTFeatureDim)

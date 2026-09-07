@@ -211,6 +211,9 @@ BlockEmulator baseline（区块链测试平台基线）对应的 `SpringMode`：
 2 = ppo
 3 = random
 4 = minstate
+5 = anchoronly
+6 = nsshard-adapted
+7 = candidate-only / no-ppo
 ```
 
 Python 和 Go 两侧都会构造同样的 59 维 state（状态），保证 offline training（离线训练）和 BlockEmulator evaluation（区块链测试平台评估）一致。

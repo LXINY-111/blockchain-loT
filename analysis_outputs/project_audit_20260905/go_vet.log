@@ -1,0 +1,6 @@
+Command: go vet ./...
+First attempt: blocked by access to system Go build cache; preserved in go_vet_initial_permission_error.log.
+Second attempt: rerun with approved access to existing cache.
+Observed exit code: 0
+Observed stdout/stderr: empty
+This file records the successful tool result; no diagnostic text was emitted.

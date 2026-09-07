@@ -1,0 +1,18 @@
+package chain
+
+import (
+    "blockEmulator/params"
+    "os"
+    "path/filepath"
+    "testing"
+)
+
+func TestMain(m *testing.M) {
+    root, err := os.MkdirTemp(`E:\project_iot\block-emulator-main-iot\analysis_outputs\project_audit_20260905`, "chain-test-")
+    if err != nil { panic(err) }
+    params.ExpDataRootDir = filepath.ToSlash(root)
+    params.DataWrite_path = params.ExpDataRootDir + "/result/"
+    params.LogWrite_path = params.ExpDataRootDir + "/log"
+    params.DatabaseWrite_path = params.ExpDataRootDir + "/database/"
+    os.Exit(m.Run())
+}

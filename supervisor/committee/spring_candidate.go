@@ -217,6 +217,18 @@ func (rthm *RelayCommitteeModule) springBestCandidateShard(
 	return bestSid
 }
 
+// springChooseCandidateOnlyShard 是 Candidate-Only / No-PPO 的唯一动作入口。
+// 它复用 Proposed PPO 完全相同的候选掩码与候选得分，只把最终的
+// “由 PPO 在候选中选动作”替换为“选择候选得分最高的动作”。返回掩码
+// 便于写入 decision_records.jsonl，后续可以逐项核对两种方法看到的候选集。
+func (rthm *RelayCommitteeModule) springChooseCandidateOnlyShard(
+	addr utils.Address,
+	senderPos []float64,
+) (uint64, []int) {
+	mask := rthm.springBuildCandidateActionMask(addr, senderPos)
+	return rthm.springBestCandidateShard(addr, senderPos, mask), mask
+}
+
 func (rthm *RelayCommitteeModule) springApplyCandidateGuard(
 	addr utils.Address,
 	senderPos []float64,

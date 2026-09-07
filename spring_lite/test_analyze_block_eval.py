@@ -14,6 +14,7 @@ from analyze_block_eval import (  # noqa: E402
     analyze_tx_latency_details,
     build_arg_parser,
     read_csv_source,
+    summarize_load_balance,
 )
 
 
@@ -125,6 +126,74 @@ class AnalyzeBlockEvalTest(unittest.TestCase):
         self.assertAlmostEqual(result["same_as_related_ratio"], 2.0 / 3.0)
         self.assertAlmostEqual(result["chosen_related_mass_mean"], 0.3)
 
+    def test_analyze_decisions_reports_candidate_coverage_and_conditional_choice(self):
+        cases = [
+            # Major shard 0 is available and chosen; all related shards covered.
+            (0, [0.7, 0.0, 0.3, 0.0], [1, 0, 1, 0]),
+            # Major shard 1 is absent; only 40% of relation mass is covered.
+            (2, [0.0, 0.6, 0.4, 0.0], [0, 0, 1, 1]),
+            # Major shard 0 is available but PPO chooses another related shard.
+            (1, [0.5, 0.5, 0.0, 0.0], [1, 1, 0, 0]),
+        ]
+        records = []
+        for shard, sender_pos, mask in cases:
+            records.append(
+                {
+                    "shard": shard,
+                    "source": "python_ppo",
+                    "state": [0.0] * 40 + sender_pos,
+                    "action_mask": mask,
+                }
+            )
+
+        with TemporaryDirectory() as tmp:
+            spring_io = Path(tmp) / "spring_io"
+            spring_io.mkdir()
+            (spring_io / "decision_records.jsonl").write_text(
+                "\n".join(json.dumps(record) for record in records) + "\n",
+                encoding="utf-8",
+            )
+            result = analyze_decisions(spring_io, shards=4)
+
+        self.assertEqual(result["candidate_diagnostic_seen"], 3)
+        self.assertAlmostEqual(result["candidate_major_anchor_coverage_ratio"], 2 / 3)
+        self.assertAlmostEqual(result["candidate_major_anchor_absent_ratio"], 1 / 3)
+        self.assertAlmostEqual(result["candidate_all_related_coverage_ratio"], 2 / 3)
+        self.assertAlmostEqual(
+            result["candidate_related_mass_coverage_mean"],
+            0.8,
+        )
+        self.assertAlmostEqual(
+            result["major_anchor_choice_when_available_ratio"],
+            0.5,
+        )
+
+    def test_summarize_load_balance_reports_scale_free_metrics(self):
+        rows = {
+            "1": {
+                "EpochID": "1",
+                "Shard_0_Load": "8",
+                "Shard_1_Load": "2",
+                "Shard_2_Load": "0",
+                "Shard_3_Load": "0",
+            },
+            "2": {
+                "EpochID": "2",
+                "Shard_0_Load": "4",
+                "Shard_1_Load": "4",
+                "Shard_2_Load": "4",
+                "Shard_3_Load": "4",
+            },
+        }
+
+        summary = summarize_load_balance(["1", "2"], rows, shards=4)
+
+        self.assertEqual(summary["load_epoch_count"], 2)
+        self.assertAlmostEqual(summary["mean_max_shard_load_share"], 0.525)
+        self.assertAlmostEqual(summary["mean_active_shards"], 3.0)
+        self.assertAlmostEqual(summary["mean_jain_fairness"], (25 / 68 + 1) / 2)
+        self.assertAlmostEqual(summary["aggregate_max_shard_load_share"], 12 / 26)
+
     def test_read_csv_source_accepts_unpacked_exp_test_or_result_directory(self):
         with TemporaryDirectory() as tmp:
             exp_test = Path(tmp) / "expTest"
@@ -189,6 +258,7 @@ class AnalyzeBlockEvalTest(unittest.TestCase):
 
         self.assertEqual(summary["row_count"], 4)
         self.assertEqual(summary["valid_latency_count"], 4)
+        self.assertEqual(summary["valid_latency_ratio"], 1.0)
         self.assertAlmostEqual(summary["mean_sec"], 4.25)
         self.assertAlmostEqual(summary["p50_sec"], 2.0)
         self.assertAlmostEqual(summary["p95_sec"], 10.0)

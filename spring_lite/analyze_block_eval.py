@@ -92,6 +92,90 @@ def percentile(values: List[float], q: float) -> float:
     return ordered[idx]
 
 
+def shard_load_values(row: Dict[str, str], shards: int) -> List[float]:
+    """Return one epoch's per-shard load vector in stable shard order."""
+    values: List[float] = []
+    for sid in range(shards):
+        value = as_float(row.get(f"Shard_{sid}_Load"))
+        values.append(value if value is not None and value >= 0.0 else 0.0)
+    return values
+
+
+def jain_fairness(values: List[float]) -> float:
+    """Jain's fairness index over all configured shards, including zero load."""
+    if not values:
+        return 0.0
+    total = sum(values)
+    sum_squares = sum(value * value for value in values)
+    if total <= 0.0 or sum_squares <= 0.0:
+        return 0.0
+    return total * total / (len(values) * sum_squares)
+
+
+def load_cv(values: List[float]) -> float:
+    """Population coefficient of variation for one shard-load vector."""
+    if not values:
+        return 0.0
+    mean_value = statistics.fmean(values)
+    if mean_value <= 0.0:
+        return 0.0
+    return statistics.pstdev(values) / mean_value
+
+
+def summarize_load_balance(
+    epoch_ids: List[str],
+    variance_by_epoch: Dict[str, Dict[str, str]],
+    shards: int,
+) -> Dict[str, object]:
+    """Compute scale-free load metrics from the archived per-shard loads."""
+    max_shares: List[float] = []
+    active_counts: List[float] = []
+    fairness_values: List[float] = []
+    cv_values: List[float] = []
+    aggregate_loads = [0.0 for _ in range(shards)]
+
+    for epoch_id in epoch_ids:
+        row = variance_by_epoch.get(epoch_id)
+        if row is None:
+            continue
+        loads = shard_load_values(row, shards)
+        total = sum(loads)
+        if total <= 0.0:
+            continue
+        max_shares.append(max(loads) / total)
+        active_counts.append(float(sum(1 for value in loads if value > 1e-12)))
+        fairness_values.append(jain_fairness(loads))
+        cv_values.append(load_cv(loads))
+        for sid, value in enumerate(loads):
+            aggregate_loads[sid] += value
+
+    aggregate_total = sum(aggregate_loads)
+    return {
+        "load_epoch_count": len(max_shares),
+        "mean_max_shard_load_share": statistics.fmean(max_shares)
+        if max_shares
+        else 0.0,
+        "p95_max_shard_load_share": percentile(max_shares, 0.95),
+        "mean_active_shards": statistics.fmean(active_counts)
+        if active_counts
+        else 0.0,
+        "min_active_shards": min(active_counts) if active_counts else 0.0,
+        "mean_jain_fairness": statistics.fmean(fairness_values)
+        if fairness_values
+        else 0.0,
+        "p05_jain_fairness": percentile(fairness_values, 0.05),
+        "mean_load_cv": statistics.fmean(cv_values) if cv_values else 0.0,
+        "p95_load_cv": percentile(cv_values, 0.95),
+        "aggregate_shard_loads": aggregate_loads,
+        "aggregate_max_shard_load_share": (
+            max(aggregate_loads) / aggregate_total
+            if aggregate_total > 0.0
+            else 0.0
+        ),
+        "aggregate_jain_fairness": jain_fairness(aggregate_loads),
+    }
+
+
 def analyze_tx_latency_details(result_path: Path) -> Dict[str, object]:
     name = "supervisor_measureOutput/Tx_Details.csv"
     try:
@@ -112,6 +196,7 @@ def analyze_tx_latency_details(result_path: Path) -> Dict[str, object]:
             "row_count": row_count,
             "valid_latency_count": 0,
             "invalid_latency_count": row_count,
+            "valid_latency_ratio": 0.0,
         }
 
     values_ms.sort()
@@ -125,6 +210,7 @@ def analyze_tx_latency_details(result_path: Path) -> Dict[str, object]:
         "row_count": row_count,
         "valid_latency_count": len(values_ms),
         "invalid_latency_count": row_count - len(values_ms),
+        "valid_latency_ratio": len(values_ms) / row_count if row_count else 0.0,
         "mean_sec": statistics.fmean(values_ms) / 1000.0,
         "p50_sec": ordered_percentile(0.50),
         "p95_sec": ordered_percentile(0.95),
@@ -140,6 +226,7 @@ def summarize_period(
     tps_by_epoch: Dict[str, Dict[str, str]],
     latency_by_epoch: Dict[str, Dict[str, str]],
     variance_by_epoch: Dict[str, Dict[str, str]],
+    shards: int,
     max_epoch_tps: float,
 ) -> Dict[str, object]:
     if not rows:
@@ -198,6 +285,11 @@ def summarize_period(
         if eid in variance_by_epoch
     ]
     variance_values = [value for value in variance_values if value is not None]
+    load_balance = summarize_load_balance(
+        epoch_ids,
+        variance_by_epoch,
+        shards,
+    )
 
     return {
         "name": name,
@@ -218,6 +310,8 @@ def summarize_period(
         "wall_tps": effective_total / wall_seconds if wall_seconds > 0 else 0.0,
         "mean_epoch_tps": statistics.mean(tps_values) if tps_values else 0.0,
         "median_epoch_tps": statistics.median(tps_values) if tps_values else 0.0,
+        "p05_epoch_tps": percentile(tps_values, 0.05),
+        "p95_epoch_tps": percentile(tps_values, 0.95),
         "mean_load_variance": statistics.mean(variance_values)
         if variance_values
         else 0.0,
@@ -225,6 +319,7 @@ def summarize_period(
         if variance_values
         else 0.0,
         "p95_load_variance": percentile(variance_values, 0.95),
+        "load_balance": load_balance,
     }
 
 
@@ -271,6 +366,12 @@ def analyze_decisions(source_path: Path, shards: int) -> Dict[str, object]:
         action_mask_size_hist: Dict[int, int] = {}
         action_mask_size_sum = 0.0
         action_mask_seen = 0
+        identifiable_mask_seen = 0
+        major_related_in_mask_count = 0
+        all_related_in_mask_count = 0
+        candidate_related_mass_sum = 0.0
+        major_related_chosen_when_in_mask_count = 0
+        major_related_chosen_when_in_mask_seen = 0
         sender_pos_start = 10 * shards
         sender_pos_end = sender_pos_start + shards
 
@@ -285,6 +386,9 @@ def analyze_decisions(source_path: Path, shards: int) -> Dict[str, object]:
             source = str(rec.get("source", "unknown"))
             source_hist[source] = source_hist.get(source, 0) + 1
             raw_mask = rec.get("action_mask") or []
+            identifiable_mask = (
+                isinstance(raw_mask, list) and len(raw_mask) >= shards
+            )
             mask_size = 0
             if isinstance(raw_mask, list) and raw_mask:
                 mask_size = sum(1 for value in raw_mask if int(value or 0) > 0)
@@ -311,6 +415,34 @@ def analyze_decisions(source_path: Path, shards: int) -> Dict[str, object]:
                     if 0 <= shard < shards and sender_pos[shard] > 1e-12:
                         selected_related_mass_count += 1
                         selected_related_mass_sum += sender_pos[shard]
+                    if identifiable_mask:
+                        identifiable_mask_seen += 1
+                        allowed = [
+                            int(raw_mask[sid] or 0) > 0
+                            for sid in range(shards)
+                        ]
+                        related_shards = [
+                            sid
+                            for sid, value in enumerate(sender_pos)
+                            if value > 1e-12
+                        ]
+                        major_in_mask = allowed[related_shard]
+                        if major_in_mask:
+                            major_related_in_mask_count += 1
+                            major_related_chosen_when_in_mask_seen += 1
+                            if shard == related_shard:
+                                major_related_chosen_when_in_mask_count += 1
+                        if related_shards and all(
+                            allowed[sid] for sid in related_shards
+                        ):
+                            all_related_in_mask_count += 1
+                        total_related_mass = sum(sender_pos)
+                        if total_related_mass > 1e-12:
+                            candidate_related_mass_sum += sum(
+                                sender_pos[sid]
+                                for sid in related_shards
+                                if allowed[sid]
+                            ) / total_related_mass
 
     action_total = sum(action_hist)
     related_total = sum(related_shard_hist)
@@ -337,9 +469,10 @@ def analyze_decisions(source_path: Path, shards: int) -> Dict[str, object]:
     fallback_source_hist = {
         source: value
         for source, value in source_hist.items()
-        if (not source.startswith("python_ppo")) or "fallback" in source
+        if "fallback" in source.lower()
     }
     fallback_count = sum(fallback_source_hist.values())
+    candidate_only_count = source_hist.get("go_candidate_only", 0)
 
     return {
         "decision_count": count,
@@ -355,6 +488,8 @@ def analyze_decisions(source_path: Path, shards: int) -> Dict[str, object]:
         "fallback_count": fallback_count,
         "fallback_ratio": fallback_count / count if count else 0.0,
         "fallback_source_hist": fallback_source_hist,
+        "candidate_only_count": candidate_only_count,
+        "candidate_only_ratio": candidate_only_count / count if count else 0.0,
         "action_mask_seen": action_mask_seen,
         "action_mask_seen_ratio": action_mask_seen / count if count else 0.0,
         "action_mask_size_hist": dict(sorted(action_mask_size_hist.items())),
@@ -370,6 +505,48 @@ def analyze_decisions(source_path: Path, shards: int) -> Dict[str, object]:
         if action_mask_seen
         else 0.0,
         "sender_pos_nonzero_ratio": sender_pos_nonzero / count if count else 0.0,
+        "candidate_diagnostic_seen": identifiable_mask_seen,
+        "candidate_diagnostic_seen_ratio": identifiable_mask_seen / related_total
+        if related_total
+        else 0.0,
+        "candidate_major_anchor_coverage_count": major_related_in_mask_count,
+        "candidate_major_anchor_coverage_ratio": major_related_in_mask_count
+        / identifiable_mask_seen
+        if identifiable_mask_seen
+        else 0.0,
+        "candidate_major_anchor_absent_ratio": (
+            identifiable_mask_seen - major_related_in_mask_count
+        )
+        / identifiable_mask_seen
+        if identifiable_mask_seen
+        else 0.0,
+        "candidate_all_related_coverage_count": all_related_in_mask_count,
+        "candidate_all_related_coverage_ratio": all_related_in_mask_count
+        / identifiable_mask_seen
+        if identifiable_mask_seen
+        else 0.0,
+        "candidate_related_mass_coverage_mean": candidate_related_mass_sum
+        / identifiable_mask_seen
+        if identifiable_mask_seen
+        else 0.0,
+        "major_anchor_choice_when_available_count": (
+            major_related_chosen_when_in_mask_count
+        ),
+        "major_anchor_choice_when_available_ratio": (
+            major_related_chosen_when_in_mask_count
+            / major_related_chosen_when_in_mask_seen
+            if major_related_chosen_when_in_mask_seen
+            else 0.0
+        ),
+        "major_anchor_not_chosen_when_available_ratio": (
+            (
+                major_related_chosen_when_in_mask_seen
+                - major_related_chosen_when_in_mask_count
+            )
+            / major_related_chosen_when_in_mask_seen
+            if major_related_chosen_when_in_mask_seen
+            else 0.0
+        ),
         "related_shard_hist": related_shard_hist,
         "same_related_by_shard": same_related_by_shard,
         "major_related_follow_by_shard": same_related_by_shard,
@@ -518,6 +695,7 @@ def analyze(args: argparse.Namespace) -> Dict[str, object]:
             tps_by_epoch,
             latency_by_epoch,
             variance_by_epoch,
+            args.shards,
             args.max_epoch_tps,
         ),
         "main_injection": summarize_period(
@@ -527,6 +705,7 @@ def analyze(args: argparse.Namespace) -> Dict[str, object]:
             tps_by_epoch,
             latency_by_epoch,
             variance_by_epoch,
+            args.shards,
             args.max_epoch_tps,
         ),
         "capacity_like": summarize_period(
@@ -536,6 +715,7 @@ def analyze(args: argparse.Namespace) -> Dict[str, object]:
             tps_by_epoch,
             latency_by_epoch,
             variance_by_epoch,
+            args.shards,
             args.max_epoch_tps,
         ),
     }

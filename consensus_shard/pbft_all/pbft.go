@@ -46,15 +46,17 @@ type PbftConsensusNode struct {
 	newViewMap     map[ViewChangeData]map[uint64]bool
 
 	// the control message and message checking utils in pbft
-	sequenceID        uint64                          // the message sequence id of the pbft
-	stopSignal        atomic.Bool                     // send stop signal
-	pStop             chan uint64                     // channle for stopping consensus
-	requestPool       map[string]*message.Request     // RequestHash to Request
-	cntPrepareConfirm map[string]map[*shard.Node]bool // count the prepare confirm message, [messageHash][Node]bool
-	cntCommitConfirm  map[string]map[*shard.Node]bool // count the commit confirm message, [messageHash][Node]bool
-	isCommitBordcast  map[string]bool                 // denote whether the commit is broadcast
-	isReply           map[string]bool                 // denote whether the message is reply
-	height2Digest     map[uint64]string               // sequence (block height) -> request, fast read
+	sequenceID         uint64                          // the message sequence id of the pbft
+	stopSignal         atomic.Bool                     // send stop signal
+	stopCh             chan struct{}                   // broadcast shutdown to consensus background routines
+	handlerLifecycleMu sync.Mutex                      // serialize handler admission with shutdown
+	inflightHandlers   sync.WaitGroup                  // handlers that must finish before databases close
+	requestPool        map[string]*message.Request     // RequestHash to Request
+	cntPrepareConfirm  map[string]map[*shard.Node]bool // count the prepare confirm message, [messageHash][Node]bool
+	cntCommitConfirm   map[string]map[*shard.Node]bool // count the commit confirm message, [messageHash][Node]bool
+	isCommitBordcast   map[string]bool                 // denote whether the commit is broadcast
+	isReply            map[string]bool                 // denote whether the message is reply
+	height2Digest      map[uint64]string               // sequence (block height) -> request, fast read
 
 	// pbft stage wait
 	pbftStage              atomic.Int32 // 1->Preprepare, 2->Prepare, 3->Commit, 4->Done
@@ -110,7 +112,7 @@ func NewPbftNode(shardID, nodeID uint64, pcc *params.ChainConfig, messageHandleT
 
 	p.stopSignal.Store(false)
 	p.sequenceID = p.CurChain.CurrentBlock.Header.Number + 1
-	p.pStop = make(chan uint64)
+	p.stopCh = make(chan struct{})
 	p.requestPool = make(map[string]*message.Request)
 	p.cntPrepareConfirm = make(map[string]map[*shard.Node]bool)
 	p.cntCommitConfirm = make(map[string]map[*shard.Node]bool)
@@ -174,6 +176,45 @@ func NewPbftNode(shardID, nodeID uint64, pcc *params.ChainConfig, messageHandleT
 	return p
 }
 
+// launchTrackedHandler admits asynchronous work only while the node is running.
+// The lifecycle mutex prevents WaitGroup.Add from racing with shutdown's Wait.
+func (p *PbftConsensusNode) launchTrackedHandler(handler func()) bool {
+	p.handlerLifecycleMu.Lock()
+	if p.stopSignal.Load() {
+		p.handlerLifecycleMu.Unlock()
+		return false
+	}
+	p.inflightHandlers.Add(1)
+	p.handlerLifecycleMu.Unlock()
+
+	go func() {
+		defer p.inflightHandlers.Done()
+		handler()
+	}()
+	return true
+}
+
+// beginStop closes admission before waiting for in-flight handlers. Waking the
+// PBFT condition variable lets handlers blocked on a future stage observe the
+// stop signal and leave instead of keeping shutdown blocked indefinitely.
+func (p *PbftConsensusNode) beginStop() bool {
+	p.handlerLifecycleMu.Lock()
+	if p.stopSignal.Load() {
+		p.handlerLifecycleMu.Unlock()
+		return false
+	}
+	p.stopSignal.Store(true)
+	if p.stopCh != nil {
+		close(p.stopCh)
+	}
+	p.handlerLifecycleMu.Unlock()
+
+	p.pbftLock.Lock()
+	p.conditionalVarpbftLock.Broadcast()
+	p.pbftLock.Unlock()
+	return true
+}
+
 // handle the raw message, send it to corresponded interfaces
 func (p *PbftConsensusNode) handleMessage(msg []byte) {
 	msgType, content := message.SplitMessage(msg)
@@ -181,13 +222,13 @@ func (p *PbftConsensusNode) handleMessage(msg []byte) {
 	// pbft inside message type
 	case message.CPrePrepare:
 		// use "go" to start a go routine to handle this message, so that a pre-arrival message will not be aborted.
-		go p.handlePrePrepare(content)
+		p.launchTrackedHandler(func() { p.handlePrePrepare(content) })
 	case message.CPrepare:
 		// use "go" to start a go routine to handle this message, so that a pre-arrival message will not be aborted.
-		go p.handlePrepare(content)
+		p.launchTrackedHandler(func() { p.handlePrepare(content) })
 	case message.CCommit:
 		// use "go" to start a go routine to handle this message, so that a pre-arrival message will not be aborted.
-		go p.handleCommit(content)
+		p.launchTrackedHandler(func() { p.handleCommit(content) })
 
 	case message.ViewChangePropose:
 		p.handleViewChangeMsg(content)
@@ -204,7 +245,7 @@ func (p *PbftConsensusNode) handleMessage(msg []byte) {
 
 	// handle the message from outside
 	default:
-		go p.ohm.HandleMessageOutsidePBFT(msgType, content)
+		p.launchTrackedHandler(func() { p.ohm.HandleMessageOutsidePBFT(msgType, content) })
 	}
 }
 
@@ -219,7 +260,12 @@ func (p *PbftConsensusNode) handleClientRequest(con net.Conn) {
 		switch err {
 		case nil:
 			p.tcpPoolLock.Lock()
-			p.handleMessage(clientRequest)
+			// A request can pass the first stop check and then wait for this
+			// lock behind CStop. Check again so it cannot dispatch after the
+			// databases have been closed.
+			if !p.stopSignal.Load() {
+				p.handleMessage(clientRequest)
+			}
 			p.tcpPoolLock.Unlock()
 		case io.EOF:
 			log.Println("client closed the connection by terminating the process")
@@ -250,12 +296,18 @@ func (p *PbftConsensusNode) TcpListen() {
 // When receiving a stop message, this node try to stop.
 func (p *PbftConsensusNode) WaitToStop() {
 	p.pl.Plog.Println("handling stop message")
-	p.stopSignal.Store(true)
+	if !p.beginStop() {
+		return
+	}
+	if p.tcpln != nil {
+		_ = p.tcpln.Close()
+	}
+	// Commit handlers update both BoltDB and LevelDB. They must drain before
+	// CloseBlockChain closes either database.
+	p.inflightHandlers.Wait()
 	networks.CloseAllConnInPool()
-	p.tcpln.Close()
 	p.closePbft()
 	p.pl.Plog.Println("handled stop message in TCPListen Routine")
-	p.pStop <- 1
 }
 
 // close the pbft
