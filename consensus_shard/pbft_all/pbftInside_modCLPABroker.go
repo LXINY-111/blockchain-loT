@@ -85,7 +85,10 @@ func (cphm *CLPAPbftInsideExtraHandleMod_forBroker) HandleinCommit(cmsg *message
 	// if a block request ...
 	block := core.DecodeB(r.Msg.Content)
 	cphm.pbftNode.pl.Plog.Printf("S%dN%d : adding the block %d...now height = %d \n", cphm.pbftNode.ShardID, cphm.pbftNode.NodeID, block.Header.Number, cphm.pbftNode.CurChain.CurrentBlock.Header.Number)
-	cphm.pbftNode.CurChain.AddBlock(block)
+	if err := cphm.pbftNode.CurChain.AddBlock(block); err != nil {
+		cphm.pbftNode.pl.Plog.Printf("S%dN%d : block commit rejected: %v\n", cphm.pbftNode.ShardID, cphm.pbftNode.NodeID, err)
+		return false
+	}
 	cphm.pbftNode.pl.Plog.Printf("S%dN%d : added the block %d... \n", cphm.pbftNode.ShardID, cphm.pbftNode.NodeID, block.Header.Number)
 	cphm.pbftNode.CurChain.PrintBlockChain()
 
@@ -211,21 +214,29 @@ func (cphm *CLPAPbftInsideExtraHandleMod_forBroker) HandleReqestforOldSeq(*messa
 
 // the operation for sequential requests
 func (cphm *CLPAPbftInsideExtraHandleMod_forBroker) HandleforSequentialRequest(som *message.SendOldMessage) bool {
-	if int(som.SeqEndHeight-som.SeqStartHeight+1) != len(som.OldRequest) {
+	if som.SeqStartHeight > som.SeqEndHeight || uint64(len(som.OldRequest)) != som.SeqEndHeight-som.SeqStartHeight+1 {
 		cphm.pbftNode.pl.Plog.Printf("S%dN%d : the SendOldMessage message is not enough\n", cphm.pbftNode.ShardID, cphm.pbftNode.NodeID)
-	} else { // add the block into the node pbft blockchain
-		for height := som.SeqStartHeight; height <= som.SeqEndHeight; height++ {
-			r := som.OldRequest[height-som.SeqStartHeight]
-			if r.RequestType == message.BlockRequest {
-				b := core.DecodeB(r.Msg.Content)
-				cphm.pbftNode.CurChain.AddBlock(b)
-			} else {
-				atm := message.DecodeAccountTransferMsg(r.Msg.Content)
-				cphm.accountTransfer_do(atm)
-			}
-		}
-		cphm.pbftNode.sequenceID = som.SeqEndHeight + 1
-		cphm.pbftNode.CurChain.PrintBlockChain()
+		return false
 	}
+	// add the complete, contiguous response into the node PBFT blockchain
+	for height := som.SeqStartHeight; height <= som.SeqEndHeight; height++ {
+		r := som.OldRequest[height-som.SeqStartHeight]
+		if r == nil {
+			return false
+		}
+		if r.RequestType == message.BlockRequest {
+			b := core.DecodeB(r.Msg.Content)
+			if err := cphm.pbftNode.CurChain.AddBlock(b); err != nil {
+				cphm.pbftNode.pl.Plog.Printf("S%dN%d : recovered block %d rejected: %v\n", cphm.pbftNode.ShardID, cphm.pbftNode.NodeID, height, err)
+				return false
+			}
+		} else if r.RequestType == message.PartitionReq {
+			atm := message.DecodeAccountTransferMsg(r.Msg.Content)
+			cphm.accountTransfer_do(atm)
+		} else {
+			return false
+		}
+	}
+	cphm.pbftNode.CurChain.PrintBlockChain()
 	return true
 }

@@ -19,6 +19,7 @@ type Storage struct {
 	blockBucket           string // bucket in bolt database
 	blockHeaderBucket     string // bucket in bolt database
 	newestBlockHashBucket string // bucket in bolt database
+	executedTxBucket      string // committed transaction hashes, used to reject replay
 	DataBase              *bolt.DB
 }
 
@@ -35,6 +36,7 @@ func NewStorage(dbFp string, cc *params.ChainConfig) *Storage {
 		blockBucket:           "block",
 		blockHeaderBucket:     "blockHeader",
 		newestBlockHashBucket: "newestBlockHash",
+		executedTxBucket:      "executedTransaction",
 	}
 
 	db, err := bolt.Open(s.dbFilePath, 0600, nil)
@@ -43,24 +45,51 @@ func NewStorage(dbFp string, cc *params.ChainConfig) *Storage {
 	}
 
 	// create buckets
-	db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(s.blockBucket))
+	err = db.Update(func(tx *bolt.Tx) error {
+		blockBucket, err := tx.CreateBucketIfNotExists([]byte(s.blockBucket))
 		if err != nil {
-			log.Panic("create blocksBucket failed")
+			return fmt.Errorf("create blocksBucket: %w", err)
 		}
 
 		_, err = tx.CreateBucketIfNotExists([]byte(s.blockHeaderBucket))
 		if err != nil {
-			log.Panic("create blockHeaderBucket failed")
+			return fmt.Errorf("create blockHeaderBucket: %w", err)
 		}
 
 		_, err = tx.CreateBucketIfNotExists([]byte(s.newestBlockHashBucket))
 		if err != nil {
-			log.Panic("create newestBlockHashBucket failed")
+			return fmt.Errorf("create newestBlockHashBucket: %w", err)
+		}
+
+		executedBucket, err := tx.CreateBucketIfNotExists([]byte(s.executedTxBucket))
+		if err != nil {
+			return fmt.Errorf("create executedTransaction bucket: %w", err)
+		}
+		// Backfill the replay index for databases created by older versions.
+		// The operation is idempotent and keeps existing experiment databases readable.
+		if err := blockBucket.ForEach(func(_, encoded []byte) error {
+			if encoded == nil {
+				return nil
+			}
+			block := core.DecodeB(encoded)
+			for _, transaction := range block.Body {
+				if transaction != nil && len(transaction.TxHash) > 0 {
+					if err := executedBucket.Put(transaction.TxHash, []byte{1}); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("backfill executed transactions: %w", err)
 		}
 
 		return nil
 	})
+	if err != nil {
+		_ = db.Close()
+		log.Panic(err)
+	}
 	s.DataBase = db
 	return s
 }
@@ -98,21 +127,59 @@ func (s *Storage) AddBlockHeader(blockhash []byte, bh *core.BlockHeader) {
 }
 
 // add a block into the database
-func (s *Storage) AddBlock(b *core.Block) {
+func (s *Storage) AddBlock(b *core.Block) error {
+	if b == nil || b.Header == nil {
+		return errors.New("cannot store a nil block or header")
+	}
 	err := s.DataBase.Update(func(tx *bolt.Tx) error {
 		bbucket := tx.Bucket([]byte(s.blockBucket))
-		err := bbucket.Put(b.Hash, b.Encode())
-		if err != nil {
-			log.Panic()
+		bhbucket := tx.Bucket([]byte(s.blockHeaderBucket))
+		nbhBucket := tx.Bucket([]byte(s.newestBlockHashBucket))
+		executedBucket := tx.Bucket([]byte(s.executedTxBucket))
+		if bbucket == nil || bhbucket == nil || nbhBucket == nil || executedBucket == nil {
+			return errors.New("storage bucket is missing")
+		}
+		if err := bbucket.Put(b.Hash, b.Encode()); err != nil {
+			return err
+		}
+		if err := bhbucket.Put(b.Hash, b.Header.Encode()); err != nil {
+			return err
+		}
+		if err := nbhBucket.Put([]byte("OnlyNewestBlock"), b.Hash); err != nil {
+			return err
+		}
+		for _, transaction := range b.Body {
+			if transaction != nil && len(transaction.TxHash) > 0 {
+				if err := executedBucket.Put(transaction.TxHash, []byte{1}); err != nil {
+					return err
+				}
+			}
 		}
 		return nil
 	})
 	if err != nil {
-		log.Panic()
+		return fmt.Errorf("store block: %w", err)
 	}
-	s.AddBlockHeader(b.Hash, b.Header)
-	s.UpdateNewestBlock(b.Hash)
 	fmt.Println("Block is added")
+	return nil
+}
+
+// HasTransaction reports whether this shard has already committed txHash.
+// The index is persisted in BoltDB so replay protection survives node restarts.
+func (s *Storage) HasTransaction(txHash []byte) (bool, error) {
+	if len(txHash) == 0 {
+		return false, errors.New("transaction hash is empty")
+	}
+	found := false
+	err := s.DataBase.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(s.executedTxBucket))
+		if bucket == nil {
+			return errors.New("executedTransaction bucket is missing")
+		}
+		found = bucket.Get(txHash) != nil
+		return nil
+	})
+	return found, err
 }
 
 // read a blockheader from the database

@@ -1,3 +1,5 @@
+> 2026-09-09 整理说明：本文保留为历史说明，结论及“当前”等表述对应原审查日期；不代表问题截至今日仍存在或已修复。实施路线以[当前实施方案](E:/project_iot/block-emulator-main-iot/analysis_outputs/共享任务首次放置_实施方案_20260909.md)为准。用户要求清理分析中间产物，本文提到的分析脚本、日志、Notebook、计算 CSV/JSON/NumPy 已不再作为现存复算入口；原始数据和正式实验结果未作清理。
+
 # 独立复核：实验结果10配对效果与结果9解释边界
 
 复核范围：先只读实验结果10的6个有 `run_complete.json` 的验证运行的标记、manifest、analysis和实际 state_check 文本；收到任务收窄后，仅重算本目录 `run_metrics.json` 与 `summary.json`，未继续扫描实验结果目录。始终未读取指定的当前 test2M seed27 运行目录，未查看或干预任何进程，未启动实验或修改源码。

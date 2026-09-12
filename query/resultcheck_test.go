@@ -3,6 +3,8 @@ package query
 import (
 	"blockEmulator/core"
 	"blockEmulator/params"
+	"bufio"
+	"bytes"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -43,12 +45,13 @@ func TestFinalResult(t *testing.T) {
 	// check the final result after running BlockEmulator
 	firstMptPath := queryTestPath(params.DatabaseWrite_path + "mptDB/ldb/s0/n0")
 	if _, err := os.Stat(firstMptPath); err != nil {
-		t.Skipf("skip final result check because BlockEmulator database is not present: %s", firstMptPath)
+		t.Fatalf("final result database is not present: %s: %v", firstMptPath, err)
 	}
+	verifyReplicaHeads(t)
 
 	// get the result from Dataset
 	accountBalance := loadFinalResultFromDataset()
-	acCorrect := make(map[string]bool)
+	acCorrect := make(map[string]int)
 
 	// convert keys to list
 	accounts := make([]string, len(accountBalance))
@@ -76,26 +79,127 @@ func TestFinalResult(t *testing.T) {
 				acFound[accounts[idx]]++
 			}
 			if as != nil && as.Balance.Cmp(accountBalance[accounts[idx]]) == 0 {
-				acCorrect[accounts[idx]] = true
+				acCorrect[accounts[idx]]++
 			}
 		}
 	}
-	duplicateAccounts := 0
-	for _, count := range acFound {
-		if count > 1 {
-			duplicateAccounts++
+	brokerAccounts := loadBrokerAccountSet(t)
+	isBrokerConsensus := params.ConsensusMethod == 0 || params.ConsensusMethod == 2
+	wrongAccounts := make([]string, 0)
+	duplicateAccounts := make([]string, 0)
+	missingAccounts := make([]string, 0)
+	brokerExceptions := 0
+	for account := range accountBalance {
+		found := acFound[account]
+		correct := acCorrect[account]
+		_, isConfiguredBroker := brokerAccounts[account]
+		if isBrokerConsensus && isConfiguredBroker {
+			if found != 1 || correct != 1 {
+				brokerExceptions++
+			}
+			continue
+		}
+		if found == 0 {
+			missingAccounts = append(missingAccounts, account)
+		}
+		if found > 1 {
+			duplicateAccounts = append(duplicateAccounts, account)
+		}
+		if correct != 1 {
+			wrongAccounts = append(wrongAccounts, account)
 		}
 	}
-	fmt.Println("Results from BlockEmulator: # of correct accounts", len(acCorrect))
+	fmt.Println("Results from BlockEmulator: # of accounts with a correct copy", len(acCorrect))
 	fmt.Println("Results from BlockEmulator: # of found accounts", len(acFound))
-	fmt.Println("Results from BlockEmulator: # of duplicate accounts", duplicateAccounts)
-	if len(acCorrect) == len(accountBalance) {
-		fmt.Println("test pass")
-	} else if len(accountBalance)-len(acCorrect) < params.BrokerNum {
-		fmt.Printf("%d err accounts, they maybe brokers", len(accountBalance)-len(acCorrect))
-	} else {
-		log.Panic("Err, too many wrong accounts", len(accountBalance)-len(acCorrect))
+	fmt.Println("Results from BlockEmulator: # of duplicate non-broker accounts", len(duplicateAccounts))
+	fmt.Println("Results from BlockEmulator: # of configured broker exceptions", brokerExceptions)
+	if len(missingAccounts) != 0 || len(duplicateAccounts) != 0 || len(wrongAccounts) != 0 {
+		t.Fatalf(
+			"final state mismatch: missing=%d duplicate=%d wrong=%d",
+			len(missingAccounts),
+			len(duplicateAccounts),
+			len(wrongAccounts),
+		)
 	}
+	fmt.Println("test pass")
+}
+
+// verifyReplicaHeads checks every replica, not only N0. Matching height, block
+// hash, and StateRoot proves that replicas finalized the same chain head.
+func verifyReplicaHeads(t *testing.T) {
+	t.Helper()
+	for sid := 0; sid < params.ShardNum; sid++ {
+		var referenceNumber uint64
+		var referenceHash, referenceStateRoot []byte
+		for nodeID := 0; nodeID < params.NodesInShard; nodeID++ {
+			mptPath := queryTestPath(
+				params.DatabaseWrite_path + fmt.Sprintf("mptDB/ldb/s%d/n%d", sid, nodeID),
+			)
+			chainPath := queryTestPath(
+				params.DatabaseWrite_path + fmt.Sprintf("chainDB/S%d_N%d", sid, nodeID),
+			)
+			if _, err := os.Stat(mptPath); err != nil {
+				t.Fatalf("shard %d node %d MPT database is missing: %v", sid, nodeID, err)
+			}
+			if _, err := os.Stat(chainPath); err != nil {
+				t.Fatalf("shard %d node %d chain database is missing: %v", sid, nodeID, err)
+			}
+			newest := QueryNewestBlock(uint64(sid), uint64(nodeID))
+			if newest == nil || newest.Header == nil {
+				t.Fatalf("shard %d node %d has no newest block", sid, nodeID)
+			}
+			if nodeID == 0 {
+				referenceNumber = newest.Header.Number
+				referenceHash = append([]byte(nil), newest.Hash...)
+				referenceStateRoot = append([]byte(nil), newest.Header.StateRoot...)
+				continue
+			}
+			if newest.Header.Number != referenceNumber ||
+				!bytes.Equal(newest.Hash, referenceHash) ||
+				!bytes.Equal(newest.Header.StateRoot, referenceStateRoot) {
+				t.Fatalf(
+					"replica head mismatch in shard %d: node0 height/hash/root=%d/%x/%x, node%d=%d/%x/%x",
+					sid,
+					referenceNumber,
+					referenceHash,
+					referenceStateRoot,
+					nodeID,
+					newest.Header.Number,
+					newest.Hash,
+					newest.Header.StateRoot,
+				)
+			}
+		}
+	}
+}
+
+// loadBrokerAccountSet returns the exact configured broker identities. Broker
+// exceptions are never inferred merely from the number of wrong accounts.
+func loadBrokerAccountSet(t *testing.T) map[string]struct{} {
+	t.Helper()
+	accounts := make(map[string]struct{})
+	if params.ConsensusMethod != 0 && params.ConsensusMethod != 2 {
+		return accounts
+	}
+	file, err := os.Open(queryTestPath("broker/broker"))
+	if err != nil {
+		t.Fatalf("open configured broker identities: %v", err)
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() && len(accounts) < params.BrokerNum {
+		account := strings.TrimSpace(scanner.Text())
+		if account != "" {
+			accounts[account] = struct{}{}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("read configured broker identities: %v", err)
+	}
+	if len(accounts) != params.BrokerNum {
+		t.Fatalf("loaded %d broker identities, want %d", len(accounts), params.BrokerNum)
+	}
+	return accounts
 }
 
 func queryTestPath(path string) string {

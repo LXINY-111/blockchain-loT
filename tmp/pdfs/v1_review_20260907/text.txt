@@ -1,0 +1,1606 @@
+PAGE 1
+一、这次讨论最开始的背景：现在的问题不只
+是 “PPO 没有训练好 ”
+ 
+我们最开始结合你目前已经跑出的正式实验、分析报告和代码审计，得出的判断不是：
+“PPO 参数没有调好，再训练更多轮就可以了。 ”
+而是：
+当前项目已经到了需要重新检查 “ 问题定义、数据语义、 Python 训练目标和 BlockEmulator 真实
+执行目标是否一致 ” 的阶段。
+你的历史实验并不是全部无效，也不能简单扔掉。
+目前的实验至少能够证明：
+整个  Python 离线训练  →  固定模型  →  BlockEmulator 执行这条链路是能跑通的；
+PPO 不是完全随机；
+PPO 相比 Hash 、 Random 能够降低一定跨片率；
+Candidate Top-k 候选筛选确实带来了一些训练可行性；
+但是 PPO 相对于较强 baseline 的额外优势很弱，而且不同 seed 之间波动比较大；
+当前结果不足以支撑 “PPO 全面提高吞吐率、负载均衡和尾延迟 ” 这样的强结论。
+例如我们之前分析到：
+PPO 相比 Hash 、 Random 确实降低跨片；
+但是相比 NSshard-adapted 优势很小；
+Candidate-Only 和 PPO 之间的差距也很小，而且有 seed 下 PPO 反而更差；
+当前 250 TPS 的实验基本是固定输入速率，所有方法 Wall TPS 都接近 250 ，因此不能说明谁的 “ 最大
+吞吐能力 ” 更强；
+300 TPS 下 PPO 出现明显的队列积压和尾延迟恶化；
+实际 PBFT stage 角度看， PPO 没有明显降低最忙分片的绝对负载。
+所以我们当时形成了一个非常重要的判断：
+继续盲目调 PPO 参数的价值已经不高。必须先确认这个 state-placement 问题本身是不是被当前
+数据结构做 “ 简单化 ” 了。
+二、导致我们进一步追查的关键问题：
+Owner-Colocate 可能成为过强的简单解
+ 
+后来我们发现了一个结构性风险。
+当前你的 IoT 数据里，一个 state object 虽然可能有多个 related anchors ：
+S ↔ {A1,A2,A3,… }S\leftrightarrow{A_1,A_2,A_3,\dots}
+但是 BlockEmulator 真正执行的时候，并不一定真的执行：
+S ↔ A1S\leftrightarrow A_1S ↔ A2S\leftrightarrow A_2S ↔ A3S\leftrightarrow A_3
+
+PAGE 2
+而是当前执行逻辑主要变成：
+S ↔ PrimaryOwnerS\leftrightarrow PrimaryOwner
+也就是：
+如果每个 state 实际上只有一个真正的 owner 访问者，那么一个极强的简单策略就是：
+如果这样做能够让绝大多数实际交易变成本片交易，那么复杂 PPO 的必要性就会非常弱。
+这就是我们之前提出：
+Owner-Colocate baseline 必须检查。
+它不是说已经证明 Owner-Colocate 一定可以达到 0 跨片，而是提出一个需要验证的结构性命题：
+如果一个 state 真正链上只和一个固定 owner 发生交易，而且没有其他访问方、存储限制、容量限
+制等约束，那么与 owner 同片很可能就是一个非常强甚至接近下界的解决方法。
+所以这个问题不能靠继续调整：
+来解决。
+因为如果问题定义本身就是 “ 一个 state 对应一个实际 owner” ，神经网络再复杂也无法创造一个不存在的
+多方权衡问题。
+三、然后你问到：我的 state 明明是多锚点，
+为什么 BlockEmulator 又像单锚点？
+ 
+这是这次聊天中最关键的一次概念澄清。
+我们把整个系统拆成了三个不同层次：
+第一层： Multi-anchor relation ，多锚点关系  
+例如：
+State Object
+      │
+      │ 实际链上交易
+      ▼
+Primary Owner
+1
+2
+3
+4
+5
+把 State 直接放到 Owner 所在 Shard1
+entropy_coef
+lambda
+beta
+network size
+Top-k
+1
+2
+3
+4
+5
+
+PAGE 3
+这些关系确实存在。
+你当前完整数据统计中：
+有效 flow 约 4,944,019 条；
+76,015 个 state objects ；
+2,913 个 anchors ；
+153,378 条 state-anchor edge ；
+76,013 个 state 属于 multi-anchor state ；
+大量 flow 具有 2 个或 3 个 anchor 。
+所以：
+你的数据不是 “ 实际上根本没有多锚点 ” 。
+多锚点关系是真实存在于处理后的 sidecar 和 state-anchor 关系中的。
+四、但是 PPO 并不是 “ 从多个 anchor 里面挑一
+个 anchor”
+ 
+这个概念我们也专门纠正过。
+假设：
+PPO 不是做：
+而是：
+例如：
+at=Shard5a_t=Shard5
+       Anchor A
+          \
+           \
+Anchor B —— S100 —— Anchor C
+           /
+          /
+       Anchor D
+1
+2
+3
+4
+5
+6
+7
+S100 相关：
+Anchor A → shard 2
+Anchor B → shard 5
+Anchor C → shard 9
+1
+2
+3
+4
+5
+选择 A
+选择 B
+选择 C
+1
+2
+3
+选择 Shard1
+
+PAGE 4
+多个 anchor 的作用是帮助 PPO 形成：
+然后 PPO 学：
+πθ (a ∣ s)\pi_\theta(a|s)
+即：
+给定当前 state 、多个 anchor 分布、分片负载、 IoT 特征等信息，应该选择哪个目标 Shard 。
+最终训练出来的模型不是：
+这种查表。
+而是一个神经网络策略：
+五、 “ 固定模型 ” 也不等于 “ 所有 state 已经固定
+位置 ”
+ 
+这是你当时另一个很重要的疑惑。
+训练阶段：
+测试阶段：
+sender_pos
+候选分片
+IoT 特征
+通信代价
+分片关联度
+1
+2
+3
+4
+5
+S1 → shard5
+S2 → shard7
+1
+2
+输入状态
+↓
+神经网络
+↓
+各候选 Shard 概率 / 价值
+↓
+选目标 Shard
+1
+2
+3
+4
+5
+6
+7
+State
+↓
+PPO
+↓
+Action
+↓
+Reward
+↓
+更新模型参数 θ
+1
+2
+3
+4
+5
+6
+7
+8
+9
+
+PAGE 5
+也就是说：
+模型参数不再学习。
+但是遇到测试集里的一个新 state 时，仍然要：
+所以：
+Frozen model ≠  frozen actions 。
+真正固定的是：
+θ \theta
+不是所有 state 的 Shard 。
+六、但是一个 state 第一次放置后，它的位置
+确实会固定
+ 
+这个又是另一层 “ 固定 ” 。
+例如：
+PPO 决定：
+之后 Supervisor 维护：
+以后 S100 再次出现：
+都继续使用 Shard4 。
+所以存在两个完全不同的 “ 固定 ” ：
+冻结 θ1
+读取这个 state 的特征
+↓
+输入已经训练好的 PPO
+↓
+PPO 进行推理
+↓
+得到目标 Shard
+1
+2
+3
+4
+5
+6
+7
+S100 第一次出现1
+S100 → shard41
+S100 = shard41
+第 2 次
+第 20 次
+第 1000 次
+1
+2
+3
+
+PAGE 6
+内容 含义
+Frozen PPO model 测试阶段神经网络参数不更新
+Fixed state placement 某个 state 第一次决定位置后不再迁移
+这两件事不能混在一起。
+七、真正发现的问题： PPO 看到的是多锚点，
+但 BlockEmulator 实际执行主要只看 Primary 
+Owner
+ 
+后面我们直接检查了你 GitHub 当前代码。
+在：
+里，SpringIOTTxFeature确实保存：
+所以 Go 端确实知道：
+然后：
+会把这些 anchor 聚合起来。
+同时：
+会给 anchor 做固定 Shard 映射。
+这些 multi-anchor 关系会参与：
+所以：
+PPO 确实是在利用 multi-anchor 信息。
+supervisor/committee/spring_iot.go1
+AnchorObjects []string
+AnchorWeights []float64
+1
+2
+这个 state 还有多个 related anchors1
+springBuildIOTBatchRelatedMap()1
+springSeedIOTAnchorShards()1
+sender_pos
+candidate
+PPO state
+1
+2
+3
+
+PAGE 7
+八、但真正进入链上执行时，代码把它改成了
+State →  Primary Anchor
+ 
+最重要的一段代码是：
+也就是说当前实际执行：
+而AnchorObject来自：
+也就是当前定义的 primary device/owner anchor 。
+所以形成一个非常关键的不一致：
+PPO 决策层看到  
+BlockEmulator 实际主要执行  
+B/C/D 虽然影响 PPO ：
+但是并没有全部成为真正：
+所消耗的链上访问边。
+tx.Sender = feature.StateObject
+tx.Recipient = feature.AnchorObject
+1
+2
+StateObject → AnchorObject1
+from_address1
+       A
+      /
+B —— S —— C
+      \
+       D
+1
+2
+3
+4
+5
+S → A1
+sender_pos
+candidate
+communication cost
+1
+2
+3
+PBFT
+Relay
+Cross-shard transaction
+1
+2
+3
+
+PAGE 8
+九、 Python 离线训练代码其实也明确承认了
+这一点
+ 
+我们后来直接查了：
+其中代码注释明确表示：
+BlockEmulator executes each IoT transaction against one primary owner anchor.
+也就是说：
+BlockEmulator 每一笔 IoT 交易的实际 stage/capacity 仍然按照一个 primary owner 计算。
+multi-anchor 目前主要保留用于：
+代码里的实际 stage 计算逻辑也是：
+如果不同：
+而其他 related anchors 只是进入：
+这样的关系诊断指标。
+因此：
+这个问题不是我们的猜测，而是当前 Python 和 Go 代码共同采用的明确语义。
+十、所以不是 “ 训练集有多锚点，测试集突然
+没有多锚点 ”
+ 
+这个问题我们也彻底澄清了。
+你当时问：
+spring_lite/offline_env.py1
+sender_pos
+candidate coverage
+communication diagnostic
+relation metric
+1
+2
+3
+4
+sender_shard
+↓
+recipient_shard = primary owner shard
+1
+2
+3
+sender shard stage +1
+recipient shard stage +1
+Relay1 + Relay2
+1
+2
+3
+relation_effective_loads
+relation_cross_loads
+1
+2
+
+PAGE 9
+为什么前面的训练数据有 multi-anchor ，到了 BlockEmulator 后好像没有了，是因为后面用固定模
+型吗？
+答案是：
+不是。
+训练 / 验证 /test 的数据切分并没有把 multi-anchor 信息删除。
+测试阶段 sidecar 仍然可以包含：
+这些仍然会用于 PPO 推理。
+真正的问题是：
+Multi-anchor 仍然存在于 “ 决策关系层 ” ，但没有完全存在于 “ 实际链上执行层 ” 。
+所以差异来源不是：
+而是：
+十一、我们用一个真实 state 进行了完整追踪 
+后来为了让这个问题不再停留在抽象层面，我们选择了你数据中的一个真实例子：
+设备 IP 大约：
+通信对象：
+端口：
+协议：
+anchor_addresses
+anchor_weights
+anchor_types
+distance
+link quality
+1
+2
+3
+4
+5
+Train vs Test1
+Decision Graph
+vs
+Execution Graph
+1
+2
+3
+WithingsBabyMonitor1
+192.168.1.1661
+192.168.1.11
+531
+
+PAGE 10
+Payload ：
+这条 flow 可以理解为：
+婴儿监视器与家庭网关 /DNS 服务之间的一次网络通信。
+十二、当前数据是怎么把这个 flow 处理成
+state 的？
+ 
+当前数据生成脚本中， state 的粒度大致是：
+State=Device+PeerAnchor+Service+ProtocolState= Device+ PeerAnchor+ Service+ Protocol
+项目 summary 中也明确说明：
+所以这个例子可能对应：
+形成：
+十三、这个 state 确实有多个 anchor  
+例如：
+sidecar 里就可能包含：
+DNS1
+279 bytes1
+state_object_key =
+device_label
++ peer anchor identity
++ dstPort/service
++ protocol
+1
+2
+3
+4
+5
+WithingsBabyMonitor
++
+Gateway 192.168.1.1
++
+DNS/53
++
+DNS
+1
+2
+3
+4
+5
+6
+7
+State S1
+Anchor 1 = WithingsBabyMonitor device
+Anchor 2 = Gateway
+1
+2
+
+PAGE 11
+所以 PPO 确实知道：
+十四、而生成 CSV 时，本来其实是 Device → 
+State
+ 
+我们后来发现了一个很有意思的地方。
+数据生成脚本当前写的是：
+也就是说最初生成的数据其实是：
+但是后来为了适配当前 SPRING-Lite ：
+“PPO 放置 Sender”
+这一套逻辑， Python 和 Go 又把它重新解释成：
+所以当前State 作为 Sender并不一定是原始业务设计天然要求的，更像是为了适配已有代码结构形成的
+实现选择。
+十五、为什么这会让 PPO 的收益 “ 兑现不了 ”  
+假设：
+PPO 看到：
+anchor_addresses =
+[
+  device_anchor,
+  gateway_anchor
+]
+1
+2
+3
+4
+5
+S ↔ Device
+S ↔ Gateway
+1
+2
+from_address = owner_anchor.address
+blockemulator_tx_row(
+    from_address,
+    state_address,
+    value
+)
+1
+2
+3
+4
+5
+6
+7
+Device → State1
+State → Device1
+Device → shard1
+Gateway → shard4
+1
+2
+
+PAGE 12
+于是综合：
+可能判断：
+从 PPO 角度：
+Gateway 在 shard4 ，所以这是一个合理决策。
+但是 BlockEmulator 实际真正执行的却是：
+因此：
+虽然：
+和 S 同片了，但这一部分收益并没有对应到真正 PBFT/Relay 交易里。
+于是就出现：
+PPO 为了 multi-anchor 综合目标作出了 “ 合理 ” 的选择，但 BlockEmulator 主要根据 primary owner
+计算代价，最后反而增加实际跨片。
+这很可能就是当前复杂 PPO 效果不稳定的重要原因之一。
+十六、你随后提出：能不能让所有 related 
+anchors 都真的访问 state ？
+ 
+答案是：
+技术上可以，但不能简单粗暴地把所有 related anchors 都强行变成链上交易。
+例如一条 flow 有：
+S 同时和 Device 、 Gateway 有关1
+sender_pos
+通信距离
+链路质量
+负载
+1
+2
+3
+4
+S → shard41
+S@shard4 → Device@shard11
+跨片1
+Gateway@shard41
+Device
+Gateway
+Cloud endpoint
+Service group
+1
+2
+3
+4
+
+PAGE 13
+不能直接人为制造：
+因为：
+Related relationship ≠  Actual blockchain access 。
+有些 anchor 只是：
+不一定真的是一个独立的链上交易发起者。
+十七、为什么 “ 把所有 related anchors 都变成
+交易 ” 有风险
+ 
+你当前 flow 分布大概是：
+如果每个 anchor 都机械展开成真实链上访问：
+364×1+3,548,593×2+1,395,062×3364\times1+ 3,548,593\times2+ 1,395,062\times3
+大约：
+11,282,73611,282,736
+次 state-anchor 访问。
+不仅实验量会增加，而且更严重的是：
+审稿人会问这些额外的链上交易到底有没有真实业务依据。
+如果回答是：
+“ 因为我需要 multi-anchor 才能让 PPO 有发挥空间。 ”
+那会成为很严重的问题。
+所以我们明确提出：
+不能为了让 PPO 结果更好而人为创造并不存在的链上访问。
+Device → State
+Gateway → State
+Cloud → State
+ServiceGroup → State
+1
+2
+3
+4
+通信上下文
+拓扑参考
+服务类型
+网关位置
+1
+2
+3
+4
+1 anchor ： 364 条
+2 anchors ： 3,548,593 条
+3 anchors ： 1,395,062 条
+1
+2
+3
+
+PAGE 14
+十八、因此我们后来提出了更合理的方向：
+Shared State
+ 
+与其让：
+更合理的是：
+让多个真实 flow 随时间自然访问同一个 Shared State 。
+当前 state 定义包含 device ：
+State=Device+Peer+Service+ProtocolState= Device+ Peer+ Service+ Protocol
+这意味着：
+会产生三个不同 state ：
+因为 device 已经进入 state identity 。
+所以最终仍然容易形成：
+每个 state 天然有自己的 device owner 。
+这就很容易让：
+成为强解。
+十九、 Shared State 的核心修改思想  
+我们提出了一个候选定义：
+State=f(Peer/Service, Port, Protocol)State=f(Peer/Service,\ Port,\ Protocol)
+即不再把：
+一条 flow
+↓
+所有 anchor 同时变成 transaction
+1
+2
+3
+Device A → Gateway DNS
+Device B → Gateway DNS
+Device C → Gateway DNS
+1
+2
+3
+S_A
+S_B
+S_C
+1
+2
+3
+A → S_A
+B → S_B
+C → S_C
+1
+2
+3
+Owner-Colocate1
+
+PAGE 15
+直接放进 state identity 。
+例如多个设备都访问：
+那么全部映射到：
+于是原始真实 flow 逐渐形成：
+最终：
+这个时候：
+multi-anchor 不再只是 sidecar 里的特征关系，而是真正由历史真实 flow 形成的多个实际访问者。
+二十、为什么这种结构更接近以太坊场景 
+可以类比：
+多个账户访问同一个：
+如果这些账户分布在不同 Shard ：
+Device1
+Gateway 192.168.1.1
+DNS
+port 53
+1
+2
+3
+Shared State S_DNS1
+Device A → S_DNS
+Device B → S_DNS
+Device C → S_DNS
+Device D → S_DNS
+1
+2
+3
+4
+               A
+               │
+               ▼
+B ─────────→ S_DNS ←──────── C
+               ▲
+               │
+               D
+1
+2
+3
+4
+5
+6
+7
+EOA A → Contract X
+EOA B → Contract X
+EOA C → Contract X
+1
+2
+3
+contract/state object1
+
+PAGE 16
+而：
+那么 PPO 才真正要解决：
+例如放 shard1 ：
+放 shard7 ：
+于是产生真正的权衡：
+CrossShardCostCrossShardCost
+vs
+LoadBalanceLoadBalance
+vs
+CommunicationCostCommunicationCost
+这才是 PPO 真正值得解决的非平凡问题。
+二十一、这里我们进一步修正：不是 “ 所有
+Related Anchor” ，而是区分两种 Anchor
+ 
+这个是非常重要的最终修正。
+以后最好明确区分：
+A → shard1
+B → shard1
+C → shard4
+D → shard7
+1
+2
+3
+4
+State S → ?1
+放到 shard1 ？
+放到 shard4 ？
+放到 shard7 ？
+还是其他低负载 Shard ？
+1
+2
+3
+4
+A → S 同片
+B → S 同片
+C → S 跨片
+D → S 跨片
+1
+2
+3
+4
+A → S 跨片
+B → S 跨片
+C → S 跨片
+D → S 同片
+1
+2
+3
+4
+
+PAGE 17
+Actual-access Anchor  
+中文：
+实际链上访问锚点
+它对应：
+例如：
+这个 Device A 是真实访问者。
+Context Anchor  
+中文：
+上下文锚点
+例如：
+它们可以用于：
+但不一定要变成：
+所以最终比较严谨的设计应该是：
+真正由真实 flow 产生的访问主体1
+IoT Device A → Shared State1
+Gateway
+Cloud endpoint
+Service group
+Mote topology
+Link-quality reference
+1
+2
+3
+4
+5
+距离
+拓扑
+候选分片
+IoT 特征
+通信成本
+1
+2
+3
+4
+5
+区块链 transaction sender1
+Actual-access edges
+↓
+真正进入 BlockEmulator
+Context relations
+↓
+只进入 MDP 特征 / 通信代价
+1
+2
+3
+4
+5
+6
+7
+
+PAGE 18
+这样不会把 “ 有关联 ” 错误解释成 “ 必然有链上交易 ” 。
+二十二、 Shared State 应该怎么自然形成
+Multi-Anchor ？
+ 
+正确方式不是一条 flow 产生多个访问者。
+而是：
+随着时间推移：
+RelatedAccessors(S)={A,B,C}RelatedAccessors(S)={A,B,C}
+这叫真正的：
+Multi-actor shared state access 。
+它自然形成多锚点，而不是人为展开。
+二十三、但是这里有一个非常重要的问题：未
+来信息泄漏
+ 
+假设最终测试集里：
+一共会被：
+访问。
+但是 S 第一次出现时只发生：
+那么 PPO 在这个时间点不能直接提前知道：
+t1:
+Device A → Shared State S
+t2:
+Device B → Shared State S
+t3:
+Device C → Shared State S
+t4:
+Device A → Shared State S
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+S1
+A,B,C,D,E1
+A → S1
+
+PAGE 19
+否则就是：
+Future Information Leakage
+ 未来信息泄漏。
+所以新的 multi-anchor 设计一定要满足：
+可以使用  
+不能使用  
+这一点未来重新生成数据时必须专门检查。
+二十四、接下来我们讨论了
+Sender/Recipient 是否应该反过来
+ 
+如果采用新语义：
+那么相对于现在系统：
+确实是反过来了。
+当前系统  
+建议新系统  
+二十五、为什么反过来是合理的？  
+因为业务语义更自然：
+未来 B 、 C 、 D 、 E 还会访问 S1
+当前时刻以前已经观察到的关系
+当前 TxBatch 内已经发生的关系
+静态合法上下文
+1
+2
+3
+测试集未来 100 万笔交易中的完整访问者集合1
+IoT Device / Actor → Shared State1
+State → Primary Owner1
+Sender = State Object
+Recipient = Primary Owner Anchor
+1
+2
+Sender = IoT Device / Actual Actor
+Recipient = Shared State Object
+1
+2
+
+PAGE 20
+也就是：
+一个 IoT 主体对区块链上的共享状态对象发起访问。
+可以形式化写成：
+uiu_i
+表示：
+IoT actor account
+sjs_j
+表示：
+Shared blockchain state object
+每一条真实 flow 映射：
+(ui,sj,t,w)(u_i,s_j,t,w)
+含义：
+在时间  tt ， IoT 主体  uiu_i 对状态  sjs_j 产生一次访问。
+于是：
+Sender=uiSender=u_iRecipient=sjRecipient=s_j
+这个逻辑很清楚。
+二十六、但绝对不能只把 Sender/Recipient
+两个字段换一下
+ 
+这是以后改代码最容易犯的错误。
+当前 PPO 代码实际上认为：
+所以会类似执行：
+也就是：
+Device
+  │
+  │ 调用  / 更新
+  ▼
+State
+1
+2
+3
+4
+5
+tx.Sender = 待放置对象1
+springPlaceAddressPPOSequential(
+    tx.Sender,
+    tx.Recipient,
+    ...
+)
+1
+2
+3
+4
+5
+
+PAGE 21
+如果改成：
+那么待放置对象就必须变成：
+即：
+而：
+变成：
+因此需要同步修改：
+不能只改：
+两个赋值。
+二十七、新版本 batchRelated 应该是什么样 
+例如同一个 TxBatch 中：
+那么：
+Place(Sender)1
+Sender = Device
+Recipient = State
+1
+2
+tx.Recipient1
+Place(Recipient)1
+tx.Sender1
+related actual accessor1
+PPO placement target
+batchRelated key
+sender_pos 构造
+candidate 构造
+state 首次出现判断
+address-shard mapping
+1
+2
+3
+4
+5
+6
+Sender ↔ Recipient1
+A → S
+B → S
+C → S
+1
+2
+3
+
+PAGE 22
+PPO 放置：
+并根据：
+构造：
+这时候：
+PPO 所看到的 related 关系，与 BlockEmulator 真正执行的访问关系终于一致。
+这是整个修改最关键的目标。
+二十八、 BlockEmulator 本身还有一个需要注
+意的地方： Sender 和 Recipient 不只是标签
+ 
+BlockEmulator 的交易结构是真正：
+执行状态时：
+所以以后如果采用：
+论文里必须解释：
+这是利用 BlockEmulator 账户交易模型抽象一次 IoT 状态访问。
+batchRelated[S]
+=
+{
+ A,
+ B,
+ C
+}
+1
+2
+3
+4
+5
+6
+7
+S1
+A 在哪个 Shard
+B 在哪个 Shard
+C 在哪个 Shard
+1
+2
+3
+sender_pos1
+Sender
+Recipient
+Value
+1
+2
+3
+Sender 扣 Value
+Recipient 加 Value
+1
+2
+Device → Shared State1
+
+PAGE 23
+不能写成：
+“IoT 设备现实中向状态对象转了 279 枚代币。 ”
+例如：
+只能解释成一种：
+workload/value mapping
+而不是现实经济交易。
+二十九、然后你问：其他 IoT 区块链分片论文
+很多都是仿真，我为什么要这么复杂地处理真
+实数据？
+ 
+这次聊天里我们的结论是：
+你使用真实 IoT 数据并不是问题，也不必因为别人常使用合成仿真数据，就把真实数据路线放弃。
+但必须准确描述它是什么。
+你现在不能说：
+“ 这是一个真实 IoT 区块链交易数据集。 ”
+因为原始 UNSW 数据是：
+不是：
+你做的是：
+所以最准确的名称应该是：
+Real-trace-driven blockchain workload  
+中文：
+真实 IoT 轨迹驱动的区块链仿真工作负载
+Value = payload1
+IoT network flows1
+blockchain transactions1
+真实 IoT flow
+↓
+研究者定义映射规则
+↓
+Blockchain workload
+↓
+BlockEmulator
+1
+2
+3
+4
+5
+6
+7
+
+PAGE 24
+或者：
+真实 IoT 流量轨迹驱动的区块链分片仿真
+三十、哪些部分是真的，哪些部分是你构造
+的，要明确区分
+ 
+以后论文中最好分三层。
+第一层：真实 IoT trace  
+例如：
+这些来自真实 IoT 数据。
+第二层： Blockchain workload construction  
+这些是你研究者定义：
+这些不是原数据天然存在的。
+第三层： Topology augmentation  
+你的 IoT flow 和：
+也并不是同一次实际部署共同采集的数据。
+你是将两套数据通过确定性方法进行映射，从而补充：
+设备行为
+通信时间
+协议
+endpoint
+packet 数量
+payload
+flowDuration
+访问频率
+流量突发性
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Device account
+State Object
+Shared State
+Device → State transaction
+Value mapping
+1
+2
+3
+4
+5
+Intel Berkeley mote topology1
+
+PAGE 25
+因此论文不能写：
+“ 真实采集的同一 IoT 部署区块链 + 网络 + 拓扑联合数据 ” 。
+更严谨的是：
+真实 IoT trace + 外部真实 / 公开拓扑数据增强  + 研究者构造的区块链工作负载。
+三十一、使用真实轨迹反而可以成为实验优势 
+纯 Synthetic workload 通常可能是：
+而你可以保留真实：
+所以你的工作可以叫：
+Trace-driven simulation 。
+这是系统实验中很常见的方式。
+真正需要避免的是：
+为了 PPO 效果好而人为修改真实访问关系。
+三十二、未来甚至可以同时使用两种
+Workload
+ 
+一个更完整的论文实验设计可以是：
+Real trace-driven workload  
+验证：
+方法在真实 IoT 流量模式下是否有效。
+位置
+距离
+link quality
+1
+2
+3
+设备随机生成
+交易随机生成
+Poisson 到达
+访问概率随机
+位置随机
+1
+2
+3
+4
+5
+设备访问频率
+真实协议比例
+真实 payload
+真实 endpoint 热点
+真实时间分布
+真实突发行为
+1
+2
+3
+4
+5
+6
+
+PAGE 26
+层 修改情况
+原始 IoT flow 不改
+prepare_iot_multi_anchor_dataset.py 重点修改
+state identity 定义 重点修改
+actual-access/context-anchor 区分 新增
+Controlled synthetic workload  
+人为控制：
+验证：
+算法在不同条件下的趋势是否稳定。
+这样比单纯用 synthetic 或者单纯用 real trace 都更容易解释。
+不过这是后续增强项，不是现在必须马上做的。
+三十三、原始数据集本身目前不需要重新换 
+如果走 Shared State 路线：
+原则上都可以继续使用。
+真正需要变的是：
+不是重新寻找一套原始 IoT 数据。
+三十四、未来主要需要修改的层次  
+大致是：
+设备数
+shared-state degree
+Zipf 热点
+访问偏斜
+TPS
+共享比例
+热点 state 数量
+1
+2
+3
+4
+5
+6
+7
+flows.zip
+connectivity.txt
+mote_locs.txt
+1
+2
+3
+数据处理语义
+Python 离线环境
+Go Supervisor IoT 执行逻辑
+1
+2
+3
+
+PAGE 27
+层 修改情况
+offline_env.py 修改真实跨片 /stage 语义
+PPO 训练框架 主体可保留
+PPO 网络 主体可保留
+Candidate Top-k 可以保留但需要重新定义输入关系
+Go spring_iot.go 修改
+Go committee_relay.go 修改 placement target
+PBFT 大部分可以保留
+Relay 协议 大部分可以保留
+实验统计框架 大部分可以保留
+旧 checkpoint 不能作为新问题正式模型继续用
+三十五、如果 Shared State 改变，旧模型为什
+么必须重训？
+ 
+因为 State identity 改变以后：
+变成例如：
+会导致：
+所以旧的：
+旧：
+device + peer + service + protocol
+1
+2
+新：
+peer + service + protocol
+1
+2
+state 数量改变
+state 首次出现时间改变
+每个 state 访问设备集合改变
+sender_pos 改变
+候选 Shard 改变
+action 样本数改变
+reward 改变
+cross-shard 比例改变
+load 改变
+1
+2
+3
+4
+5
+6
+7
+8
+9
+seed7.pt
+seed17.pt
+seed27.pt
+1
+2
+3
+
+PAGE 28
+只属于旧问题。
+新问题必须：
+历史结果仍然可以保留为：
+旧设计的开发阶段结果和问题诊断证据。
+三十六、还有一个新的风险： Shared State 可
+能让 state 数量下降太多
+ 
+当前大约有：
+如果去掉 device ：
+多个 state 会合并。
+于是可能：
+甚至更少。
+那么 PPO 真正首次放置的 action 数量也会下降。
+所以 Shared State 不是：
+“ 删掉 device 一定更好。 ”
+必须实际统计。
+三十七、因此我们最后一致建议：先不要马上
+改 Go 和重新训练
+ 
+最先应该做的是一个：
+重新生成数据
+↓
+重新统计
+↓
+重新训练
+↓
+重新评估
+1
+2
+3
+4
+5
+6
+7
+76,015 state objects1
+device + peer + service + protocol
+↓
+peer + service + protocol
+1
+2
+3
+76,015
+↓
+20,000
+1
+2
+3
+
+PAGE 29
+Shared-State Definition Profiling
+即：
+共享 state 定义统计实验。
+先尝试 2 ～ 3 种业务上合理的定义。
+例如候选：
+S1=f(peer,service,protocol)S_1=f(peer,service,protocol)
+或：
+S2=f(peer,port,protocol)S_2=f(peer,port,protocol)
+或者更合适的服务粒度。
+然后统计：
+三十八、如何判断新定义是否真的解决了问题 
+如果统计发现：
+那么：
+Shared State 定义没有真正解决单 owner 退化。
+不应该继续往这个方向大改。
+但如果发现：
+并且访问是由真实 flow 自然形成的，那么：
+这个任务就真正产生了多访问者 State Placement 问题。
+这时才值得：
+shared state 总数
+每个 state 被多少不同 device 访问
+degree=1 占比
+degree=2 占比
+degree=3+
+平均访问设备数
+最大 degree
+每个 state flow 次数
+最大 state 访问量
+state 热点分布
+跨设备共享比例
+新 state 首次出现位置
+train/validation/test 里的 state 重合情况
+未来信息泄漏风险
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+90% 以上 State 仍然只有一个实际 Device 访问1
+大量 State 由 2~10 个甚至更多真实 Device 访问1
+
+PAGE 30
+三十九、目前对你整个项目问题的最终理解 
+可以把旧系统概括为：
+因此出现：
+这很可能是当前实验效果不理想的重要结构性原因之一。
+四十、我们目前更推荐的新方向  
+不是：
+而是：
+修改 Python
+↓
+修改 Go
+↓
+重新训练 PPO
+↓
+重新跑 BlockEmulator
+1
+2
+3
+4
+5
+6
+7
+真实 IoT flow
+       ↓
+device-specific state object
+       ↓
+multi-anchor sidecar
+       ↓
+PPO 利用多个 anchor 选 Shard
+       ↓
+但 BlockEmulator 实际主要执行
+State ↔ Primary Owner
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+决策目标
+≠
+真实系统成本
+1
+2
+3
+所有 related anchors 都强制产生交易1
+真实 IoT flow
+        ↓
+定义业务合理的 Shared State
+        ↓
+每条 flow 产生
+Actual Actor → Shared State
+        ↓
+不同 Device 随时间自然访问同一 State
+        ↓
+形成真实 multi-access 关系
+        ↓
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+
+PAGE 31
+而：
+等没有直接链上访问语义的信息，则作为：
+而不是强行变成 Transaction 。
+四十一、这样修改之后，你原本希望的几个创
+新点才真正形成闭环
+ 
+你之前一直想做的核心其实是：
+IoT 场景感知  
+真实 IoT 通信关系、拓扑、距离、链路质量进入 MDP 。
+Multi-anchor State Placement  
+一个 state 真正被多个 IoT actor 访问，而不是只有特征层 multi-anchor 。
+Candidate Filtering  
+先根据真实访问关系和 IoT 约束筛选合理 Shard 。
+PPO Final Placement  
+在候选 Shard 中进一步考虑：
+最终选择 Shard 。
+如果执行图也真的体现多访问者，那么：
+特征  →  决策  →  实际系统成本
+PPO 在 State 首次出现时决定 Shard
+        ↓
+后续所有真实访问都在 BlockEmulator 中执行
+        ↓
+跨片 /Relay/Queue/Latency/Load 真正由这些访问决定
+12
+13
+14
+15
+16
+Gateway
+Topology
+Distance
+Link Quality
+Service Type
+1
+2
+3
+4
+5
+Context Features1
+跨片
+负载
+通信成本
+热点
+1
+2
+3
+4
+
+PAGE 32
+三个部分终于是一致的。
+四十二、这次聊天中最需要避免的几个错误 
+这部分建议你后续修改时一直放在旁边看。
+第一，不要因为当前结果差就直接认为 PPO 不行。
+目前更大的问题可能是任务定义和执行成本错位。
+第二，也不要因为 PPO 不行就人为制造更多交易。
+不能为了实验效果，把所有 context anchor 强行变成链上访问者。
+第三，不要把 related anchor 等同 actual access anchor 。
+两者必须区分。
+第四，不要只交换 Sender 和 Recipient 字段。
+placement target 、 batchRelated 、 sender_pos 、 candidate 、 first-seen 逻辑都要同步修改。
+第五，不要让 PPO 看到未来完整 anchor 集合。
+必须避免 future leakage 。
+第六，不要把真实 IoT flow 叫做真实区块链交易数据。
+应该叫真实轨迹驱动的区块链工作负载。
+第七，不要因为其他论文使用 synthetic dataset ，就认为真实 trace 路线错了。
+真实轨迹本身可以成为优势。
+第八，不要现在立刻重跑几百万条 BlockEmulator 。
+应该先做 Shared-State 统计。
+第九，不要弱化 baseline 。
+如果一个简单 Greedy/Owner-Colocate/Anchor-based 方法很强，就必须保留。
+第十，不要把已经分析过的旧 test2M 继续当成完全  untouched final test 。
+如果后续根据这些结果修改算法，它已经参与开发决策，正式论文最好准备新的未使用最终评估窗口或
+其他独立数据，并如实说明。
+四十三、当前最合理的下一步顺序  
+现在最正确的路线不是：
+而应该是：
+马上改 PPO
+↓
+重新训练 3 个 seed
+↓
+跑 2M
+1
+2
+3
+4
+5
+
+PAGE 33
+↓
+↓
+↓
+↓
+如果答案是否：
+停止大改，重新考虑问题定义。
+如果答案是：
+是。
+再：
+↓
+↓
+Step 1
+保留当前版本
+作为 old-design baseline/archive
+1
+2
+3
+Step 2
+设计 2~3 种 Shared State 候选定义
+1
+2
+Step 3
+只重新处理 494 万条 flow 做统计
+不训练 PPO
+不跑 BlockEmulator
+1
+2
+3
+4
+Step 4
+检查：
+state 数量
+实际访问设备数
+degree 分布
+热点
+未来信息泄漏
+1
+2
+3
+4
+5
+6
+7
+Step 5
+判断这个任务是否真正形成多访问者 state
+1
+2
+Step 6
+修改 Python offline_env
+1
+2
+Step 7
+增加强非学习 baseline
+1
+2
+
+PAGE 34
+↓
+↓
+↓
+↓
+四十四、你现在可以用一句话概括这次聊天最
+后得出的核心结论
+ 
+当前系统的问题不是训练集有 multi-anchor 、测试集没有 multi-anchor ，而是 multi-anchor 目
+前主要存在于 PPO 的决策特征层， BlockEmulator 实际链上成本仍主要由 State Object 和
+Primary Owner 之间的单一访问关系决定。下一步更有价值的方向不是简单让所有 related 
+anchors 强制产生交易，而是利用真实 IoT 流量重新定义业务合理的 Shared State ，使多个真实
+IoT 设备随着时间自然访问同一个状态对象，并将 Actual-access 关系与 Context-anchor 关系分
+离，从而让 PPO 所学习的多锚点关系与 BlockEmulator 真正产生的跨片、 Relay 和负载成本一致。
+如果采用这条新语义：
+IoT Actor → Shared State Object\boxed{IoT\ Actor\rightarrow Shared\ State\ Object}
+那么相比现在：
+State Object → Primary OwnerState\ Object\rightarrow Primary\ Owner
+Sender/Recipient的角色确实会反过来，但这是合理的；与此同时，PPO 的待放置对象也必须从当前
+Sender 改成 Recipient ，而不是只交换字段。
+最后，你的数据路线也不用否定：
+Real IoT Trace → Constructed Blockchain Workload → BlockEmulator\boxed{ Real\ IoT\ Trace 
+\rightarrow Constructed\ Blockchain\ Workload \rightarrow BlockEmulator }
+准确定位应当是：
+Step 8
+先跑小窗口验证
+1
+2
+Step 9
+修改 Go Supervisor
+让 Device → Shared State 真正进入 BlockEmulator
+1
+2
+3
+Step 10
+重新训练 PPO
+1
+2
+Step 11
+小规模 BlockEmulator 对齐
+1
+2
+Step 12
+最后才正式多 seed 、大规模实验
+1
+2
+
+PAGE 35
+真实 IoT 轨迹驱动的区块链分片仿真实验
+而不是：
+“ 真实区块链交易数据 ” 。
+这就是我们这几轮对话目前已经推到的完整结论。

@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from prepare_exp8_baseline import (  # noqa: E402
+from prepare_baseline_run import (  # noqa: E402
     BASELINE_PROFILES,
     RESULTS_ROOT,
     TEST_MAX_TXS,

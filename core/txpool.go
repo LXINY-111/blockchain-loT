@@ -113,6 +113,39 @@ func (txpool *TxPool) GetTxQueueLen() int {
 	return len(txpool.TxQueue)
 }
 
+// RemoveTxs removes committed transactions from the local queue by TxHash.
+// Every PBFT replica receives injected transactions, while only the proposer
+// packs them. Therefore every replica must perform this cleanup after a block
+// is committed, otherwise a later leader can propose the same transaction.
+func (txpool *TxPool) RemoveTxs(txs []*Transaction) {
+	txpool.lock.Lock()
+	defer txpool.lock.Unlock()
+
+	if len(txs) == 0 || len(txpool.TxQueue) == 0 {
+		return
+	}
+	committed := make(map[string]struct{}, len(txs))
+	for _, tx := range txs {
+		if tx != nil {
+			committed[string(tx.TxHash)] = struct{}{}
+		}
+	}
+	kept := txpool.TxQueue[:0]
+	for _, tx := range txpool.TxQueue {
+		if tx == nil {
+			continue
+		}
+		if _, ok := committed[string(tx.TxHash)]; !ok {
+			kept = append(kept, tx)
+		}
+	}
+	// Clear removed pointers so a long-running replica does not retain them.
+	for idx := len(kept); idx < len(txpool.TxQueue); idx++ {
+		txpool.TxQueue[idx] = nil
+	}
+	txpool.TxQueue = kept
+}
+
 // get the length of ClearRelayPool
 func (txpool *TxPool) ClearRelayPool() {
 	txpool.lock.Lock()

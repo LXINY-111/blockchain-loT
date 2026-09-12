@@ -1,0 +1,19 @@
+{
+  "status": "validated",
+  "version": "real_accounts_iot_scene_v2_1",
+  "command": [
+    "spring_lite/prepare_iot_v2_dataset.py",
+    "--chain-csv",
+    "selectedTxs_300K.csv",
+    "--iot-source-dir",
+    "E:\\project_iot\\原始数据集",
+    "--output-dir",
+    "data_iot_v2",
+    "--seed",
+    "7",
+    "--templates-per-profile",
+    "4096"
+  ],
+  "transactions": 300000,
+  "accounts": 54403
+}

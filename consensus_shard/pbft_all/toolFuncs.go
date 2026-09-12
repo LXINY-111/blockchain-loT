@@ -18,19 +18,32 @@ import (
 )
 
 // set 2d map, only for pbft maps, if the first parameter is true, then set the cntPrepareConfirm map,
-// otherwise, cntCommitConfirm map will be set
-func (p *PbftConsensusNode) set2DMap(isPrePareConfirm bool, key string, val *shard.Node) {
+// otherwise, cntCommitConfirm map will be set. Votes are keyed by the stable
+// NodeID rather than a decoded pointer, and only current-shard members count.
+func (p *PbftConsensusNode) set2DMap(isPrePareConfirm bool, key string, val *shard.Node) bool {
+	if val == nil || val.ShardID != p.ShardID || val.NodeID >= p.node_nums {
+		return false
+	}
+	shardNodes, ok := p.ip_nodeTable[p.ShardID]
+	if !ok {
+		return false
+	}
+	expectedIP, ok := shardNodes[val.NodeID]
+	if !ok || expectedIP != val.IPaddr {
+		return false
+	}
 	if isPrePareConfirm {
 		if _, ok := p.cntPrepareConfirm[key]; !ok {
-			p.cntPrepareConfirm[key] = make(map[*shard.Node]bool)
+			p.cntPrepareConfirm[key] = make(map[uint64]bool)
 		}
-		p.cntPrepareConfirm[key][val] = true
+		p.cntPrepareConfirm[key][val.NodeID] = true
 	} else {
 		if _, ok := p.cntCommitConfirm[key]; !ok {
-			p.cntCommitConfirm[key] = make(map[*shard.Node]bool)
+			p.cntCommitConfirm[key] = make(map[uint64]bool)
 		}
-		p.cntCommitConfirm[key][val] = true
+		p.cntCommitConfirm[key][val.NodeID] = true
 	}
+	return true
 }
 
 // get neighbor nodes in a shard
@@ -191,5 +204,11 @@ func DeleteElementsInList(list []*core.Transaction, elements []*core.Transaction
 			left++
 		}
 	}
-	return list[:-removedCnt]
+	newLength := len(list) - removedCnt
+	// Clear removed pointers before shortening the slice so the backing array
+	// does not keep committed transactions alive unnecessarily.
+	for idx := newLength; idx < len(list); idx++ {
+		list[idx] = nil
+	}
+	return list[:newLength]
 }

@@ -171,6 +171,9 @@ func (bc *BlockChain) GenerateBlock(miner int32) *core.Block {
 	} else {
 		txs = bc.Txpool.PackTxs(bc.ChainConfig.BlockSize)
 	}
+	// Duplicate injections are discarded before state execution. A transaction
+	// that is already in this shard's committed index must never be proposed again.
+	txs = bc.filterFreshTransactions(txs)
 
 	bh := &core.BlockHeader{
 		ParentBlockHash: bc.CurrentBlock.Hash,
@@ -213,7 +216,9 @@ func (bc *BlockChain) NewGenisisBlock() *core.Block {
 
 // add the genisis block in a blockchain
 func (bc *BlockChain) AddGenisisBlock(gb *core.Block) {
-	bc.Storage.AddBlock(gb)
+	if err := bc.Storage.AddBlock(gb); err != nil {
+		log.Panic(err)
+	}
 	newestHash, err := bc.Storage.GetNewestBlockHash()
 	if err != nil {
 		log.Panic()
@@ -226,25 +231,21 @@ func (bc *BlockChain) AddGenisisBlock(gb *core.Block) {
 }
 
 // add a block
-func (bc *BlockChain) AddBlock(b *core.Block) {
-	if b.Header.Number != bc.CurrentBlock.Header.Number+1 {
-		fmt.Println("the block height is not correct")
-		return
+func (bc *BlockChain) AddBlock(b *core.Block) error {
+	// Validation always re-executes from CurrentBlock. Merely finding the
+	// declared StateRoot in the trie database is not proof that it belongs to
+	// this block and parent.
+	if err := bc.IsValidBlock(b); err != nil {
+		return err
 	}
-
-	if !bytes.Equal(b.Header.ParentBlockHash, bc.CurrentBlock.Hash) {
-		fmt.Println("err parent block hash")
-		return
-	}
-
-	// if the treeRoot is existed in the node, the transactions is no need to be handled again
-	_, err := trie.New(trie.TrieID(common.BytesToHash(b.Header.StateRoot)), bc.triedb)
-	if err != nil {
-		rt := bc.GetUpdateStatusTrie(b.Body)
-		fmt.Println(bc.CurrentBlock.Header.Number+1, "the root = ", rt.Bytes())
+	if err := bc.Storage.AddBlock(b); err != nil {
+		return err
 	}
 	bc.CurrentBlock = b
-	bc.Storage.AddBlock(b)
+	// All replicas receive injected transactions, but followers do not call
+	// PackTxs. Remove the committed body on every replica after durable storage.
+	bc.Txpool.RemoveTxs(b.Body)
+	return nil
 }
 
 // new a blockchain.
@@ -298,14 +299,76 @@ func NewBlockChain(cc *params.ChainConfig, db ethdb.Database) (*BlockChain, erro
 
 // check a block is valid or not in this blockchain config
 func (bc *BlockChain) IsValidBlock(b *core.Block) error {
-	if string(b.Header.ParentBlockHash) != string(bc.CurrentBlock.Hash) {
+	if b == nil || b.Header == nil {
+		return errors.New("block or block header is nil")
+	}
+	if b.Header.Number != bc.CurrentBlock.Header.Number+1 {
+		return fmt.Errorf(
+			"block height %d does not follow current height %d",
+			b.Header.Number,
+			bc.CurrentBlock.Header.Number,
+		)
+	}
+	if !bytes.Equal(b.Header.ParentBlockHash, bc.CurrentBlock.Hash) {
 		fmt.Println("the parentblock hash is not equal to the current block hash")
 		return errors.New("the parentblock hash is not equal to the current block hash")
-	} else if string(GetTxTreeRoot(b.Body)) != string(b.Header.TxRoot) {
+	}
+	if !bytes.Equal(GetTxTreeRoot(b.Body), b.Header.TxRoot) {
 		fmt.Println("the transaction root is wrong")
 		return errors.New("the transaction root is wrong")
 	}
+	if !bytes.Equal(b.Header.Hash(), b.Hash) {
+		return errors.New("the block hash does not match the encoded header")
+	}
+	seen := make(map[string]struct{}, len(b.Body))
+	for _, transaction := range b.Body {
+		if transaction == nil || len(transaction.TxHash) == 0 {
+			return errors.New("block contains a nil transaction or empty transaction hash")
+		}
+		key := string(transaction.TxHash)
+		if _, ok := seen[key]; ok {
+			return errors.New("block contains a duplicate transaction")
+		}
+		seen[key] = struct{}{}
+		executed, err := bc.Storage.HasTransaction(transaction.TxHash)
+		if err != nil {
+			return fmt.Errorf("check transaction replay: %w", err)
+		}
+		if executed {
+			return errors.New("block replays an already committed transaction")
+		}
+	}
+	expectedStateRoot := bc.GetUpdateStatusTrie(b.Body).Bytes()
+	if !bytes.Equal(expectedStateRoot, b.Header.StateRoot) {
+		return errors.New("the state root does not match transaction execution")
+	}
 	return nil
+}
+
+// filterFreshTransactions removes duplicate or already committed transactions
+// from a freshly packed proposal. Consensus validation repeats the checks, so a
+// proposal received from another node cannot bypass the replay guard.
+func (bc *BlockChain) filterFreshTransactions(txs []*core.Transaction) []*core.Transaction {
+	fresh := make([]*core.Transaction, 0, len(txs))
+	seen := make(map[string]struct{}, len(txs))
+	for _, transaction := range txs {
+		if transaction == nil || len(transaction.TxHash) == 0 {
+			continue
+		}
+		key := string(transaction.TxHash)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		executed, err := bc.Storage.HasTransaction(transaction.TxHash)
+		if err != nil {
+			log.Panic(err)
+		}
+		if !executed {
+			fresh = append(fresh, transaction)
+		}
+	}
+	return fresh
 }
 
 // add accounts
@@ -361,7 +424,9 @@ func (bc *BlockChain) AddAccounts(ac []string, as []*core.AccountState, miner in
 	b.Hash = b.Header.Hash()
 
 	bc.CurrentBlock = b
-	bc.Storage.AddBlock(b)
+	if err := bc.Storage.AddBlock(b); err != nil {
+		log.Panic(err)
+	}
 }
 
 // fetch accounts

@@ -14,8 +14,17 @@ import (
 // this func is only invoked by main node
 func (p *PbftConsensusNode) Propose() {
 	// wait other nodes to start TCPlistening, sleep 5 sec.
-	time.Sleep(5 * time.Second)
-	if p.stopSignal.Load() {
+	startupTimer := time.NewTimer(5 * time.Second)
+	select {
+	case <-startupTimer.C:
+	case <-p.stopCh:
+		if !startupTimer.Stop() {
+			select {
+			case <-startupTimer.C:
+			default:
+			}
+		}
+		p.waitForShutdownComplete()
 		return
 	}
 
@@ -102,6 +111,7 @@ func (p *PbftConsensusNode) Propose() {
 
 		case <-p.stopCh:
 			p.pl.Plog.Printf("S%dN%d get stopSignal in Propose Routine, now stop...\n", p.ShardID, p.NodeID)
+			p.waitForShutdownComplete()
 			return
 		}
 	}
@@ -207,7 +217,10 @@ func (p *PbftConsensusNode) handlePrepare(content []byte) {
 		// if needed more operations, implement interfaces
 		p.ihm.HandleinPrepare(pmsg)
 
-		p.set2DMap(true, string(pmsg.Digest), pmsg.SenderNode)
+		if !p.set2DMap(true, string(pmsg.Digest), pmsg.SenderNode) {
+			p.pl.Plog.Printf("S%dN%d : prepare sender is not a current-shard member\n", p.ShardID, p.NodeID)
+			return
+		}
 		cnt := len(p.cntPrepareConfirm[string(pmsg.Digest)])
 
 		// if the node has received 2f messages (itself included), and it haven't committed, then it commit
@@ -262,8 +275,11 @@ func (p *PbftConsensusNode) handleCommit(content []byte) {
 		return
 	}
 
+	if !p.set2DMap(false, string(cmsg.Digest), cmsg.SenderNode) {
+		p.pl.Plog.Printf("S%dN%d : commit sender is not a current-shard member\n", p.ShardID, p.NodeID)
+		return
+	}
 	p.pl.Plog.Printf("S%dN%d received the Commit from ...%d\n", p.ShardID, p.NodeID, cmsg.SenderNode.NodeID)
-	p.set2DMap(false, string(cmsg.Digest), cmsg.SenderNode)
 	cnt := len(p.cntCommitConfirm[string(cmsg.Digest)])
 
 	p.lock.Lock()
@@ -273,7 +289,6 @@ func (p *PbftConsensusNode) handleCommit(content []byte) {
 		p.pl.Plog.Printf("S%dN%d : has received 2f + 1 commits ... \n", p.ShardID, p.NodeID)
 		// if this node is left behind, so it need to requst blocks
 		if _, ok := p.requestPool[string(cmsg.Digest)]; !ok {
-			p.isReply[string(cmsg.Digest)] = true
 			p.askForLock.Lock()
 			// request the block
 			sn := &shard.Node{
@@ -282,7 +297,9 @@ func (p *PbftConsensusNode) handleCommit(content []byte) {
 				IPaddr:  p.ip_nodeTable[p.ShardID][uint64(p.view.Load())],
 			}
 			orequest := message.RequestOldMessage{
-				SeqStartHeight: p.sequenceID + 1,
+				// sequenceID already denotes the next missing request. Deriving the
+				// start from chain height also prevents protocol/chain drift.
+				SeqStartHeight: p.CurChain.CurrentBlock.Header.Number + 1,
 				SeqEndHeight:   cmsg.SeqID,
 				ServerNode:     sn,
 				SenderNode:     p.RunningNode,
@@ -297,7 +314,10 @@ func (p *PbftConsensusNode) handleCommit(content []byte) {
 			networks.TcpDial(msg_send, orequest.ServerNode.IPaddr)
 		} else {
 			// implement interface
-			p.ihm.HandleinCommit(cmsg)
+			if !p.ihm.HandleinCommit(cmsg) {
+				p.pl.Plog.Printf("S%dN%d : commit application failed at sequence %d\n", p.ShardID, p.NodeID, p.sequenceID)
+				return
+			}
 			p.isReply[string(cmsg.Digest)] = true
 			p.pl.Plog.Printf("S%dN%d: this round of pbft %d is end \n", p.ShardID, p.NodeID, p.sequenceID)
 			p.sequenceID += 1
@@ -349,9 +369,14 @@ func (p *PbftConsensusNode) handleRequestOldSeq(content []byte) {
 	p.ihm.HandleReqestforOldSeq(rom)
 
 	// send the block back
+	if len(oldR) == 0 {
+		p.pl.Plog.Printf("S%dN%d : no complete old request is available\n", p.ShardID, p.NodeID)
+		return
+	}
+	actualEnd := rom.SeqStartHeight + uint64(len(oldR)) - 1
 	sb := message.SendOldMessage{
 		SeqStartHeight: rom.SeqStartHeight,
-		SeqEndHeight:   rom.SeqEndHeight,
+		SeqEndHeight:   actualEnd,
 		OldRequest:     oldR,
 		SenderNode:     p.RunningNode,
 	}
@@ -373,8 +398,17 @@ func (p *PbftConsensusNode) handleSendOldSeq(content []byte) {
 	}
 	p.pl.Plog.Printf("S%dN%d : has received the SendOldMessage message\n", p.ShardID, p.NodeID)
 
-	// implement interface for new consensus
-	p.ihm.HandleforSequentialRequest(som)
+	// implement interface for new consensus. Never advance the protocol
+	// sequence unless the whole contiguous response was installed successfully.
+	if !p.ihm.HandleforSequentialRequest(som) {
+		// The recovery routine may already have installed a valid prefix. Align the
+		// protocol cursor with the actual chain head, but never jump to the peer's
+		// claimed end height when the complete response was not accepted.
+		p.sequenceID = p.CurChain.CurrentBlock.Header.Number + 1
+		p.pl.Plog.Printf("S%dN%d : failed to install sequential requests %d to %d\n", p.ShardID, p.NodeID, som.SeqStartHeight, som.SeqEndHeight)
+		p.askForLock.Unlock()
+		return
+	}
 	beginSeq := som.SeqStartHeight
 	for idx, r := range som.OldRequest {
 		p.requestPool[string(getDigest(r))] = r

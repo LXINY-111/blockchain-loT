@@ -13,3 +13,6 @@ spring_lite/checkpoints/*.json
 # cache
 __pycache__/
 *.pyc
+
+# Historical/local evaluation outputs
+eval_outputs/

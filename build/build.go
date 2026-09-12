@@ -65,5 +65,7 @@ func BuildNewPbftNode(nid, nnm, sid, snm uint64) {
 	methodID := params.ConsensusMethod
 	worker := pbft_all.NewPbftNode(sid, nid, initConfig(nid, nnm, sid, snm), params.CommitteeMethod[methodID])
 	go worker.TcpListen()
+	// Propose now returns only after the stop request has drained admitted
+	// handlers and both chain databases have been closed.
 	worker.Propose()
 }

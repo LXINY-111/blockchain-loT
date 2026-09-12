@@ -58,7 +58,7 @@ func TestParamsConfigJSONHasNoUTF8BOM(t *testing.T) {
 	}
 }
 
-func TestParamsConfigJSONTargetsResult9ValidationRun(t *testing.T) {
+func TestParamsConfigJSONUsesSupportedExperimentWindow(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "paramsConfig.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -78,15 +78,29 @@ func TestParamsConfigJSONTargetsResult9ValidationRun(t *testing.T) {
 	if config.SpringEvalSample != 0 {
 		t.Fatalf("SpringEvalSample = %d, want deterministic evaluation", config.SpringEvalSample)
 	}
-	if config.TotalDataSize != 444_019 {
-		t.Fatalf("TotalDataSize = %d, want 444019", config.TotalDataSize)
+	knownWindow := false
+	for _, window := range []struct {
+		start int
+		total int
+	}{
+		{start: 2_500_000, total: 444_019},   // validation template
+		{start: 2_944_019, total: 2_000_000}, // held-out test template
+	} {
+		if config.DatasetStartTx == window.start && config.TotalDataSize == window.total {
+			knownWindow = true
+			break
+		}
 	}
-	if config.DatasetStartTx != 2_500_000 {
-		t.Fatalf("DatasetStartTx = %d, want 2500000 for validation calibration", config.DatasetStartTx)
+	if !knownWindow {
+		t.Fatalf(
+			"DatasetStartTx/TotalDataSize = %d/%d, want a declared validation or test window",
+			config.DatasetStartTx,
+			config.TotalDataSize,
+		)
 	}
 	if config.TxBatchSize != 1000 || config.MaxBlockSizeGlobal != 1000 ||
-		(config.InjectSpeed != 250 && config.InjectSpeed != 300) {
-		t.Fatalf("TxBatchSize/BlockSize/InjectSpeed = %d/%d/%d, want 1000/1000/(250 or 300)", config.TxBatchSize, config.MaxBlockSizeGlobal, config.InjectSpeed)
+		config.InjectSpeed <= 0 {
+		t.Fatalf("TxBatchSize/BlockSize/InjectSpeed = %d/%d/%d, want 1000/1000/positive", config.TxBatchSize, config.MaxBlockSizeGlobal, config.InjectSpeed)
 	}
 
 	assertConfigWeight := func(name string, got *float64, want float64) {
@@ -113,9 +127,9 @@ func TestParamsConfigJSONTargetsResult9ValidationRun(t *testing.T) {
 		assertConfigWeight("SpringIOTCommCostWeight", config.SpringIOTCommCostWeight, 0.10)
 		assertConfigWeight("SpringIOTHotspotWeight", config.SpringIOTHotspotWeight, 0.05)
 		wantModel := fmt.Sprintf("ppo_top7_w5530_pareto_16s_seed%d.pt", config.SpringRandomSeed)
-		if !strings.Contains(config.SpringModelFile, `E:\project_iot\实验结果9\models`) ||
-			!strings.Contains(config.SpringModelFile, wantModel) {
-			t.Fatalf("SpringModelFile = %q, want Result9 Pareto-selected TopK7 w55-30 model %q", config.SpringModelFile, wantModel)
+		if filepath.Base(config.SpringModelFile) != wantModel ||
+			filepath.Base(filepath.Dir(config.SpringModelFile)) != "models" {
+			t.Fatalf("SpringModelFile = %q, want a models directory containing %q", config.SpringModelFile, wantModel)
 		}
 	} else if config.SpringMode == 7 {
 		// Candidate-Only 必须保留 Proposed 的 IoT 状态和 TopK7 候选构造，
@@ -142,9 +156,9 @@ func TestParamsConfigJSONTargetsResult9ValidationRun(t *testing.T) {
 		}
 		if config.SpringMode == 2 {
 			wantModel := fmt.Sprintf("original_spring_ppo_16s_seed%d.pt", config.SpringRandomSeed)
-			if !strings.Contains(config.SpringModelFile, `E:\project_iot\实验结果9\models`) ||
-				!strings.Contains(config.SpringModelFile, wantModel) {
-				t.Fatalf("SpringModelFile = %q, want Result9 Original SPRING-PPO model %q", config.SpringModelFile, wantModel)
+			if filepath.Base(config.SpringModelFile) != wantModel ||
+				filepath.Base(filepath.Dir(config.SpringModelFile)) != "models" {
+				t.Fatalf("SpringModelFile = %q, want a models directory containing %q", config.SpringModelFile, wantModel)
 			}
 		} else if config.SpringModelFile != "NOT_APPLICABLE" {
 			t.Fatalf("SpringModelFile = %q, want NOT_APPLICABLE for non-PPO baseline", config.SpringModelFile)
@@ -155,9 +169,10 @@ func TestParamsConfigJSONTargetsResult9ValidationRun(t *testing.T) {
 		t.Fatalf("paramsConfig.json contains mojibake path: model=%q exp=%q", config.SpringModelFile, config.ExpDataRootDir)
 	}
 	wantRunKey := fmt.Sprintf(`i%d_seed%d_`, config.InjectSpeed, config.SpringRandomSeed)
-	if !strings.Contains(config.ExpDataRootDir, `E:\project_iot\实验结果9\block_eval`) ||
+	normalizedRoot := strings.ReplaceAll(config.ExpDataRootDir, "/", `\`)
+	if !strings.Contains(normalizedRoot, `\block_eval\`) ||
 		!strings.Contains(config.ExpDataRootDir, wantRunKey) ||
-		!strings.HasSuffix(config.ExpDataRootDir, `\expTest`) {
-		t.Fatalf("ExpDataRootDir = %q, want a coherent Result9 block_eval expTest path containing %q", config.ExpDataRootDir, wantRunKey)
+		!strings.HasSuffix(normalizedRoot, `\expTest`) {
+		t.Fatalf("ExpDataRootDir = %q, want a coherent block_eval expTest path containing %q", config.ExpDataRootDir, wantRunKey)
 	}
 }

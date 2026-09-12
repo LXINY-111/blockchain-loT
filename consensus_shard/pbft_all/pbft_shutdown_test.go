@@ -7,9 +7,49 @@ import (
 )
 
 func newShutdownTestNode() *PbftConsensusNode {
-	node := &PbftConsensusNode{stopCh: make(chan struct{})}
+	node := &PbftConsensusNode{
+		stopCh:    make(chan struct{}),
+		stoppedCh: make(chan struct{}),
+	}
 	node.conditionalVarpbftLock = *sync.NewCond(&node.pbftLock)
 	return node
+}
+
+func TestShutdownCompletionWaitsForAdmittedHandlers(t *testing.T) {
+	node := newShutdownTestNode()
+	handlerStarted := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	if !node.launchTrackedHandler(func() {
+		close(handlerStarted)
+		<-releaseHandler
+	}) {
+		t.Fatal("expected handler admission before shutdown")
+	}
+	<-handlerStarted
+	if !node.beginStop() {
+		t.Fatal("expected shutdown to start")
+	}
+
+	go func() {
+		node.inflightHandlers.Wait()
+		node.publishShutdownComplete()
+	}()
+	waitReturned := make(chan struct{})
+	go func() {
+		node.waitForShutdownComplete()
+		close(waitReturned)
+	}()
+	select {
+	case <-waitReturned:
+		t.Fatal("shutdown completion returned before the handler drained")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releaseHandler)
+	select {
+	case <-waitReturned:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown completion did not publish after handler drain")
+	}
 }
 
 func TestShutdownWaitsForAdmittedHandlersAndRejectsNewWork(t *testing.T) {

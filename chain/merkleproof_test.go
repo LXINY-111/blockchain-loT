@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"os"
 	"testing"
 	"time"
 
@@ -15,8 +14,8 @@ import (
 )
 
 func TestMerkleProof(t *testing.T) {
+	useTempChainDataDir(t)
 	txProof, txHash := buildBlockChain()
-	clearBlockchainData()
 	// fmt.Printf("%v", txProof)
 	if ok, err := TxProofVerify(txHash, &txProof); !ok && err != nil {
 		log.Panic("Fail to verify ", err.Error())
@@ -75,13 +74,4 @@ func buildBlockChain() (TxProofResult, []byte) {
 	CurChain.CloseBlockChain()
 
 	return txProofResult, TxForProof.TxHash
-}
-
-func clearBlockchainData() {
-	// clear test data file
-	err := os.RemoveAll(params.ExpDataRootDir)
-	if err != nil {
-		fmt.Printf("Failed to delete directory: %v\n", err)
-		return
-	}
 }

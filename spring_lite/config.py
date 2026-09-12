@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -7,8 +8,15 @@ DEFAULT_IOT_CSV_PATH = ROOT_DIR / "data_iot" / "selectedTxs_iot_multi_anchor_ful
 DEFAULT_IOT_SIDECAR_PATH = ROOT_DIR / "data_iot" / "iot_flow_sidecar_multi_anchor_full.csv"
 # Use Unicode escapes so Windows PowerShell 5.1 cannot turn the Chinese result
 # directory into mojibake when it launches Python with a legacy code page.
-# Result9 is the canonical root for the frozen protocol and all later runs.
-EXPERIMENT_ROOT = ROOT_DIR.parent / "\u5b9e\u9a8c\u7ed3\u679c9"
+# Result9 remains the backward-compatible default. All preparation code reads
+# this single setting, while a new campaign can explicitly select Result10 (or
+# another root) through BLOCKEMULATOR_EXPERIMENT_ROOT without editing source.
+EXPERIMENT_ROOT = Path(
+    os.environ.get(
+        "BLOCKEMULATOR_EXPERIMENT_ROOT",
+        str(ROOT_DIR.parent / "\u5b9e\u9a8c\u7ed3\u679c9"),
+    )
+).resolve()
 OFFLINE_TRAINING_DIR = EXPERIMENT_ROOT / "offline_training"
 OFFLINE_EVAL_DIR = EXPERIMENT_ROOT / "offline_eval"
 BLOCK_EVAL_DIR = EXPERIMENT_ROOT / "block_eval"

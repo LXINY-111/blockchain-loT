@@ -57,7 +57,10 @@ func (rphm *RawRelayPbftExtraHandleMod) HandleinCommit(cmsg *message.Commit) boo
 	// requestType ...
 	block := core.DecodeB(r.Msg.Content)
 	rphm.pbftNode.pl.Plog.Printf("S%dN%d : adding the block %d...now height = %d \n", rphm.pbftNode.ShardID, rphm.pbftNode.NodeID, block.Header.Number, rphm.pbftNode.CurChain.CurrentBlock.Header.Number)
-	rphm.pbftNode.CurChain.AddBlock(block)
+	if err := rphm.pbftNode.CurChain.AddBlock(block); err != nil {
+		rphm.pbftNode.pl.Plog.Printf("S%dN%d : block commit rejected: %v\n", rphm.pbftNode.ShardID, rphm.pbftNode.NodeID, err)
+		return false
+	}
 	rphm.pbftNode.pl.Plog.Printf("S%dN%d : added the block %d... \n", rphm.pbftNode.ShardID, rphm.pbftNode.NodeID, block.Header.Number)
 	rphm.pbftNode.CurChain.PrintBlockChain()
 
@@ -161,18 +164,22 @@ func (rphm *RawRelayPbftExtraHandleMod) HandleReqestforOldSeq(*message.RequestOl
 
 // the operation for sequential requests
 func (rphm *RawRelayPbftExtraHandleMod) HandleforSequentialRequest(som *message.SendOldMessage) bool {
-	if int(som.SeqEndHeight-som.SeqStartHeight+1) != len(som.OldRequest) {
+	if som.SeqStartHeight > som.SeqEndHeight || uint64(len(som.OldRequest)) != som.SeqEndHeight-som.SeqStartHeight+1 {
 		rphm.pbftNode.pl.Plog.Printf("S%dN%d : the SendOldMessage message is not enough\n", rphm.pbftNode.ShardID, rphm.pbftNode.NodeID)
-	} else { // add the block into the node pbft blockchain
-		for height := som.SeqStartHeight; height <= som.SeqEndHeight; height++ {
-			r := som.OldRequest[height-som.SeqStartHeight]
-			if r.RequestType == message.BlockRequest {
-				b := core.DecodeB(r.Msg.Content)
-				rphm.pbftNode.CurChain.AddBlock(b)
-			}
-		}
-		rphm.pbftNode.sequenceID = som.SeqEndHeight + 1
-		rphm.pbftNode.CurChain.PrintBlockChain()
+		return false
 	}
+	// add the complete, contiguous response into the node PBFT blockchain
+	for height := som.SeqStartHeight; height <= som.SeqEndHeight; height++ {
+		r := som.OldRequest[height-som.SeqStartHeight]
+		if r == nil || r.RequestType != message.BlockRequest {
+			return false
+		}
+		b := core.DecodeB(r.Msg.Content)
+		if err := rphm.pbftNode.CurChain.AddBlock(b); err != nil {
+			rphm.pbftNode.pl.Plog.Printf("S%dN%d : recovered block %d rejected: %v\n", rphm.pbftNode.ShardID, rphm.pbftNode.NodeID, height, err)
+			return false
+		}
+	}
+	rphm.pbftNode.CurChain.PrintBlockChain()
 	return true
 }

@@ -8,13 +8,14 @@ param(
     [ValidateRange(0.0, 1.0)]
     [double]$IOTCSTRWeight = 0.55,
     [ValidateRange(0.0, 1.0)]
-    [double]$IOTBalanceWeight = 0.30
+    [double]$IOTBalanceWeight = 0.30,
+    [string]$ExperimentRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$PrepareScript = Join-Path $PSScriptRoot "prepare_exp8_block_run.ps1"
-$LaunchScript = Join-Path $PSScriptRoot "run_exp8_16s.ps1"
+$PrepareScript = Join-Path $PSScriptRoot "prepare_block_run_16s.ps1.ps1"
+$LaunchScript = Join-Path $PSScriptRoot "run_block_eval_16s.ps1.ps1"
 $FinalizeScript = Join-Path $ProjectRoot "spring_lite\finalize_exp8_block_run.py"
 
 if (-not (Test-Path -LiteralPath $ModelPath -PathType Leaf)) {
@@ -33,7 +34,8 @@ foreach ($rate in $Rates) {
         -CandidateTopK $CandidateTopK `
         -IOTCSTRWeight $IOTCSTRWeight `
         -IOTBalanceWeight $IOTBalanceWeight `
-        -ModelPath $ModelPath
+        -ModelPath $ModelPath `
+        -ExperimentRoot $ExperimentRoot
 
     Write-Host (
         "[RATE START] scheme=$($run.Scheme) target_tps=$rate " +

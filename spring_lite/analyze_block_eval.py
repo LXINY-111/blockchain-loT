@@ -183,8 +183,22 @@ def analyze_tx_latency_details(result_path: Path) -> Dict[str, object]:
             reader = csv.DictReader(handle)
             values_ms = []
             row_count = 0
+            seen_tx_hashes = set()
+            duplicate_tx_hash_count = 0
+            missing_tx_hash_count = 0
             for row in reader:
                 row_count += 1
+                tx_hash = ""
+                for key, raw_value in row.items():
+                    if key and key.strip().lower().startswith("txhash"):
+                        tx_hash = str(raw_value or "").strip()
+                        break
+                if not tx_hash:
+                    missing_tx_hash_count += 1
+                elif tx_hash in seen_tx_hashes:
+                    duplicate_tx_hash_count += 1
+                else:
+                    seen_tx_hashes.add(tx_hash)
                 value = as_float(row.get("Confirmed latency of this tx (ms)"))
                 if value is not None and value >= 0:
                     values_ms.append(value)
@@ -197,6 +211,9 @@ def analyze_tx_latency_details(result_path: Path) -> Dict[str, object]:
             "valid_latency_count": 0,
             "invalid_latency_count": row_count,
             "valid_latency_ratio": 0.0,
+            "unique_tx_hash_count": len(seen_tx_hashes),
+            "duplicate_tx_hash_count": duplicate_tx_hash_count,
+            "missing_tx_hash_count": missing_tx_hash_count,
         }
 
     values_ms.sort()
@@ -211,6 +228,9 @@ def analyze_tx_latency_details(result_path: Path) -> Dict[str, object]:
         "valid_latency_count": len(values_ms),
         "invalid_latency_count": row_count - len(values_ms),
         "valid_latency_ratio": len(values_ms) / row_count if row_count else 0.0,
+        "unique_tx_hash_count": len(seen_tx_hashes),
+        "duplicate_tx_hash_count": duplicate_tx_hash_count,
+        "missing_tx_hash_count": missing_tx_hash_count,
         "mean_sec": statistics.fmean(values_ms) / 1000.0,
         "p50_sec": ordered_percentile(0.50),
         "p95_sec": ordered_percentile(0.95),
