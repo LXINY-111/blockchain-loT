@@ -1,0 +1,163 @@
+{
+  "anchoronly": {
+    "n": 1,
+    "cross_pct": {
+      "mean": 39.7965,
+      "sd": null
+    },
+    "mean_latency_sec": {
+      "mean": 22.937852032915103,
+      "sd": null
+    },
+    "p99_sec": {
+      "mean": 240.951,
+      "sd": null
+    },
+    "aggregate_stage_jain": {
+      "mean": 0.26115340383646685,
+      "sd": null
+    },
+    "mean_effective_load_variance": {
+      "mean": 29537.37254457319,
+      "sd": null
+    }
+  },
+  "hash": {
+    "n": 3,
+    "cross_pct": {
+      "mean": 83.30605,
+      "sd": 0.0
+    },
+    "mean_latency_sec": {
+      "mean": 24.116112072040796,
+      "sd": 0.0862256009426844
+    },
+    "p99_sec": {
+      "mean": 241.07766666666666,
+      "sd": 0.8428625827104457
+    },
+    "aggregate_stage_jain": {
+      "mean": 0.3903427111464461,
+      "sd": 0.0
+    },
+    "mean_effective_load_variance": {
+      "mean": 17514.1803539846,
+      "sd": 1.834018361700605
+    }
+  },
+  "heuristic_pure": {
+    "n": 1,
+    "cross_pct": {
+      "mean": 54.380649999999996,
+      "sd": null
+    },
+    "mean_latency_sec": {
+      "mean": 23.760372775273762,
+      "sd": null
+    },
+    "p99_sec": {
+      "mean": 241.135,
+      "sd": null
+    },
+    "aggregate_stage_jain": {
+      "mean": 0.3121342694479699,
+      "sd": null
+    },
+    "mean_effective_load_variance": {
+      "mean": 22419.78645101826,
+      "sd": null
+    }
+  },
+  "minstate": {
+    "n": 1,
+    "cross_pct": {
+      "mean": 96.5696,
+      "sd": null
+    },
+    "mean_latency_sec": {
+      "mean": 25.7951620820145,
+      "sd": null
+    },
+    "p99_sec": {
+      "mean": 287.568,
+      "sd": null
+    },
+    "aggregate_stage_jain": {
+      "mean": 0.4092494244613425,
+      "sd": null
+    },
+    "mean_effective_load_variance": {
+      "mean": 12945.349842238218,
+      "sd": null
+    }
+  },
+  "nsshard_adapted_cap12": {
+    "n": 3,
+    "cross_pct": {
+      "mean": 76.38775,
+      "sd": 0.0
+    },
+    "mean_latency_sec": {
+      "mean": 24.91343327741964,
+      "sd": 0.3827869637374729
+    },
+    "p99_sec": {
+      "mean": 280.6656666666667,
+      "sd": 0.7680627144532878
+    },
+    "aggregate_stage_jain": {
+      "mean": 0.3534240901825872,
+      "sd": 0.0
+    },
+    "mean_effective_load_variance": {
+      "mean": 15433.257548572314,
+      "sd": 293.5275036486613
+    }
+  },
+  "ppo_top7_w5530_pareto": {
+    "n": 3,
+    "cross_pct": {
+      "mean": 75.91821666666668,
+      "sd": 4.251795985913875
+    },
+    "mean_latency_sec": {
+      "mean": 23.839646495909633,
+      "sd": 0.41820571684995556
+    },
+    "p99_sec": {
+      "mean": 281.8063333333333,
+      "sd": 0.34366020039178147
+    },
+    "aggregate_stage_jain": {
+      "mean": 0.350066734340728,
+      "sd": 0.017637859735165577
+    },
+    "mean_effective_load_variance": {
+      "mean": 15488.38249321645,
+      "sd": 1376.1765309931252
+    }
+  },
+  "random": {
+    "n": 3,
+    "cross_pct": {
+      "mean": 95.66818333333333,
+      "sd": 2.474219846907981
+    },
+    "mean_latency_sec": {
+      "mean": 25.431626776977208,
+      "sd": 0.3907664619677614
+    },
+    "p99_sec": {
+      "mean": 283.30733333333336,
+      "sd": 2.8410878784953644
+    },
+    "aggregate_stage_jain": {
+      "mean": 0.4189675703620653,
+      "sd": 0.005983848664241309
+    },
+    "mean_effective_load_variance": {
+      "mean": 12971.059786513602,
+      "sd": 508.3488244601375
+    }
+  }
+}

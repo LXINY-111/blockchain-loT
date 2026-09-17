@@ -177,12 +177,19 @@ func NewRelayCommitteeModule(Ip_nodeTable map[uint64]map[uint64]string, Ss *sign
 // transfrom, data to transaction
 // check whether it is a legal txs meesage. if so, read txs and put it into the txlist
 func data2tx(data []string, nonce uint64) (*core.Transaction, bool) {
+	if springRealAccountsEnabled() && (len(data) != 18 || !springRealAddress.MatchString(data[3]) || !springRealAddress.MatchString(data[4]) || !springRealAmount.MatchString(data[8])) {
+		return &core.Transaction{}, false
+	}
 	if len(data) >= 9 && data[6] == "0" && data[7] == "0" && len(data[3]) > 16 && len(data[4]) > 16 && data[3] != data[4] {
 		val, ok := new(big.Int).SetString(data[8], 10)
-		if !ok {
-			log.Panic("new int failed\n")
+		if !ok || val.Sign() < 0 {
+			return &core.Transaction{}, false
 		}
-		tx := core.NewTransaction(data[3][2:], data[4][2:], val, nonce, time.Now())
+		// 仅规范化可选前缀；不能无条件截掉无前缀地址的前两个字符。
+		clean := func(value string) string {
+			return strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(value), "0x"), "0X")
+		}
+		tx := core.NewTransaction(clean(data[3]), clean(data[4]), val, nonce, time.Now())
 		return tx, true
 	}
 	return &core.Transaction{}, false
@@ -210,6 +217,8 @@ func skipValidTransactions(reader *csv.Reader, count int) (int, error) {
 		}
 		if _, ok := data2tx(data, 0); ok {
 			skipped++
+		} else if springRealAccountsEnabled() {
+			return skipped, fmt.Errorf("invalid v2 transaction while skipping row %d", skipped+1)
 		}
 	}
 	return skipped, nil
@@ -660,6 +669,10 @@ func (rthm *RelayCommitteeModule) springPreparePlacement(
 	defer rthm.springLock.Unlock()
 
 	batchPlacement := make(map[string]uint64)
+	if springRealAccountsEnabled() {
+		rthm.springPrepareRealAccountPlacement(txlist, batchPlacement)
+		return batchPlacement
+	}
 
 	switch params.SpringMode {
 	case 0:
@@ -878,6 +891,7 @@ func (rthm *RelayCommitteeModule) springPreparePlacementPPOBatch(
 				batchPlacement,
 				batchRelated,
 				extraFeatures,
+				[]float64{rthm.springIOTByTxIndex[tx.Nonce].CommunicationCostWeight},
 			); ok {
 				trainActions = append(trainActions, action)
 			}
@@ -1139,6 +1153,10 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 	if ok && len(results) == 1 {
 		result = results[0]
 	}
+	if springRealAccountsEnabled() && (!ok || result.Source != "python_ppo" || result.Shard < 0 || result.Shard >= params.ShardNum || !springActionAllowed(actionMask, uint64(result.Shard))) {
+		// 新数据正式 PPO 运行必须产生真实网络动作，不能把回退结果当作 PPO 实验。
+		panic("v2 PPO inference failed or returned an invalid action; check model compatibility and spring_io logs")
+	}
 
 	var sid uint64
 	source := ""
@@ -1189,12 +1207,35 @@ func (rthm *RelayCommitteeModule) springPlaceAddressPPOSequential(
 		shardLoadBefore,
 		loadMeanBefore,
 	)
+	if springIOTEnabled() {
+		cost := 0.0
+		if len(iotFeatures) > 1 && len(iotFeatures[1]) > 0 {
+			cost = iotFeatures[1][0]
+		}
+		localReward, loadPenalty = springIOTDenseActionReward(chosenShard, senderPos, cost, shardLoadBefore, loadMeanBefore)
+		if params.SpringMechanismVersion == "v3" {
+			localReward, loadPenalty = springIOTDenseActionReward(chosenShard, senderPos, 0, shardLoadBefore, loadMeanBefore)
+			if params.SpringSceneCostMode == "cross" && len(iotFeatures) > 1 {
+				vector := iotFeatures[1][1:]
+				penalty := 0.0
+				for s, c := range vector {
+					if s != chosenShard {
+						penalty += c
+					}
+				}
+				localReward -= .45 * penalty
+			}
+		}
+	}
 
 	rthm.springAddrShard[key] = sid
 	rthm.springShardLoad[sid]++
 	batchPlacement[key] = sid
 
 	sameAsRelated := relatedKnown && chosenShard == relatedShard
+	if springIOTEnabled() {
+		sameAsRelated = relatedKnown && chosenShard >= 0 && chosenShard < len(senderPos) && senderPos[chosenShard] > 1e-8
+	}
 	nextSenderPos, _, _, _, _, _, nextRelatedCount := rthm.springBuildSenderPos(
 		key,
 		related,
@@ -1407,6 +1448,8 @@ func (rthm *RelayCommitteeModule) MsgSendingControl() {
 			}
 			txlist = append(txlist, tx)
 			rthm.nowDataNum++
+		} else if springRealAccountsEnabled() {
+			log.Panicf("invalid v2 transaction at local index=%d", rthm.nowDataNum)
 		}
 
 		// re-shard condition, enough edges
@@ -1420,6 +1463,14 @@ func (rthm *RelayCommitteeModule) MsgSendingControl() {
 		if rthm.nowDataNum == rthm.dataTotalNum {
 			break
 		}
+	}
+	// 非整批窗口也必须发送最后一批，不能把尾部交易留在内存中丢弃。
+	if springRealAccountsEnabled() && rthm.dataTotalNum > 0 && rthm.nowDataNum != rthm.dataTotalNum {
+		log.Panicf("incomplete v2 transaction window: loaded=%d requested=%d", rthm.nowDataNum, rthm.dataTotalNum)
+	}
+	if len(txlist) > 0 {
+		rthm.txSending(txlist)
+		rthm.Ss.StopGap_Reset()
 	}
 }
 
@@ -1761,6 +1812,9 @@ func (rthm *RelayCommitteeModule) springBuildStateFromSenderPos(
 	if params.SpringIOTMode == 1 && springConfiguredIOTFeatureDim() > 0 {
 		featureDim = springConfiguredIOTFeatureDim()
 	}
+	if params.SpringMechanismVersion == "v3" {
+		featureDim += params.ShardNum
+	}
 	currentLoadDim := 0
 	if params.SpringIOTMode == 1 && featureDim > 0 {
 		currentLoadDim = params.ShardNum
@@ -1796,10 +1850,13 @@ func (rthm *RelayCommitteeModule) springBuildStateFromSenderPos(
 		state = append(state, v)
 	}
 
-	if flag != 0 {
-		flag = 1
+	// v3.1 删除账户关联度代理 flag；legacy 的原状态布局保持兼容。
+	if params.SpringMechanismVersion != "v3" {
+		if flag != 0 {
+			flag = 1
+		}
+		state = append(state, flag)
 	}
-	state = append(state, flag)
 
 	if currentLoadDim > 0 {
 		totalLoad := 0
@@ -1819,6 +1876,9 @@ func (rthm *RelayCommitteeModule) springBuildStateFromSenderPos(
 		feature := 0.0
 		if idx < len(extraFeatures) {
 			feature = extraFeatures[idx]
+		}
+		if params.SpringMechanismVersion == "v3" && params.SpringFeatureMode == "no_iot" && idx > 0 {
+			feature = 0
 		}
 		state = append(state, springClamp(feature, 0.0, 1.0))
 	}

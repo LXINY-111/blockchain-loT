@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 )
 
@@ -46,6 +47,15 @@ func springDefaultPythonCmd() string {
 	return "python3"
 }
 
+// 运行目录只保存配置和结果；可显式引用项目中唯一一份 Python 源码。
+// 未设置时保持旧目录布局，旧数据的启动方式不受影响。
+func springPythonScript(name string) string {
+	if directory := strings.TrimSpace(os.Getenv("SPRING_PYTHON_DIR")); directory != "" {
+		return filepath.Join(directory, name)
+	}
+	return filepath.Join("spring_lite", name)
+}
+
 func springStopInferServerLocked() {
 	if springInferServerIn != nil {
 		_ = springInferServerIn.Close()
@@ -79,7 +89,7 @@ func springEnsureInferServerLocked() error {
 	cmd := exec.Command(
 		pythonCmd,
 		"-u",
-		filepath.Join("spring_lite", "infer_server.py"),
+		springPythonScript("infer_server.py"),
 	)
 
 	stdin, err := cmd.StdinPipe()

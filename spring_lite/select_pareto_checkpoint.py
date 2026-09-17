@@ -3,6 +3,7 @@ import json
 import shutil
 from pathlib import Path
 from typing import Dict, List
+from checkpoint_compat import resolve_checkpoint_path
 
 
 SELECTION_POLICY_NAME = "hierarchical_constrained_pareto_v1"
@@ -102,7 +103,8 @@ def select_candidate_decision(
         max_stage_hotspot=max_stage_hotspot,
     )
     if strict_candidates:
-        selected = min(strict_candidates, key=strict_sort_key)
+        key = (lambda c: (-float(c['validation_score']), strict_sort_key(c))) if manifest.get('mechanism_version') == 'v3' else strict_sort_key
+        selected = min(strict_candidates, key=key)
         selection_tier = "strict"
     else:
         relaxed_candidates = fallback_candidates(
@@ -122,10 +124,10 @@ def select_candidate_decision(
             )
         selected = min(
             relaxed_candidates,
-            key=lambda candidate: fallback_sort_key(
-                candidate,
-                min_active_shards,
-            ),
+            key=lambda candidate: (active_deficit_ratio(candidate, min_active_shards),
+                -float(candidate['validation_score']), strict_sort_key(candidate))
+                if manifest.get('mechanism_version') == 'v3'
+                else fallback_sort_key(candidate, min_active_shards),
         )
         selection_tier = "active_tolerance"
 
@@ -137,7 +139,7 @@ def select_candidate_decision(
         and stage_hotspot <= max_stage_hotspot
     )
     return {
-        "selection_policy": SELECTION_POLICY_NAME,
+        "selection_policy": 'validation_score_with_stage_guardrails_v3' if manifest.get('mechanism_version') == 'v3' else SELECTION_POLICY_NAME,
         "selection_tier": selection_tier,
         "strict_feasible": bool(strict_candidates),
         "constraint_audit": {
@@ -208,7 +210,7 @@ def main() -> None:
     )
     selected = decision["selected"]
 
-    source = Path(str(selected["checkpoint_path"]))
+    source = resolve_checkpoint_path(manifest_path, str(selected["checkpoint_path"]))
     if not source.is_file():
         raise FileNotFoundError(f"selected checkpoint not found: {source}")
     output = Path(args.output_model)

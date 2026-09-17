@@ -675,6 +675,8 @@ def analyze_injection_pace(log_path: Path) -> Dict[str, object]:
 
 
 def analyze(args: argparse.Namespace) -> Dict[str, object]:
+    if (getattr(args, "iot_tx_metadata", "") or getattr(args, "iot_dataset_dir", "")) and not getattr(args, "iot_run_dir", ""):
+        raise ValueError("IoT metadata/dataset options require --iot_run_dir")
     result_value = getattr(args, "result_path", getattr(args, "result_zip", ""))
     spring_io_value = getattr(
         args,
@@ -742,6 +744,7 @@ def analyze(args: argparse.Namespace) -> Dict[str, object]:
 
     result = {
         "result_path": str(result_path),
+        "period_load_basis": "effective transactions: intra=1, cross=0.5 per endpoint; full-window stages are in iot_metrics.execution_load",
         "spring_io_path": str(spring_io_value) if spring_io_value else "",
         "result_zip": str(result_path)
         if result_path.is_file() and zipfile.is_zipfile(result_path)
@@ -765,6 +768,23 @@ def analyze(args: argparse.Namespace) -> Dict[str, object]:
         else {},
         "latency_details": analyze_tx_latency_details(result_path),
     }
+
+    if getattr(args, "iot_run_dir", ""):
+        # 显式启用 IoT 评估；旧数据入口和原有指标保持兼容。
+        from iot_metrics import analyze_chain_details, chain_context, read_metadata
+        scenes, manifest = chain_context(args)
+        metadata_path = getattr(args, "iot_tx_metadata", "")
+        iot = analyze_chain_details(
+            read_csv_source(result_path, "supervisor_measureOutput/Tx_Details.csv"),
+            scenes, manifest, args.shards,
+            read_metadata(metadata_path) if metadata_path else None)
+        all_iot = iot["groups"]["all"]
+        all_chain = periods["all_active"]
+        if (abs(all_chain["effective_total"] - all_iot["count"]) > 1e-6 or
+                abs(all_chain["cross_total"] - all_iot["cross_count"]) > 1e-6):
+            raise ValueError("IoT transaction-level totals disagree with chain aggregate metrics")
+        iot["metadata_path"] = str(metadata_path)
+        result["iot_metrics"] = iot
 
     if args.output_json:
         out = Path(args.output_json)
@@ -794,6 +814,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min_effective_tx", type=float, default=1000.0)
     parser.add_argument("--max_epoch_tps", type=float, default=5000.0)
     parser.add_argument("--output_json", default="")
+    parser.add_argument("--iot_run_dir", default="", help="enable IoT metrics using this run's paramsConfig.json")
+    parser.add_argument("--iot_dataset_dir", default="", help="optional dataset path override after moving files")
+    parser.add_argument("--iot_tx_metadata", default="", help="legacy runs: CSV exported from their read-only chain databases")
+    parser.add_argument("--iot_reference_start_tx", type=int, default=200000)
+    parser.add_argument("--iot_reference_max_txs", type=int, default=50000)
     return parser
 
 

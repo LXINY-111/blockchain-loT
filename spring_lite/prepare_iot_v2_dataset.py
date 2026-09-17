@@ -44,6 +44,26 @@ SOURCES = {
     "dryad": "https://datadryad.org/dataset/doi:10.5061/dryad.w0vt4b94b",
     "intel": "https://db.csail.mit.edu/labdata/labdata.html",
 }
+METADATA_START = "<!-- iot-v2-metadata:start -->"
+METADATA_END = "<!-- iot-v2-metadata:end -->"
+
+
+def read_dataset_metadata(directory):
+    """兼容精简目录：必要参数放在构造说明末尾，不依赖单独的辅助记录。"""
+    directory = Path(directory)
+    readme = directory / "README_构造说明.md"
+    if readme.is_file():
+        document = readme.read_text(encoding="utf-8")
+        if METADATA_START in document:
+            block = document.split(METADATA_START, 1)[1].split(METADATA_END, 1)[0].strip()
+            if METADATA_END not in document or not block.startswith("```json\n") or not block.endswith("```"):
+                raise ValueError("Incomplete dataset metadata in construction README")
+            metadata = json.loads(block[len("```json\n"):-3])
+            return metadata["summary"], metadata["library"]
+    # 尚未整理的原始生成目录继续使用原格式，兼容已有生成命令。
+    summary = json.loads((directory / "dataset_summary.json").read_text(encoding="utf-8"))
+    library = json.loads((directory / "scene_library.json").read_text(encoding="utf-8"))
+    return summary, library
 
 
 def stable_int(seed, purpose, *parts):
@@ -231,14 +251,16 @@ def create_library(source_dir, output, seed, cap):
 
 
 def reuse_library(source, output, seed, cap):
-    metadata = json.loads((source / "scene_library.json").read_text(encoding="utf-8"))
+    _, metadata = read_dataset_metadata(source)
     if (metadata["version"], metadata["seed"], metadata["templates_per_profile"]) != (VERSION, seed, cap):
         raise ValueError("Frozen scene library version/seed/cap must match")
     for name, expected in metadata["library_file_sha256"].items():
         if digest(source / name) != expected:
             raise ValueError(f"Changed library file: {name}")
-    for name in LIBRARY_FILES:
+    for name in LIBRARY_FILES[:-1]:
         shutil.copyfile(source / name, output / name)
+    # 新生成目录仍保存生成过程记录；来源可以是仅保留说明和 CSV 的精简目录。
+    write_json(output / "scene_library.json", metadata)
     return metadata
 
 

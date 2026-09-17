@@ -74,6 +74,11 @@ def safe_heuristic(item: Dict[str, Any], shards: int, reason: str) -> Dict[str, 
 
 
 def load_agent(shards: int, model_path: Path) -> Tuple[Optional[PPOAgent], str]:
+    if model_path.is_file():
+        # 历史批量调试入口只支持旧状态；不允许它把 v3 当作维度损坏后覆盖。
+        metadata = torch.load(model_path, map_location='cpu', weights_only=False)
+        if metadata.get('extra', {}).get('mechanism_version') == 'v3':
+            raise ValueError('v3 requires infer_server.py; legacy infer_batch must not reset this model')
     expected_dim = state_dim(shards)
 
     def create_fresh_agent() -> PPOAgent:

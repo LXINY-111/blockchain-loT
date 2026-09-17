@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -153,7 +152,11 @@ func springExpectedCheckpointConfig() map[string]interface{} {
 	if params.SpringIOTMode == 1 || params.SpringIOTIdentityMode == 1 {
 		txIdentity = "iot"
 	}
-	return map[string]interface{}{
+	loadVersion := params.SpringLoadSemanticsVersion
+	if springRealAccountsEnabled() {
+		txIdentity, loadVersion = "iot_v2", springRealAccountLoadVersion
+	}
+	expected := map[string]interface{}{
 		"mdp_mode":               mdpMode,
 		"tx_identity_resolved":   txIdentity,
 		"shards":                 params.ShardNum,
@@ -170,8 +173,17 @@ func springExpectedCheckpointConfig() map[string]interface{} {
 		"candidate_load_weight":  params.SpringCandidateLoadWeight,
 		"max_block_size":         params.MaxBlockSize_global,
 		"block_interval_ms":      params.Block_Interval,
-		"load_semantics_version": params.SpringLoadSemanticsVersion,
+		"load_semantics_version": loadVersion,
 	}
+	if params.SpringMechanismVersion == "v3" {
+		expected["mechanism_version"] = "v3"
+		expected["feature_mode"] = params.SpringFeatureMode
+		expected["scene_cost_mode"] = params.SpringSceneCostMode
+		expected["trajectory_version"] = "batch_clock_continuous_v1"
+		expected["reward_load_basis"] = "stage"
+		expected["state_layout"] = "iot_cost_by_shard_no_address_flag_v3_1"
+	}
+	return expected
 }
 
 // springChooseShardPPO 保留为单地址调试入口。
@@ -331,6 +343,9 @@ func (rthm *RelayCommitteeModule) springCallPythonBatch(items []SpringBatchInfer
 	inferCostUs := time.Since(start).Microseconds()
 
 	if err != nil {
+		if params.SpringMechanismVersion == "v3" {
+			panic(fmt.Sprintf("v3 frozen inference failed; refuse policy fallback: %v", err))
+		}
 		if strings.Contains(err.Error(), "frozen model unavailable") {
 			panic(fmt.Sprintf("SPRING frozen PPO preflight failed: %v", err))
 		}
@@ -343,6 +358,17 @@ func (rthm *RelayCommitteeModule) springCallPythonBatch(items []SpringBatchInfer
 
 	output := SpringBatchInferOutput{
 		Items: resp.Items,
+	}
+	if params.SpringMechanismVersion == "v3" {
+		if len(output.Items) != len(items) {
+			panic("v3 incomplete inference response")
+		}
+		for i, result := range output.Items {
+			if result.Address != items[i].Address || !strings.HasPrefix(result.Source, "python_ppo") ||
+				result.Shard < 0 || result.Shard >= params.ShardNum || !springActionAllowed(items[i].ActionMask, uint64(result.Shard)) {
+				panic("v3 invalid inference response; refuse policy fallback")
+			}
+		}
 	}
 
 	for i := range output.Items {
@@ -448,14 +474,7 @@ func (rthm *RelayCommitteeModule) springCallPythonOnlineUpdate(input SpringOnlin
 		return false
 	}
 
-	pythonCmd := os.Getenv("SPRING_PYTHON")
-	if pythonCmd == "" {
-		if runtime.GOOS == "windows" {
-			pythonCmd = "python"
-		} else {
-			pythonCmd = "python3"
-		}
-	}
+	pythonCmd := springDefaultPythonCmd()
 
 	modelPath := springConfiguredModelPath()
 	logPath := filepath.Join("spring_io", "online_train_log.jsonl")
@@ -464,7 +483,7 @@ func (rthm *RelayCommitteeModule) springCallPythonOnlineUpdate(input SpringOnlin
 
 	cmd := exec.Command(
 		pythonCmd,
-		filepath.Join("spring_lite", "update_online.py"),
+		springPythonScript("update_online.py"),
 		"--input",
 		inputPath,
 		"--model",

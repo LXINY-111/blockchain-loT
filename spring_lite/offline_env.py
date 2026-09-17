@@ -35,6 +35,8 @@ from config import (
 )
 from action_mask import action_allowed, best_allowed_action, normalize_action_mask
 from heuristic import addr2shard
+from mechanism import input_dim
+from iot_v2 import V2_LOAD_SEMANTICS, batch_account_scenes, load_rows, scene_for_legacy_features
 
 
 IOT_DENSE_REWARD_MODES = {"iot_dense", IOT_DENSE_BALANCED_REWARD_MODE}
@@ -49,6 +51,11 @@ class Tx:
     related_weights: Tuple[float, ...] = field(default_factory=tuple)
     iot_features: Tuple[float, ...] = field(default_factory=tuple)
     communication_cost_weight: float = 0.0
+    # v2 保留真实双方账户；金额用整数保存，避免大金额经过浮点丢失精度。
+    real_accounts: bool = False
+    value: int = 0
+    recipient_iot_features: Tuple[float, ...] = field(default_factory=tuple)
+    recipient_communication_cost_weight: float = 0.0
 
 
 @dataclass
@@ -126,6 +133,7 @@ class PlacementAction:
     load_penalty: float = 0.0
     source: str = "policy"
     action_mask: List[int] = field(default_factory=list)
+    cost_by_shard: List[float] = field(default_factory=list)
 
 
 @dataclass
@@ -271,12 +279,19 @@ def parse_tx_row(row: Sequence[str]) -> Optional[Tx]:
     if sender == recipient:
         return None
 
+    try:
+        value = int(str(row[8]), 10)
+    except ValueError:
+        return None
+    if value < 0:
+        return None
+
     sender = normalize_address(sender)
     recipient = normalize_address(recipient)
     if not sender or not recipient or sender == recipient:
         return None
 
-    return Tx(sender=sender, recipient=recipient)
+    return Tx(sender=sender, recipient=recipient, value=value)
 
 
 def validate_tx_window(start_tx: int, max_txs: int) -> None:
@@ -320,6 +335,7 @@ def load_iot_transactions(
     sidecar_path: Path,
     max_txs: int = 0,
     start_tx: int = 0,
+    identity: str = "iot",
 ) -> List[Tx]:
     """读取 IoT 交易和 sidecar，把 flow 映射为通信状态对象。
 
@@ -328,6 +344,19 @@ def load_iot_transactions(
     已经把 to_address 做成通信状态对象账户，因此这里优先直接使用
     sidecar 的 to_address/state_object_key，避免训练代码再构造另一套 key。
     """
+    if identity == "iot_v2":
+        result = []
+        for raw, row in load_rows(csv_path, sidecar_path, start_tx, max_txs):
+            forward = scene_for_legacy_features(row)
+            reverse = scene_for_legacy_features(row, reverse=True)
+            result.append(Tx(
+                sender=normalize_address(raw[3]), recipient=normalize_address(raw[4]),
+                value=int(raw[8]), real_accounts=True,
+                iot_features=tuple(iot_feature_vector(forward, 0)),
+                recipient_iot_features=tuple(iot_feature_vector(reverse, 0)),
+                communication_cost_weight=iot_communication_cost_weight(forward),
+                recipient_communication_cost_weight=iot_communication_cost_weight(reverse)))
+        return result
     validate_tx_window(start_tx, max_txs)
     txs: List[Tx] = []
     device_protocol_seen: Counter = Counter()
@@ -340,6 +369,8 @@ def load_iot_transactions(
     ).open("r", encoding="utf-8", newline="") as sidecar_handle:
         tx_reader = csv.reader(tx_handle)
         sidecar_reader = csv.DictReader(sidecar_handle)
+        if "template_id" in (sidecar_reader.fieldnames or []):
+            raise ValueError("Real-account scene requires --tx_identity iot_v2; legacy identity would reverse addresses")
 
         for raw_row in tx_reader:
             raw_tx = parse_tx_row(raw_row)
@@ -1077,6 +1108,9 @@ class SpringOfflineEnv:
         capacity_guard: int = 0,
         capacity_guard_factor: float = 1.2,
         candidate_load_weight: float = 1.0,
+        mechanism_version: str = 'legacy',
+        feature_mode: str = 'full',
+        scene_cost_mode: str = 'legacy',
     ) -> None:
         if shards <= 0:
             raise ValueError("shards must be positive")
@@ -1086,6 +1120,17 @@ class SpringOfflineEnv:
             raise ValueError("block_interval_ms must be positive")
 
         self.shards = int(shards)
+        self.mechanism_version = mechanism_version
+        self.feature_mode = feature_mode
+        self.scene_cost_mode = scene_cost_mode
+        if mechanism_version not in ('legacy', 'v3') or feature_mode not in ('full', 'no_iot'):
+            raise ValueError('Invalid mechanism configuration')
+        if mechanism_version == 'v3' and (iot_feature_dim != 10 or capacity_backlog_mode != 0):
+            raise ValueError('v3 requires 10 base IoT features and timed-queue mode disabled')
+        if mechanism_version == 'v3' and (scene_cost_mode not in ('cross', 'off') or reward_mode != 'iot_dense_balanced'):
+            raise ValueError('v3 requires explicit cross/off cost and iot_dense_balanced reward')
+        self.cost_relations = {}
+        self.current_cost_vector = [0.] * self.shards
         self.tx_batch_size = int(tx_batch_size)
         self.max_block_size = int(max_block_size)
         self.block_interval_ms = int(block_interval_ms)
@@ -1168,7 +1213,10 @@ class SpringOfflineEnv:
                 value = float(sender_pos[sid])
             state.append(clamp(value, 0.0, 1.0))
 
-        state.append(1.0 if flag != 0 else 0.0)
+        # 当前 v3 输入删除账户关联度 flag；legacy 保留这一列用于复现旧模型。
+        # 后面的控制协议占比来自真实场景字段，不属于这个账户代理标记。
+        if self.mechanism_version == 'legacy':
+            state.append(1.0 if flag != 0 else 0.0)
 
         if self.iot_feature_dim > 0:
             total_load = float(sum(self.shard_load))
@@ -1180,9 +1228,13 @@ class SpringOfflineEnv:
             extra = list(iot_features or [])
             for idx in range(self.iot_feature_dim):
                 value = float(extra[idx]) if idx < len(extra) else 0.0
+                if self.feature_mode == 'no_iot' and idx > 0:
+                    value = 0.0  # 保留关联数量，不把拓扑信息一起消融。
                 state.append(clamp(value, 0.0, 1.0))
+        if self.mechanism_version == 'v3':
+            state.extend([clamp(v, 0., 1.) for v in self.current_cost_vector] if self.feature_mode == 'full' else [0.] * self.shards)
 
-        expected_dim = state_dim(self.shards, self.iot_feature_dim)
+        expected_dim = input_dim(self.shards, self.iot_feature_dim, self.mechanism_version)
         if len(state) != expected_dim:
             raise RuntimeError(f"state dim mismatch: got {len(state)}, expected {expected_dim}")
         return state
@@ -1388,6 +1440,16 @@ class SpringOfflineEnv:
         if not addr or addr in self.addr_shard:
             return None
 
+        # 同一原始交易的正向成本用于两端放置和最终指标；不混用反向均值。
+        self.current_cost_vector = [0.] * self.shards
+        peers = self.cost_relations.get(addr, {})
+        total_cost = sum(value for _, value in sorted(peers.items()))
+        if total_cost > EPS:
+            for peer, cost in sorted(peers.items()):
+                sid = self.addr_shard.get(peer)
+                if sid is not None:
+                    self.current_cost_vector[sid] += cost / total_cost
+
         info = self.build_sender_pos(
             addr=addr,
             fallback_related=fallback_related,
@@ -1425,12 +1487,14 @@ class SpringOfflineEnv:
             local_reward, load_penalty = iot_dense_action_reward(
                 chosen_shard=chosen_shard,
                 sender_pos=info.sender_pos,
-                communication_cost_weight=communication_cost_weight,
+                communication_cost_weight=communication_cost_weight if self.mechanism_version == 'legacy' else 0.,
                 shard_load_before=shard_load_before,
                 load_mean_before=load_mean_before,
                 low_load_bonus_weight=low_load_bonus_weight,
                 low_load_bonus_cap=low_load_bonus_cap,
             )
+            if self.mechanism_version == 'v3' and self.scene_cost_mode == 'cross':
+                local_reward -= .45 * max(0., sum(self.current_cost_vector)-self.current_cost_vector[chosen_shard])
         else:
             local_reward, load_penalty = local_action_reward(
                 chosen_shard=chosen_shard,
@@ -1463,6 +1527,7 @@ class SpringOfflineEnv:
             same_as_related = info.related_known and chosen_shard == info.related_shard
 
         return PlacementAction(
+            cost_by_shard=list(self.current_cost_vector),
             batch_id=batch_id,
             address=addr,
             related=info.related_summary,
@@ -1585,7 +1650,10 @@ class SpringOfflineEnv:
             # Go records one sidecar-derived communication cost per original
             # inner/Relay1 transaction, independent of whether peer anchors are
             # on the same shard.
-            communication_cost += float(tx.communication_cost_weight)
+            cost_factor = 1.0
+            if self.mechanism_version == 'v3':
+                cost_factor = float(sender_shard != recipient_shard) if self.scene_cost_mode == 'cross' else 0.
+            communication_cost += float(tx.communication_cost_weight) * cost_factor
 
         communication_cost = clamp(communication_cost / float(max(1, len(txs))), 0.0, 1.0)
         return BatchLoadSimulation(
@@ -1613,7 +1681,7 @@ class SpringOfflineEnv:
         if self.capacity_backlog_mode == 0:
             zeros = [0.0 for _ in range(self.shards)]
             return CapacitySimulation(
-                reward_loads=[float(v) for v in effective_loads],
+                reward_loads=[float(v) for v in (stage_loads if self.mechanism_version == 'v3' else effective_loads)],
                 committed_stage_loads=[float(v) for v in stage_loads],
                 committed_effective_loads=[float(v) for v in effective_loads],
                 committed_cross_loads=[float(v) for v in cross_loads],
@@ -1703,7 +1771,20 @@ class SpringOfflineEnv:
     ) -> Tuple[List[PlacementAction], BatchMetrics]:
         self.batch_id += 1
         batch_id = self.batch_id
-        if self.iot_feature_dim > 0:
+        real_accounts = bool(txs) and txs[0].real_accounts
+        if self.mechanism_version == 'v3' and not real_accounts:
+            raise ValueError('v3 requires real-account iot_v2 transactions')
+        self.cost_relations = defaultdict(lambda: defaultdict(float))
+        if self.mechanism_version == 'v3':
+            for tx in txs:
+                if tx.sender != tx.recipient:
+                    self.cost_relations[tx.sender][tx.recipient] += tx.communication_cost_weight
+                    self.cost_relations[tx.recipient][tx.sender] += tx.communication_cost_weight
+        if any(tx.real_accounts != real_accounts for tx in txs):
+            raise ValueError("Cannot mix legacy and real-account transactions")
+        if real_accounts and self.sender_pos_mode not in (0, 1):
+            raise ValueError("Go/Python v2 supports sender_pos_mode 0 or 1")
+        if self.iot_feature_dim > 0 and not real_accounts:
             batch_related = self.build_iot_batch_related(txs)
             self._seed_iot_anchor_shards(txs)
         else:
@@ -1711,7 +1792,19 @@ class SpringOfflineEnv:
         batch_placement: Dict[str, int] = {}
         actions: List[PlacementAction] = []
 
-        if self.iot_feature_dim > 0:
+        if real_accounts:
+            scenes = batch_account_scenes(txs)
+            # 保留原 SPRING 的新地址放置顺序：模式 1 先发送方再接收方。
+            placements = ([(tx.sender, None) for tx in txs] +
+                          [(tx.recipient, tx.sender) for tx in txs]) if self.sender_pos_mode == 1 else [
+                              pair for tx in txs for pair in ((tx.sender, tx.recipient), (tx.recipient, tx.sender))]
+            for address, related in placements:
+                features, cost = scenes[address]
+                action = self._place_address(address, related, batch_placement, batch_related,
+                                             policy, batch_id, features, cost)
+                if action is not None:
+                    actions.append(action)
+        elif self.iot_feature_dim > 0:
             for tx in txs:
                 action = self._place_address(
                     tx.sender,
@@ -1821,7 +1914,7 @@ class SpringOfflineEnv:
         related_shard_hist = [0 for _ in range(self.shards)]
         same_related_by_shard = [0 for _ in range(self.shards)]
 
-        for action in actions:
+        for action_index, action in enumerate(actions):
             local_signal = clamp(action.local_reward, -1.0, 1.0)
             local_reward_weight = self.local_reward_weight
             if self.reward_mode in IOT_DENSE_REWARD_MODES and self.iot_feature_dim > 0:
@@ -1831,6 +1924,12 @@ class SpringOfflineEnv:
                 + (1.0 - local_reward_weight) * block_signal
             )
             action.reward = self.action_reward_scale * clamp(shaped, -1.0, 1.0)
+            if self.mechanism_version == 'v3':
+                # 和连续采样器一致：局部项按本批动作数平均，全局项只在批尾记一次。
+                # 纯回访批奖励由采样器追加到上一放置转移，不伪造新的动作日志。
+                action.reward = self.action_reward_scale * local_reward_weight * local_signal / len(actions)
+                if action_index == len(actions)-1:
+                    action.reward += self.action_reward_scale * (1-local_reward_weight) * block_signal
             action.done = False
 
             action_hist[action.action] += 1
@@ -1847,7 +1946,7 @@ class SpringOfflineEnv:
                 if 0 <= action.related_shard < self.shards:
                     same_related_by_shard[action.related_shard] += 1
 
-        if actions:
+        if actions and self.mechanism_version == 'legacy':
             actions[-1].done = True
 
         related_follow_by_shard = [
@@ -1930,7 +2029,7 @@ class SpringOfflineEnv:
             per_shard_capacity_tps=self.per_shard_capacity_tps,
             owner_anchor_tps_ceiling=owner_anchor_tps_ceiling,
             system_stage_tps_ceiling=system_stage_tps_ceiling,
-            load_semantics_version=LOAD_SEMANTICS_VERSION,
+            load_semantics_version=V2_LOAD_SEMANTICS if real_accounts else LOAD_SEMANTICS_VERSION,
             reward_loads=capacity.reward_loads,
             committed_stage_loads=capacity.committed_stage_loads,
             committed_loads=capacity.committed_effective_loads,

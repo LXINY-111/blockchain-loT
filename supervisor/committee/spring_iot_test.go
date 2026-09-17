@@ -513,13 +513,14 @@ func TestSpringBuildFeedbackRewardRecordUsesIOTDenseBalancedReward(t *testing.T)
 		rawVar += diff * diff
 	}
 	rawVar /= 4.0
-	normVar := rawVar / (avgLoad*avgLoad + 1e-6)
+	// 与 Python config.EPS 一致；保持严格误差检查，不放宽断言掩盖差异。
+	normVar := rawVar / (avgLoad*avgLoad + 1e-8)
 	normVar = normVar / (1.0 + normVar)
-	normalizedAbsDiff := rawAbsDiff / (avgLoad + 1e-6)
+	normalizedAbsDiff := rawAbsDiff / (avgLoad + 1e-8)
 	rWLB := math.Exp(-0.1*normalizedAbsDiff) * (1.0 - normVar)
 	communicationCost := 1.6 / 5.0
-	maxLoadShare := 40.0 / (70.0 + 1e-6)
-	hotspotPenalty := (maxLoadShare - 0.45) / (1.0 - 0.45 + 1e-6)
+	maxLoadShare := 40.0 / (70.0 + 1e-8)
+	hotspotPenalty := (maxLoadShare - 0.45) / (1.0 - 0.45 + 1e-8)
 	wantReward := 0.55*rCSTR + 0.30*rWLB - 0.10*communicationCost - 0.05*hotspotPenalty
 
 	assertClose(t, record.CrossRate, crossRate)
@@ -580,9 +581,10 @@ func TestSpringBuildFeedbackRewardRecordUsesPaperRewardWhenIOTModeOff(t *testing
 		rawVar += diff * diff
 	}
 	rawVar /= 4.0
-	normVar := rawVar / (avgLoad*avgLoad + 1e-6)
+	// 与 Python config.EPS 一致；纸面奖励与 IoT 奖励使用同一稳定常量。
+	normVar := rawVar / (avgLoad*avgLoad + 1e-8)
 	normVar = normVar / (1.0 + normVar)
-	normalizedAbsDiff := rawAbsDiff / (avgLoad + 1e-6)
+	normalizedAbsDiff := rawAbsDiff / (avgLoad + 1e-8)
 	rWLB := math.Exp(-0.1*normalizedAbsDiff) * (1.0 - normVar)
 	wantReward := 0.5*rCSTR + 0.5*rWLB
 

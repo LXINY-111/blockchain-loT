@@ -1,5 +1,25 @@
 from math import isclose
 from typing import Any, Dict, List, Mapping
+from pathlib import Path
+
+
+def resolve_checkpoint_path(manifest_path, recorded_path):
+    """优先解析新相对路径；旧绝对路径失效时只查清单附近的明确位置。
+
+    原始归档保持只读，不扫描磁盘、不按模糊文件名猜测模型。
+    """
+    manifest = Path(manifest_path).resolve()
+    source = Path(recorded_path)
+    if not source.is_absolute():
+        source = manifest.parent / source
+    if source.is_file():
+        return source.resolve()
+    candidates = [manifest.parent / Path(recorded_path).name,
+                  manifest.parent.parent / Path(recorded_path).name]
+    found = list(dict.fromkeys(p.resolve() for p in candidates if p.is_file()))
+    if len(found) != 1:
+        raise FileNotFoundError(f'Missing or ambiguous relocated checkpoint: {recorded_path}')
+    return found[0]
 
 
 def checkpoint_config_mismatches(
@@ -8,6 +28,8 @@ def checkpoint_config_mismatches(
 ) -> List[str]:
     """Return reproducibility-critical checkpoint metadata mismatches."""
     mismatches: List[str] = []
+    if extra.get('mechanism_version', 'legacy') != expected.get('mechanism_version', 'legacy'):
+        mismatches.append('mechanism_version: legacy and v3 checkpoints cannot be mixed')
     for key, expected_value in expected.items():
         if key not in extra:
             mismatches.append(f"{key}: missing (expected {expected_value!r})")

@@ -15,14 +15,17 @@ import (
 )
 
 type SpringIOTTxFeature struct {
-	TxIndex                 uint64
-	StateObject             string
-	AnchorObject            string
-	AnchorObjects           []string
-	AnchorWeights           []float64
-	DeviceProtocolKey       string
-	Features                []float64
-	CommunicationCostWeight float64
+	TxIndex                          uint64
+	StateObject                      string
+	AnchorObject                     string
+	AnchorObjects                    []string
+	AnchorWeights                    []float64
+	DeviceProtocolKey                string
+	Features                         []float64
+	CommunicationCostWeight          float64
+	RealAccounts                     bool
+	RecipientFeatures                []float64
+	RecipientCommunicationCostWeight float64
 }
 
 func springIOTEnabled() bool {
@@ -30,7 +33,7 @@ func springIOTEnabled() bool {
 }
 
 func springIOTIdentityEnabled() bool {
-	return params.SpringIOTMode == 1 || params.SpringIOTIdentityMode == 1
+	return params.SpringIOTMode == 1 || params.SpringIOTIdentityMode == 1 || springRealAccountsEnabled()
 }
 
 func springIOTFeatureFromRow(row map[string]string, priorFrequency int) (SpringIOTTxFeature, bool) {
@@ -44,7 +47,6 @@ func springIOTFeatureFromRow(row map[string]string, priorFrequency int) (SpringI
 	protocol := springIOTProtocol(row)
 	stateObject := springIOTStateObjectKey(row)
 	payload := springIOTNumber(row["srcPayloadSize"]) + springIOTNumber(row["dstPayloadSize"])
-	packets := springIOTNumber(row["srcNumPackets"]) + springIOTNumber(row["dstNumPackets"])
 	duration := springIOTNumber(row["flowDuration"])
 	anchorWeights := springIOTNormalizedWeights(row)
 	anchorObjectWeights := springIOTAnchorObjectWeights(row, anchorKey, anchorObjects, anchorWeights)
@@ -85,7 +87,8 @@ func springIOTFeatureFromRow(row map[string]string, priorFrequency int) (SpringI
 
 	distanceNorm := distanceStats[0]
 	linkLoss := springClamp(1.0-linkQualityStats[0], 0.0, 1.0)
-	trafficWeight := math.Max(0.05, springIOTLogNormalize(payload+packets+duration, 1_000_000.0))
+	// 通信代价按负载字节数归一化，与 Python 一致；不混加不同单位的包数和时长。
+	trafficWeight := math.Max(0.05, springIOTLogNormalize(payload, 1_000_000.0))
 
 	return SpringIOTTxFeature{
 		TxIndex:                 txIndex,
@@ -137,6 +140,22 @@ func springLoadIOTSidecarWindow(path string, startTx int, maxTx int) (map[uint64
 	if err != nil {
 		return nil, err
 	}
+	globalOffset := uint64(0)
+	hasTemplate := false
+	for _, name := range header {
+		if name == "template_id" {
+			hasTemplate = true
+		}
+	}
+	if hasTemplate != springRealAccountsEnabled() {
+		return nil, fmt.Errorf("sidecar schema and SpringIOTIdentityMode disagree; v2 requires mode 2")
+	}
+	if springRealAccountsEnabled() {
+		globalOffset, err = springV2IndexOffset(path)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	features := make(map[uint64]SpringIOTTxFeature)
 	deviceProtocolSeen := make(map[string]int)
@@ -160,13 +179,16 @@ func springLoadIOTSidecarWindow(path string, startTx int, maxTx int) (map[uint64
 		}
 		rawTxIndex := strings.TrimSpace(row["tx_index"])
 		if rawTxIndex == "" {
+			if springRealAccountsEnabled() {
+				return nil, fmt.Errorf("missing v2 tx_index at row %d", rowIndex+1)
+			}
 			rawTxIndex = strconv.FormatUint(rowIndex, 10)
 		}
 		sourceTxIndex, err := strconv.ParseUint(springIOTCleanCell(rawTxIndex), 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid IoT sidecar tx_index %q at row %d", rawTxIndex, rowIndex)
 		}
-		if sourceTxIndex != rowIndex {
+		if sourceTxIndex != globalOffset+rowIndex {
 			return nil, fmt.Errorf(
 				"non-contiguous IoT sidecar tx_index at row %d: got %d",
 				rowIndex,
@@ -174,8 +196,14 @@ func springLoadIOTSidecarWindow(path string, startTx int, maxTx int) (map[uint64
 			)
 		}
 		rowIndex++
+		if springRealAccountsEnabled() {
+			sourceRow, err := strconv.ParseUint(row["source_row"], 10, 64)
+			if err != nil || sourceRow != rowIndex {
+				return nil, fmt.Errorf("v2 source_row mismatch at row %d", rowIndex)
+			}
+		}
 
-		if sourceTxIndex < windowStart {
+		if sourceTxIndex-globalOffset < windowStart {
 			continue
 		}
 		if maxTx > 0 && len(features) >= maxTx {
@@ -188,6 +216,13 @@ func springLoadIOTSidecarWindow(path string, startTx int, maxTx int) (map[uint64
 		deviceProtocolKey := springIOTAnchorKey(row) + "|" + springIOTProtocol(row)
 		priorFrequency := deviceProtocolSeen[deviceProtocolKey]
 		feature, ok := springIOTFeatureFromRow(row, priorFrequency)
+		if springRealAccountsEnabled() {
+			feature, err = springRealFeatureFromRow(row)
+			if err != nil {
+				return nil, fmt.Errorf("v2 scene row %d: %w", sourceTxIndex, err)
+			}
+			ok = true
+		}
 		if !ok {
 			return nil, fmt.Errorf("invalid IoT sidecar row at source index %d", sourceTxIndex)
 		}
@@ -220,6 +255,10 @@ func (rthm *RelayCommitteeModule) springApplyIOTTxIdentity(tx *core.Transaction)
 	if !ok || feature.StateObject == "" || feature.AnchorObject == "" {
 		return false
 	}
+	if feature.RealAccounts {
+		// 新数据只核对身份，不改写交易地址、金额或交易摘要。
+		return string(tx.Sender) == feature.StateObject && string(tx.Recipient) == feature.AnchorObject
+	}
 
 	// IoT MDP：链上评估直接使用 sidecar 中的状态对象账户和设备锚点账户，
 	// 与 Python offline training（离线训练）和 selectedTxs_iot_full.csv 对齐。
@@ -246,7 +285,7 @@ func (rthm *RelayCommitteeModule) springIOTCommunicationCostForTxGroups(txGroups
 	seen := make(map[uint64]bool)
 	sum := 0.0
 	count := 0
-	for _, txs := range txGroups {
+	for groupIndex, txs := range txGroups {
 		for _, tx := range txs {
 			if tx == nil || seen[tx.Nonce] {
 				continue
@@ -256,7 +295,10 @@ func (rthm *RelayCommitteeModule) springIOTCommunicationCostForTxGroups(txGroups
 			if !ok {
 				continue
 			}
-			sum += springClamp(feature.CommunicationCostWeight, 0.0, 1.0)
+			// 调用约定：第 0 组为同片原始交易，第 1 组为 Relay1；Relay2 不重复计价。
+			if params.SpringMechanismVersion != "v3" || (params.SpringSceneCostMode == "cross" && groupIndex == 1) {
+				sum += springClamp(feature.CommunicationCostWeight, 0.0, 1.0)
+			}
 			count++
 		}
 	}

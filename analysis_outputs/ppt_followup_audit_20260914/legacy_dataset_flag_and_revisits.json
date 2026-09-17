@@ -1,0 +1,68 @@
+[
+  {
+    "split": "train",
+    "start": 0,
+    "end": 2500000,
+    "rows": 2500000,
+    "unique_states": 31793,
+    "first_placement_flag_counts": {
+      "0": 31793
+    },
+    "first_placement_related_count_distribution": {
+      "2": 30907,
+      "3": 884,
+      "1": 2
+    },
+    "batches": 2500,
+    "no_new_action_batches": 79,
+    "transactions_in_state_first_batch": 37672,
+    "transactions_after_state_first_batch": 2462328,
+    "later_batch_tx_fraction": 0.9849312,
+    "states_with_multiple_owners": 0,
+    "elapsed_sec": 16.875
+  },
+  {
+    "split": "validation",
+    "start": 2500000,
+    "end": 2944019,
+    "rows": 444019,
+    "unique_states": 5321,
+    "first_placement_flag_counts": {
+      "0": 5321
+    },
+    "first_placement_related_count_distribution": {
+      "2": 5239,
+      "3": 80,
+      "1": 2
+    },
+    "batches": 445,
+    "no_new_action_batches": 1,
+    "transactions_in_state_first_batch": 6839,
+    "transactions_after_state_first_batch": 437180,
+    "later_batch_tx_fraction": 0.9845975059625827,
+    "states_with_multiple_owners": 0,
+    "elapsed_sec": 2.7660000000032596
+  },
+  {
+    "split": "test",
+    "start": 2944019,
+    "end": 4944019,
+    "rows": 2000000,
+    "unique_states": 42369,
+    "first_placement_flag_counts": {
+      "0": 42369
+    },
+    "first_placement_related_count_distribution": {
+      "2": 41748,
+      "3": 619,
+      "1": 2
+    },
+    "batches": 2000,
+    "no_new_action_batches": 248,
+    "transactions_in_state_first_batch": 50106,
+    "transactions_after_state_first_batch": 1949894,
+    "later_batch_tx_fraction": 0.974947,
+    "states_with_multiple_owners": 0,
+    "elapsed_sec": 12.59299999999348
+  }
+]

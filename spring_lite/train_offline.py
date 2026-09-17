@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import random
 import time
 from pathlib import Path
@@ -66,6 +67,7 @@ from config import (
 )
 from action_mask import mask_logits, normalize_action_mask
 from action_select import distribution_floor_shortfall, tie_aware_argmax
+from iot_v2 import V2_DIRECTORY, load_semantics, resolved_identity
 from checkpoint_compat import checkpoint_config_mismatches, format_checkpoint_mismatch
 from offline_env import (
     BatchMetrics,
@@ -78,6 +80,8 @@ from offline_env import (
     load_transactions,
 )
 from ppo import PPOAgent, RolloutBuffer
+from mechanism import add_mechanism_args, settings, metadata, input_dim, validate_args, load_statistics
+from continuous_rollout import ContinuousRollout
 
 
 def set_seed(seed: int) -> None:
@@ -94,7 +98,7 @@ def is_iot_mdp(args: argparse.Namespace) -> bool:
 
 def uses_iot_identity(args: argparse.Namespace) -> bool:
     mode = str(getattr(args, "tx_identity", "auto")).strip().lower()
-    if mode == "iot":
+    if mode in ("iot", "iot_v2"):
         return True
     if mode == "raw":
         return False
@@ -112,13 +116,14 @@ def iot_feature_dim_for_args(args: argparse.Namespace) -> int:
 
 def agent_state_dim(args: argparse.Namespace, shards: Optional[int] = None) -> int:
     shard_count = int(shards if shards is not None else args.shards)
-    return state_dim(shard_count, iot_feature_dim_for_args(args))
+    return input_dim(shard_count, iot_feature_dim_for_args(args), settings(args)['mechanism_version'])
 
 
 def expected_checkpoint_config(args: argparse.Namespace) -> Dict[str, object]:
     return {
+        **metadata(args),
         "mdp_mode": args.mdp_mode,
-        "tx_identity_resolved": "iot" if uses_iot_identity(args) else "raw",
+        "tx_identity_resolved": resolved_identity(args),
         "shards": args.shards,
         "iot_feature_dim": iot_feature_dim_for_args(args),
         "sender_pos_mode": args.sender_pos_mode,
@@ -133,7 +138,7 @@ def expected_checkpoint_config(args: argparse.Namespace) -> Dict[str, object]:
         "candidate_load_weight": args.candidate_load_weight,
         "max_block_size": args.max_block_size,
         "block_interval_ms": args.block_interval_ms,
-        "load_semantics_version": LOAD_SEMANTICS_VERSION,
+        "load_semantics_version": load_semantics(args),
     }
 
 
@@ -141,12 +146,15 @@ def resolve_csv_path(args: argparse.Namespace) -> Path:
     csv_arg = str(getattr(args, "csv", "")).strip()
     if csv_arg:
         return Path(csv_arg)
+    if resolved_identity(args) == "iot_v2":
+        return V2_DIRECTORY / "selectedTxs_iot_v2.csv"
     return DEFAULT_IOT_CSV_PATH if uses_iot_identity(args) else DEFAULT_CSV_PATH
 
 
 def resolve_iot_sidecar_path(args: argparse.Namespace) -> Path:
     sidecar = str(getattr(args, "sidecar", "")).strip()
-    return Path(sidecar) if sidecar else DEFAULT_IOT_SIDECAR_PATH
+    default = V2_DIRECTORY / "transaction_scene.csv" if resolved_identity(args) == "iot_v2" else DEFAULT_IOT_SIDECAR_PATH
+    return Path(sidecar) if sidecar else default
 
 
 def load_training_transactions(args: argparse.Namespace, csv_path: Path):
@@ -159,6 +167,7 @@ def load_training_transactions(args: argparse.Namespace, csv_path: Path):
         return load_iot_transactions(
             csv_path,
             sidecar_path,
+            identity=resolved_identity(args),
             max_txs=args.max_txs,
             start_tx=start_tx,
         )
@@ -189,6 +198,7 @@ def load_validation_transactions(
         return load_iot_transactions(
             validation_csv_path,
             sidecar_path,
+            identity=resolved_identity(args),
             max_txs=max_txs,
             start_tx=start_tx,
         )
@@ -234,6 +244,7 @@ def make_agent(args: argparse.Namespace) -> PPOAgent:
         argmax_balance_coef=args.argmax_balance_coef,
         argmax_balance_temperature=args.argmax_balance_temperature,
         device=args.device,
+        diagnostics=getattr(args, 'diagnostics', False),
     )
     agent.argmax_tie_eps = float(args.argmax_tie_eps)
     agent.argmax_tie_break = int(args.argmax_tie_break)
@@ -405,6 +416,7 @@ def new_summary(
 
 
 def update_summary(summary: Dict[str, object], metrics: BatchMetrics) -> None:
+    summary["load_semantics_version"] = metrics.load_semantics_version
     summary["batches"] = int(summary["batches"]) + 1
     summary["tx_count"] = int(summary["tx_count"]) + metrics.tx_count
     summary["action_count"] = int(summary["action_count"]) + metrics.action_count
@@ -563,6 +575,7 @@ def summary_view(summary: Dict[str, object]) -> Dict[str, object]:
         "owner_load_dist": owner_load_dist,
         "owner_max_load_share": owner_max_load_share,
         "stage_loads": stage_loads,
+        "execution_load": load_statistics(stage_loads),
         "stage_load_dist": stage_load_dist,
         "stage_max_load_share": stage_max_load_share,
         "stage_max_load_per_tx": stage_max_load_per_tx,
@@ -620,6 +633,7 @@ def make_env(args: argparse.Namespace) -> SpringOfflineEnv:
         backlog_penalty_weight=args.backlog_penalty_weight,
         reward_mode=args.reward_mode,
         iot_feature_dim=iot_feature_dim_for_args(args),
+        **settings(args),
         iot_cstr_weight=args.iot_cstr_weight,
         iot_balance_weight=args.iot_balance_weight,
         iot_comm_cost_weight=args.iot_comm_cost_weight,
@@ -635,8 +649,10 @@ def evaluate_agent_argmax(
     agent: PPOAgent,
     args: argparse.Namespace,
     txs: Sequence,
+    sample: bool = False,
 ) -> Dict[str, object]:
     env = make_env(args)
+
     summary = new_summary(
         args.shards,
         args.max_block_size,
@@ -644,11 +660,12 @@ def evaluate_agent_argmax(
     )
     was_training = agent.net.training
     agent.net.eval()
+    policy = sample_agent_policy if sample else deterministic_agent_policy
 
     for batch in iter_batches(txs, args.tx_batch_size):
         _actions, metrics = env.run_batch(
             batch,
-            lambda state, address, related, info: deterministic_agent_policy(
+            lambda state, address, related, info: policy(
                 agent, state, address, related, info
             ),
         )
@@ -658,6 +675,19 @@ def evaluate_agent_argmax(
         agent.net.train()
 
     return summary_view(summary)
+
+
+def evaluate_agent_sampled(agent, args, txs, seed):
+    """采样验证隔离随机数状态，不能因多测一次而改变后续训练轨迹。"""
+    python_rng, numpy_rng = random.getstate(), np.random.get_state()
+    devices = list(range(torch.cuda.device_count())) if torch.cuda.is_available() else []
+    try:
+        with torch.random.fork_rng(devices=devices):
+            set_seed(seed)
+            return evaluate_agent_argmax(agent, args, txs, sample=True)
+    finally:
+        random.setstate(python_rng)
+        np.random.set_state(numpy_rng)
 
 
 def validation_score(
@@ -720,13 +750,16 @@ def checkpoint_pareto_metrics(record: Dict[str, object]) -> Dict[str, float]:
     summary = record.get("summary", {})
     if not isinstance(summary, dict):
         summary = {}
-    return {
+    result = {
         "cross_ratio": float(summary.get("cross_ratio", 1.0)),
         "stage_max_load_share": float(
             summary.get("stage_max_load_share", 1.0)
         ),
         "active_shards_mean": float(summary.get("active_shards_mean", 0.0)),
     }
+    if record.get('mechanism_version') == 'v3':
+        result['communication_cost_mean'] = float(summary['communication_cost_mean'])
+    return result
 
 
 def checkpoint_dominates(
@@ -750,6 +783,10 @@ def checkpoint_dominates(
         or left_metrics["active_shards_mean"]
         > right_metrics["active_shards_mean"] + eps
     )
+    if 'communication_cost_mean' in left_metrics or 'communication_cost_mean' in right_metrics:
+        # v3 保留成本与跨片率/阶段热点之间的折中，不把成本更优的模型直接淘汰。
+        no_worse = no_worse and left_metrics['communication_cost_mean'] <= right_metrics['communication_cost_mean'] + eps
+        strictly_better = strictly_better or left_metrics['communication_cost_mean'] < right_metrics['communication_cost_mean'] - eps
     return no_worse and strictly_better
 
 
@@ -780,6 +817,7 @@ def checkpoint_manifest_view(record: Dict[str, object]) -> Dict[str, object]:
         "update_count": record.get("update_count"),
         "checkpoint_path": record.get("checkpoint_path"),
         "validation_score": record.get("score"),
+        "communication_cost_mean": summary.get("communication_cost_mean"),
         "cross_ratio": summary.get("cross_ratio"),
         "relation_cross_ratio": summary.get("relation_cross_ratio"),
         "active_shards_mean": summary.get("active_shards_mean"),
@@ -792,6 +830,11 @@ def checkpoint_manifest_view(record: Dict[str, object]) -> Dict[str, object]:
 
 
 def train(args: argparse.Namespace) -> None:
+    validate_args(args)
+    if getattr(args, 'diagnostics', False) and settings(args)['mechanism_version'] != 'v3':
+        raise ValueError('--diagnostics currently requires the v3 state and reward layout')
+    if getattr(args, 'diagnostic_eval_seeds', []) and (args.disable_best_checkpoint or args.eval_every_epochs <= 0):
+        raise ValueError('--diagnostic_eval_seeds requires validation each evaluation epoch')
     set_seed(args.seed)
 
     csv_path = resolve_csv_path(args)
@@ -800,8 +843,11 @@ def train(args: argparse.Namespace) -> None:
         raise FileNotFoundError(f"CSV not found: {csv_path}")
 
     model_path = Path(args.model)
+    if resolved_identity(args) == "iot_v2" and model_path.resolve() == MODEL_PATH.resolve():
+        raise ValueError("iot_v2 requires a separate --model path; do not overwrite the legacy checkpoint")
     model_path.parent.mkdir(parents=True, exist_ok=True)
-    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    if resolved_identity(args) != "iot_v2":
+        CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
     txs = load_training_transactions(args, csv_path)
     if not txs:
@@ -859,8 +905,31 @@ def train(args: argparse.Namespace) -> None:
         )
 
     agent = make_agent(args)
+    if getattr(args, 'diagnostics', False):
+        import hashlib
+        from training_diagnostics import state_dict_sha256
+        source_names = ('train_offline.py', 'offline_env.py', 'continuous_rollout.py',
+                        'ppo.py', 'model.py', 'training_diagnostics.py', 'config.py',
+                        'mechanism.py', 'action_mask.py', 'action_select.py', 'iot_v2.py')
+        write_jsonl(args.log_jsonl, dict(
+            event='diagnostic_start', initial_parameters_sha256=state_dict_sha256(agent.net),
+            arguments=vars(args), torch_version=torch.__version__,
+            source_sha256={name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+                           for name in source_names}))
     buffer = RolloutBuffer()
     env = make_env(args)
+
+    continuous = None
+    if settings(args)['mechanism_version'] == 'v3':
+        continuous = ContinuousRollout(agent, args.batch_size, args.rollout_batches,
+                                       max(.65, args.local_reward_weight), args.action_reward_scale,
+                                       scene_cost_mode=settings(args)['scene_cost_mode'])
+
+    def training_policy(state, address, related, info):
+        if continuous is not None:
+            # 先用真实下一决策状态结清旧采样片段，更新后才采样新动作。
+            continuous.before_decision(state)
+        return sample_agent_policy(agent, state, address, related, info)
 
     update_count = 0
     start_time = time.time()
@@ -913,11 +982,17 @@ def train(args: argparse.Namespace) -> None:
         for batch_idx, batch in enumerate(iter_batches(txs, args.tx_batch_size), start=1):
             actions, metrics = env.run_batch(
                 batch,
-                lambda state, address, related, info: sample_agent_policy(
-                    agent, state, address, related, info
-                ),
+                training_policy,
             )
-            add_actions_to_buffer(buffer, actions)
+            if continuous is None:
+                add_actions_to_buffer(buffer, actions)
+            else:
+                continuous.add_batch(actions, metrics.reward)
+                while continuous.updates:
+                    update_count += 1
+                    write_jsonl(args.log_jsonl, dict(event='continuous_update', epoch=epoch,
+                                batch_idx=batch_idx, update_count=update_count,
+                                loss_info=continuous.updates.pop(0)))
             update_summary(epoch_summary, metrics)
             update_summary(overall, metrics)
 
@@ -994,6 +1069,14 @@ def train(args: argparse.Namespace) -> None:
                     f"action_dist={[round(x, 3) for x in view['action_dist']]}"
                 )
 
+        if continuous is not None:
+            continuous.finish()
+            write_jsonl(args.log_jsonl, dict(event='continuous_accounting', epoch=epoch,
+                        scope='cumulative_training', **continuous.summary()))
+            while continuous.updates:
+                update_count += 1
+                write_jsonl(args.log_jsonl, dict(event='continuous_update', epoch=epoch,
+                            update_count=update_count, loss_info=continuous.updates.pop(0)))
         epoch_view = summary_view(epoch_summary)
         write_jsonl(
             args.log_jsonl,
@@ -1068,6 +1151,12 @@ def train(args: argparse.Namespace) -> None:
                 )
             validation_records.append(validation_record)
             write_jsonl(args.log_jsonl, validation_record)
+            for eval_seed in getattr(args, 'diagnostic_eval_seeds', []):
+                sampled = evaluate_agent_sampled(agent, args, validation_txs, eval_seed)
+                write_jsonl(args.log_jsonl, dict(event='validation_sampled', epoch=epoch,
+                            update_count=update_count, seed=eval_seed, summary=sampled))
+                print(f"[VALID SAMPLE] epoch={epoch} seed={eval_seed} "
+                      f"cross={sampled['cross_ratio']:.6f} reward={sampled['reward_mean']:.6f}")
             print(
                 "[VALID] "
                 f"epoch={epoch} score={score:.6f} "
@@ -1181,9 +1270,13 @@ def train(args: argparse.Namespace) -> None:
         final_model_path = model_path
 
     if pareto_manifest_path is not None:
+        if settings(args)['mechanism_version'] == 'v3':
+            for record in validation_records:
+                record['mechanism_version'] = 'v3'
         frontier = checkpoint_pareto_frontier(validation_records)
         manifest = {
-            "schema_version": 1,
+            "schema_version": 2 if settings(args)['mechanism_version'] == 'v3' else 1,
+            **metadata(args),
             "objectives": {
                 "minimize": [
                     "cross_ratio",
@@ -1200,6 +1293,14 @@ def train(args: argparse.Namespace) -> None:
                 for record in frontier
             ],
         }
+        if settings(args)['mechanism_version'] == 'v3':
+            manifest['objectives']['minimize'].append('communication_cost_mean')
+            manifest['selection_basis'] = 'preconfigured_validation_score_with_stage_guardrails'
+        # 模型路径相对于清单目录保存，整组实验移动后仍可解析。
+        for group in ('all_checkpoints', 'pareto_frontier'):
+            for item in manifest[group]:
+                if item.get('checkpoint_path'):
+                    item['checkpoint_path'] = os.path.relpath(item['checkpoint_path'], pareto_manifest_path.parent)
         pareto_manifest_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
@@ -1232,6 +1333,10 @@ def build_extra(
 ) -> Dict[str, object]:
     return {
         "model_source": "train_offline",
+        **metadata(args),
+        "rollout_batches": getattr(args, 'rollout_batches', 8),
+        "diagnostics": getattr(args, 'diagnostics', False),
+        "diagnostic_eval_seeds": getattr(args, 'diagnostic_eval_seeds', []),
         "checkpoint_kind": checkpoint_kind,
         "checkpoint_epoch": checkpoint_epoch,
         "loaded_txs": loaded_txs,
@@ -1244,7 +1349,7 @@ def build_extra(
         "offline_update_count": update_count,
         "mdp_mode": args.mdp_mode,
         "tx_identity": args.tx_identity,
-        "tx_identity_resolved": "iot" if uses_iot_identity(args) else "raw",
+        "tx_identity_resolved": resolved_identity(args),
         "sidecar": args.sidecar,
         "shards": args.shards,
         "state_dim": agent_state_dim(args),
@@ -1262,7 +1367,7 @@ def build_extra(
         "tx_batch_size": args.tx_batch_size,
         "max_block_size": args.max_block_size,
         "block_interval_ms": args.block_interval_ms,
-        "load_semantics_version": LOAD_SEMANTICS_VERSION,
+        "load_semantics_version": load_semantics(args),
         "sender_pos_mode": args.sender_pos_mode,
         "temporal_top_k": args.temporal_top_k,
         "reward_mode": args.reward_mode,
@@ -1270,6 +1375,7 @@ def build_extra(
         "beta": args.beta,
         "load_penalty_weight": args.load_penalty_weight,
         "local_reward_weight": args.local_reward_weight,
+        "effective_local_reward_weight": max(.65, args.local_reward_weight) if is_iot_mdp(args) and args.reward_mode in ('iot_dense', 'iot_dense_balanced') else args.local_reward_weight,
         "action_reward_scale": args.action_reward_scale,
         "active_shard_bonus_weight": args.active_shard_bonus_weight,
         "hotspot_penalty_weight": args.hotspot_penalty_weight,
@@ -1326,7 +1432,7 @@ def main() -> None:
     parser.add_argument("--csv", type=str, default="")
     parser.add_argument("--sidecar", type=str, default="")
     parser.add_argument("--mdp_mode", choices=["spring", "iot"], default="iot")
-    parser.add_argument("--tx_identity", choices=["auto", "raw", "iot"], default="auto")
+    parser.add_argument("--tx_identity", choices=["auto", "raw", "iot", "iot_v2"], default="auto")
     parser.add_argument("--model", type=str, default=str(MODEL_PATH))
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--shards", type=int, default=DEFAULT_SHARD_NUM)
@@ -1445,11 +1551,17 @@ def main() -> None:
 
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument('--diagnostics', action='store_true',
+                        help='v3: log reward attribution, value error and per-loss gradients without changing updates')
+    parser.add_argument('--diagnostic_eval_seeds', nargs='+', type=int, default=[],
+                        help='additional sampled validation seeds, isolated from the training RNG')
     parser.add_argument("--save_every_updates", type=int, default=0)
     parser.add_argument("--log_interval_batches", type=int, default=50)
     parser.add_argument("--log_jsonl", type=str, default=str(DEFAULT_TRAIN_LOG_JSONL))
 
+    add_mechanism_args(parser)
     args = parser.parse_args()
+    validate_args(args)
     normalize_reward_mode(args)
     train(args)
 

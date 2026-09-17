@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IoT v2 系统核查仪表盘 · 2026-09-15</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root{ --ink:#1f2933; --mut:#627184; --line:#e3e8ee; --bg:#f6f8fa; --card:#fff;
+         --teal:#0e8a7d; --amber:#d08a16; --red:#c0493b; --slate:#5b7186; --green:#3d8b5f; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--bg);line-height:1.5}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 20px 60px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:18px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .card.full{grid-column:1 / -1}
+  .card h2{font-size:15px;margin:0 0 2px}
+  .card .cap{font-size:12px;color:var(--mut);margin-bottom:8px}
+  .chart{width:100%;height:340px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi .v{font-size:22px;font-weight:700}
+  .kpi .l{font-size:12px;color:var(--mut);margin-top:2px}
+  .v.red{color:var(--red)} .v.amber{color:var(--amber)} .v.teal{color:var(--teal)} .v.slate{color:var(--slate)}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--mut);font-weight:600;background:#fafbfc}
+  .note{font-size:12.5px;color:var(--mut)}
+  .tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;margin-left:6px}
+  .tag.bad{background:#f7e4e1;color:var(--red)} .tag.warn{background:#faf0db;color:var(--amber)} .tag.ok{background:#e2f1e9;color:var(--green)}
+  .fallback{display:none}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}.kpis{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>真实链上 + IoT v2：当前系统核查仪表盘</h1>
+  <div class="sub">数据来源：seed7 正式实验（测试窗口 [250000,300000)，16 分片，批 1000，冷启动），离线 comparison.csv 与链上 comparison_chain_50k.csv；结构诊断由真实 SpringOfflineEnv 在 iot_v2 三窗口复算。核查日期 2026-09-15。单种子结果，仅作方向判断。</div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="v teal">99 / 通过</div><div class="l">Python 测试；Go build + go test 全过；7 CSV SHA256 全对</div></div>
+    <div class="kpi"><div class="v red">未提交</div><div class="l">v2 新路线源码全部未纳入 git（24 项未跟踪 + 29 文件改动）</div></div>
+    <div class="kpi"><div class="v amber">86.1%</div><div class="l">训练窗口中，账户介入发生在其首次放置批之后（GAE 被批边界截断）</div></div>
+    <div class="kpi"><div class="v amber">≈0</div><div class="l">PPO 相对 candidate_only 的跨片增量：离线反劣 0.29pp，链上仅优 0.11pp</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>四策略跨片率：离线 vs 链上(50K@250tps)</h2>
+      <div class="cap">PPO 与无学习的 candidate_only 几乎重合；相对 hash 的巨大下降主要来自候选/关系机制，不是 PPO 学习所得。</div>
+      <div id="c1" class="chart"></div>
+    </div>
+    <div class="card">
+      <h2>链上代价权衡：延迟与 Jain 公平性</h2>
+      <div class="cap">降跨片以集中负载为代价：PPO 平均延迟高于 candidate_only，Jain 公平性最低。</div>
+      <div id="c2" class="chart"></div>
+    </div>
+    <div class="card full">
+      <h2>PPO 验证集跨片率随训练轮次：1 轮骤降后进入平台期</h2>
+      <div class="cap">epoch1 0.341 → epoch2 0.181，之后 13 轮在 0.173–0.182 区间不再下降；PPO 很快学到“跟随当前批关联方”这一近视规则后再无增益。</div>
+      <div id="c3" class="chart" style="height:300px"></div>
+    </div>
+    <div class="card full">
+      <h2>跨批信用被截断的比例（真实 env 复算）与恒值特征</h2>
+      <div class="cap">每个非空批最后动作 done=True，GAE/bootstrap 同时被切断，后续批次的回访收益无法回到首次放置动作。角色四维 100% 恒为 [1,0,0,0]，flag 99.7%+ 为 0。</div>
+      <div id="c4" class="chart" style="height:300px"></div>
+    </div>
+    <div class="card full">
+      <h2>数值明细表（离线 / 链上）</h2>
+      <table>
+        <thead><tr><th>策略</th><th>离线跨片率</th><th>链上跨片率</th><th>链上均值延迟/s</th><th>链上P95/s</th><th>链上Jain</th><th>链上最大负载份额</th><th>离线reward</th></tr></thead>
+        <tbody>
+          <tr><td>hash</td><td>0.93994</td><td>0.93994</td><td>6.5924</td><td>10.763</td><td>0.7622</td><td>0.1516</td><td>0.0940</td></tr>
+          <tr><td>heuristic</td><td>0.16972</td><td>0.16352</td><td>5.0210</td><td>9.136</td><td>0.5743</td><td>0.2077</td><td>0.4544</td></tr>
+          <tr><td>candidate_only</td><td>0.15078</td><td>0.13626</td><td>4.8284</td><td>9.119</td><td>0.5161</td><td>0.2197</td><td>0.4634</td></tr>
+          <tr><td><b>ppo</b></td><td><b>0.15366</b></td><td><b>0.13516</b></td><td>5.1141</td><td>8.884</td><td>0.4620</td><td>0.2202</td><td>0.4575</td></tr>
+        </tbody>
+      </table>
+      <div class="note" style="margin-top:8px">离线 candidate_only 0.1508 与链上 0.1363 对确定性规则仍差 1.45pp，需在阶段 A 一致性验收中定位异步历史/队列进入候选评分的时点差异。</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  if(typeof echarts === 'undefined'){
+    document.body.insertAdjacentHTML('beforeend','<div class="wrap note">当前离线无法加载 ECharts CDN，图表省略；数值以上方/下方明细表为准。</div>');
+    return;
+  }
+  var policies = ['hash','heuristic','candidate_only','ppo'];
+  var axis = {trigger:'axis',triggerOn:'click',renderMode:'richText',confine:true};
+  function mk(id){var el=document.getElementById(id);var c=echarts.init(el);window.addEventListener('resize',function(){c.resize()});return c;}
+  var teal='#0e8a7d', slate='#5b7186', amber='#d08a16', red='#c0493b', green='#3d8b5f';
+
+  mk('c1').setOption({backgroundColor:'transparent',
+    tooltip:axis,legend:{top:4,data:['离线跨片率','链上跨片率']},
+    grid:{left:48,right:16,top:42,bottom:30,containLabel:true},
+    xAxis:{type:'category',data:policies},
+    yAxis:{type:'value',max:1,axisLabel:{formatter:function(v){return (v*100).toFixed(0)+'%'}}},
+    series:[
+      {name:'离线跨片率',type:'bar',data:[0.93994,0.16972,0.15078,0.15366],itemStyle:{color:slate},barGap:0,
+       label:{show:true,position:'top',formatter:function(p){return (p.value*100).toFixed(1)+'%'},fontSize:11}},
+      {name:'链上跨片率',type:'bar',data:[0.93994,0.16352,0.13626,0.13516],itemStyle:{color:teal},
+       label:{show:true,position:'top',formatter:function(p){return (p.value*100).toFixed(1)+'%'},fontSize:11}}
+    ]});
+
+  mk('c2').setOption({backgroundColor:'transparent',
+    tooltip:axis,legend:{top:4,data:['平均延迟/s','Jain公平性(右轴)']},
+    grid:{left:48,right:52,top:42,bottom:30,containLabel:true},
+    xAxis:{type:'category',data:policies},
+    yAxis:[{type:'value',name:'秒'},{type:'value',name:'Jain',min:0.4,max:0.8}],
+    series:[
+      {name:'平均延迟/s',type:'bar',data:[6.5924,5.0210,4.8284,5.1141],itemStyle:{color:amber},
+       label:{show:true,position:'top',fontSize:11}},
+      {name:'Jain公平性(右轴)',type:'line',yAxisIndex:1,data:[0.7622,0.5743,0.5161,0.4620],
+       itemStyle:{color:red},lineStyle:{width:2},symbolSize:8,
+       label:{show:true,fontSize:11,formatter:function(p){return p.value.toFixed(2)}}}
+    ]});
+
+  var epochs=[];for(var i=1;i<=15;i++)epochs.push('e'+i);
+  mk('c3').setOption({backgroundColor:'transparent',
+    tooltip:axis,grid:{left:48,right:20,top:24,bottom:30,containLabel:true},
+    xAxis:{type:'category',data:epochs},
+    yAxis:{type:'value',axisLabel:{formatter:function(v){return (v*100).toFixed(0)+'%'}}},
+    series:[{type:'line',name:'验证跨片率',smooth:false,symbolSize:7,lineStyle:{width:2,color:teal},itemStyle:{color:teal},
+      areaStyle:{color:'rgba(14,138,125,0.08)'},
+      markLine:{silent:true,data:[{yAxis:0.15078,name:'candidate_only',lineStyle:{color:red,type:'dashed'},label:{formatter:'测试期 candidate_only 15.08%',fontSize:10}}]},
+      data:[0.34136,0.18076,0.1821,0.17484,0.1819,0.17628,0.17572,0.17572,0.17632,0.17458,0.17434,0.17314,0.17594,0.17436,0.17436]}]});
+
+  mk('c4').setOption({backgroundColor:'transparent',
+    tooltip:axis,legend:{top:4,data:['介入发生在首次放置批之后','纯回访交易(双方本批前已放置)']},
+    grid:{left:48,right:20,top:42,bottom:30,containLabel:true},
+    xAxis:{type:'category',data:['训练[0,200k)','验证[200k,250k)','测试[250k,300k)']},
+    yAxis:{type:'value',max:100,axisLabel:{formatter:'{value}%'}},
+    series:[
+      {name:'介入发生在首次放置批之后',type:'bar',data:[86.133,71.149,70.709],itemStyle:{color:red},
+       label:{show:true,position:'top',formatter:'{c}%',fontSize:11}},
+      {name:'纯回访交易(双方本批前已放置)',type:'bar',data:[76.373,50.568,49.256],itemStyle:{color:amber},
+       label:{show:true,position:'top',formatter:'{c}%',fontSize:11}}
+    ]});
+})();
+</script>
+</body>
+</html>

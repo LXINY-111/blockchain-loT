@@ -11,6 +11,8 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from prepare_iot_v2_dataset import read_dataset_metadata
+
 
 def digest(path):
     result = hashlib.sha256()
@@ -44,11 +46,12 @@ def validate(directory, source=None):
     if not __debug__:
         raise RuntimeError("Validation must run without Python -O; assertions are required")
     directory = Path(directory)
-    summary = json.loads((directory / "dataset_summary.json").read_text(encoding="utf-8"))
-    metadata = json.loads((directory / "scene_library.json").read_text(encoding="utf-8"))
+    summary, metadata = read_dataset_metadata(directory)
     source = Path(source or summary["original_transaction_file"])
     copied = directory / "selectedTxs_iot_v2.csv"
     assert digest(source) == digest(copied) == summary["original_transaction_sha256"], "Transaction bytes changed"
+    for name, expected in summary.get("dataset_file_sha256", {}).items():
+        assert digest(directory / name) == expected, f"Changed dataset file {name}"
     for name, expected in metadata["library_file_sha256"].items():
         assert digest(directory / name) == expected, f"Changed library {name}"
     accounts = keyed(directory / "account_profiles.csv", "account_address")
@@ -133,7 +136,13 @@ def validate(directory, source=None):
     assert all(int(accounts[a]["first_tx_index"]) == n for a, n in first_seen.items())
     assert (count, len(accounts), len(pairs)) == (summary["transactions"], summary["accounts"],
                                                 summary["directed_account_pairs"])
-    assert dict(uses) == json.loads((directory / "template_usage.json").read_text(encoding="utf-8"))
+    usage_file = directory / "template_usage.json"
+    if usage_file.is_file():
+        assert dict(uses) == json.loads(usage_file.read_text(encoding="utf-8"))
+    # 精简目录不保留逐模板使用次数表；每笔选择已独立重算，再核对总体统计。
+    assert len(uses) == summary["unique_templates_used"]
+    assert count - len(uses) == summary["repeated_template_assignments"]
+    assert max(uses.values()) == summary["max_template_reuse"]
     result = dict(status="passed", transactions=count, accounts=len(accounts),
         directed_account_pairs=len(pairs), byte_identical_to_original=True,
         exact_duplicate_rows_preserved=duplicate_rows, unique_templates_used=len(uses),
@@ -146,6 +155,9 @@ def validate(directory, source=None):
         role_counts=dict(Counter(a["actor_type"] for a in accounts.values())),
         checks_scope="dataset structure/content only; no Go/Python integration or PPO performance claim",
         validator_sha256=digest(__file__))
+    # 仅对旧布局更新过程记录；精简目录校验结果返回终端，不重新生成辅助文件。
+    if not (directory / "dataset_summary.json").is_file():
+        return result
     status = json.loads((directory / "build_status.json").read_text(encoding="utf-8"))
     (directory / "validation.json").write_text(json.dumps(result, ensure_ascii=False, indent=2)+"\n",
                                                encoding="utf-8")
@@ -164,7 +176,7 @@ def verify_template_sources(directory, source_directory):
     if not __debug__:
         raise RuntimeError("Source verification must run without -O")
     directory, source_directory = Path(directory), Path(source_directory)
-    library = json.loads((directory / "scene_library.json").read_text(encoding="utf-8"))
+    _, library = read_dataset_metadata(directory)
     for name, expected in library["source_sha256"].items():
         assert digest(source_directory / name) == expected, f"Original source changed: {name}"
     targets = {}
@@ -191,8 +203,9 @@ def verify_template_sources(directory, source_directory):
             print(f"source checked: {filename} samples={len(found)}", flush=True)
     result = dict(status="passed", templates_checked=checked, source_files_checked=len(targets),
                   original_source_hashes_match=True, every_template_matches_original_file_and_row=True)
-    (directory / "source_validation.json").write_text(
-        json.dumps(result, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
+    if (directory / "dataset_summary.json").is_file():
+        (directory / "source_validation.json").write_text(
+            json.dumps(result, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
     return result
 
 
@@ -213,7 +226,7 @@ if __name__ == "__main__":
     except Exception as exc:
         # 校验失败时使旧的通过标记失效，避免把上一次检查结果误认为当前结果。
         failed = dict(status="failed", error=repr(exc))
-        if args.dataset_dir.is_dir():
+        if (args.dataset_dir / "dataset_summary.json").is_file():
             (args.dataset_dir / "validation.json").write_text(
                 json.dumps(failed, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
         raise

@@ -86,8 +86,8 @@ func (rthm *RelayCommitteeModule) springCandidateScores(
 	scores := make([]float64, shards)
 	hashSid := uint64(utils.Addr2Shard(addr))
 	loadWeight := params.SpringCandidateLoadWeight
-	if loadWeight <= 0 {
-		loadWeight = 1.0
+	if loadWeight < 0 {
+		loadWeight = 0.0
 	}
 	pressures := rthm.springCandidateLoadPressures()
 	for sid := 0; sid < shards; sid++ {
@@ -170,7 +170,8 @@ func (rthm *RelayCommitteeModule) springBuildCandidateActionMask(
 		sort.SliceStable(allowed, func(i, j int) bool {
 			left := allowed[i]
 			right := allowed[j]
-			if math.Abs(scores[left]-scores[right]) <= 1e-12 {
+			// Python 按实际得分排序，只有完全相等时按分片编号打破平局。
+			if scores[left] == scores[right] {
 				return left < right
 			}
 			return scores[left] > scores[right]

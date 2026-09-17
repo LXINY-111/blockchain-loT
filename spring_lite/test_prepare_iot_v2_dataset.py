@@ -8,7 +8,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from prepare_iot_v2_dataset import build, parser, read_topology
+from prepare_iot_v2_dataset import (METADATA_END, METADATA_START, build, digest,
+                                  parser, read_dataset_metadata, read_topology)
 from validate_iot_v2_dataset import validate, verify_template_sources
 
 
@@ -63,6 +64,33 @@ def csv_rows(path):
 
 
 class V2DatasetTests(unittest.TestCase):
+    def test_compact_directory_validates_without_new_files_and_can_be_reused(self):
+        """删除过程记录后仍可只读校验、追溯来源，并供下一规模复用。"""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = sources(root)
+            output, chain = generate(root, source, "compact")
+            summary, library = read_dataset_metadata(output)
+            summary["dataset_file_sha256"] = {
+                path.name: digest(path) for path in output.glob("*.csv")}
+            metadata = json.dumps(dict(summary=summary, library=library), ensure_ascii=False)
+            (output / "README_构造说明.md").write_text(
+                f"# 构造说明\n\n{METADATA_START}\n```json\n{metadata}\n```\n{METADATA_END}\n",
+                encoding="utf-8")
+            for name in ("scene_library.json", "dataset_summary.json", "build_status.json",
+                         "template_usage.json", "construction_examples.json"):
+                (output / name).unlink()
+            before = {p.name: digest(p) for p in output.iterdir()}
+            self.assertEqual(len(before), 8)
+            self.assertEqual(validate(output, chain)["transactions"], 12)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(verify_template_sources(output, source)["templates_checked"], 8)
+            self.assertEqual(before, {p.name: digest(p) for p in output.iterdir()})
+            reused, _ = generate(root, source, "reused", reuse=output)
+            self.assertEqual(validate(reused)["transactions"], 12)
+            self.assertEqual(csv_rows(output / "transaction_scene.csv"),
+                             csv_rows(reused / "transaction_scene.csv"))
+
     def test_exact_copy_and_complete_validation(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

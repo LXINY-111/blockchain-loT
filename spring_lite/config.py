@@ -68,6 +68,8 @@ def state_dim(shards: int, iot_feature_dim: int = 0) -> int:
 # anchor count, distance/link-quality stats, traffic rate, anchor-type shares,
 # and a control protocol flag. For 16 shards this makes the PPO input
 # dimension 203 = 11 * 16 + 1 + 16 + 10.
+# 上述是 legacy 布局；当前 v3.1 在 mechanism.input_dim 中增加 16 维成本分布、
+# 删除 1 维账户 flag，因此为 218 维。控制协议占比仍保留。
 IOT_FEATURE_DIM = 10
 
 # IoT MDP v1 奖励权重。第一阶段先保证能跑通和收敛，所以仍然以

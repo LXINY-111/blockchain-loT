@@ -96,8 +96,14 @@ var (
 	SpringIOTMode = 1
 	// SpringIOTIdentityMode:
 	// 1 = 使用 IoT sidecar 的 state_object -> anchor 身份映射。
+	// 2 = data_iot_v2 真实账户：核对交易方向，双方账户均按策略放置。
 	// 可与 SpringIOTMode=0 组合，用同一 IoT 输入复现实验中的 Original SPRING。
 	SpringIOTIdentityMode = 1
+
+	// v3 显式启用连续离线回报、分片成本关系状态和阶段均衡；空值兼容旧模型。
+	SpringMechanismVersion = "legacy"
+	SpringFeatureMode      = "full"
+	SpringSceneCostMode    = "legacy"
 
 	SpringIOTFeatureDim  = 10
 	SpringIOTSidecarFile = "./data_iot/iot_flow_sidecar_multi_anchor_full.csv"
@@ -151,14 +157,17 @@ type globalConfig struct {
 
 	SpringRandomSeed int64 `json:"SpringRandomSeed"`
 
-	SpringCandidateTopK         int     `json:"SpringCandidateTopK"`
-	SpringCapacityGuard         int     `json:"SpringCapacityGuard"`
-	SpringCapacityGuardFactor   float64 `json:"SpringCapacityGuardFactor"`
-	SpringCandidateLoadWeight   float64 `json:"SpringCandidateLoadWeight"`
-	SpringNSShardCapacityFactor float64 `json:"SpringNSShardCapacityFactor"`
+	SpringCandidateTopK         int      `json:"SpringCandidateTopK"`
+	SpringCapacityGuard         int      `json:"SpringCapacityGuard"`
+	SpringCapacityGuardFactor   float64  `json:"SpringCapacityGuardFactor"`
+	SpringCandidateLoadWeight   *float64 `json:"SpringCandidateLoadWeight"`
+	SpringNSShardCapacityFactor float64  `json:"SpringNSShardCapacityFactor"`
 
 	SpringIOTMode             int      `json:"SpringIOTMode"`
 	SpringIOTIdentityMode     int      `json:"SpringIOTIdentityMode"`
+	SpringMechanismVersion    string   `json:"SpringMechanismVersion"`
+	SpringFeatureMode         string   `json:"SpringFeatureMode"`
+	SpringSceneCostMode       string   `json:"SpringSceneCostMode"`
 	SpringIOTFeatureDim       int      `json:"SpringIOTFeatureDim"`
 	SpringIOTSidecarFile      string   `json:"SpringIOTSidecarFile"`
 	SpringModelFile           string   `json:"SpringModelFile"`
@@ -229,8 +238,12 @@ func ReadConfigFile() {
 	if SpringCapacityGuardFactor < 1.0 {
 		SpringCapacityGuardFactor = 1.0
 	}
-	if config.SpringCandidateLoadWeight > 0 {
-		SpringCandidateLoadWeight = config.SpringCandidateLoadWeight
+	if config.SpringCandidateLoadWeight != nil {
+		// 显式零表示关闭这一项，与 Python 的 max(0, weight) 一致。
+		SpringCandidateLoadWeight = *config.SpringCandidateLoadWeight
+		if SpringCandidateLoadWeight < 0 {
+			SpringCandidateLoadWeight = 0
+		}
 	}
 	if config.SpringNSShardCapacityFactor > 0 {
 		SpringNSShardCapacityFactor = config.SpringNSShardCapacityFactor
@@ -257,15 +270,48 @@ func ReadConfigFile() {
 	}
 
 	SpringIOTMode = config.SpringIOTMode
+	SpringMechanismVersion, SpringFeatureMode, SpringSceneCostMode = config.SpringMechanismVersion, config.SpringFeatureMode, config.SpringSceneCostMode
+	if SpringMechanismVersion == "" {
+		SpringMechanismVersion = "legacy"
+	}
+	if SpringFeatureMode == "" {
+		SpringFeatureMode = "full"
+	}
+	if SpringSceneCostMode == "" {
+		SpringSceneCostMode = "legacy"
+	}
+	if SpringMechanismVersion != "legacy" && SpringMechanismVersion != "v3" {
+		log.Panic("invalid mechanism version")
+	}
+	if SpringMechanismVersion == "v3" {
+		if config.SpringIOTIdentityMode != 2 || config.SpringIOTMode != 1 || config.SpringIOTFeatureDim != 10 {
+			log.Panic("v3 requires real-account IoT and 10 base features")
+		}
+		if SpringFeatureMode != "full" && SpringFeatureMode != "no_iot" {
+			log.Panic("invalid v3 feature mode")
+		}
+		if SpringSceneCostMode != "cross" && SpringSceneCostMode != "off" {
+			log.Panic("invalid v3 cost mode")
+		}
+		// 本版完整支持离线连续训练和冻结模型链上推理；旧在线反馈不能冒充新回报。
+		if SpringOnlineTrain != 0 {
+			log.Panic("v3 uses offline continuous training; legacy online updates are incompatible")
+		}
+	} else if SpringFeatureMode != "full" || SpringSceneCostMode != "legacy" {
+		log.Panic("ablation switches require v3")
+	}
 	if SpringIOTMode != 1 {
 		SpringIOTMode = 0
 	}
 	SpringIOTIdentityMode = config.SpringIOTIdentityMode
-	if SpringIOTIdentityMode != 1 {
+	if SpringIOTIdentityMode != 1 && SpringIOTIdentityMode != 2 {
 		SpringIOTIdentityMode = 0
 	}
-	if SpringIOTMode == 1 {
+	if SpringIOTMode == 1 && SpringIOTIdentityMode != 2 {
 		SpringIOTIdentityMode = 1
+	}
+	if SpringIOTIdentityMode == 2 && SpringSenderPosMode == 2 {
+		log.Panic("real-account v2 supports SpringSenderPosMode 0 or 1")
 	}
 
 	if config.SpringIOTFeatureDim > 0 {

@@ -1,7 +1,9 @@
 package measure
 
 import (
+	"blockEmulator/core"
 	"blockEmulator/message"
+	"blockEmulator/params"
 	"math/big"
 	"strconv"
 	"time"
@@ -16,6 +18,48 @@ type txMetricDetailTime struct {
 
 	// broker tx time
 	Broker1CommitTimestamp, Broker2CommitTimestamp time.Time
+
+	// 仅补充测量关联键，不修改交易、分片决策或共识消息。
+	// DatasetRowIndex 是当前输入文件中从零开始的行号；分块数据的全局
+	// tx_index 由分析端查场景表获得，不能把文件行号误当成全局序号。
+	MetadataKnown                         bool
+	Nonce, DatasetRowIndex                uint64
+	Sender, Recipient                     string
+	SenderShard, RecipientShard           uint64
+	SenderShardKnown, RecipientShardKnown bool
+}
+
+func (detail *txMetricDetailTime) captureIdentity(tx *core.Transaction) {
+	if params.SpringIOTMode != 1 || params.SpringIOTIdentityMode != 2 {
+		// 只有 v2 的严格输入契约能保证有效交易序号等于物理文件行号。
+		return
+	}
+	detail.MetadataKnown = true
+	detail.Nonce = tx.Nonce
+	detail.DatasetRowIndex = uint64(params.DatasetStartTx) + tx.Nonce
+	detail.Sender, detail.Recipient = string(tx.Sender), string(tx.Recipient)
+}
+
+func (detail *txMetricDetailTime) metadataCSV() []string {
+	if !detail.MetadataKnown {
+		// Broker 拆分交易不能冒充原交易的关联键；原有时间指标照常保留。
+		return make([]string, 7)
+	}
+	senderShard, recipientShard, cross := "", "", ""
+	if detail.SenderShardKnown {
+		senderShard = strconv.FormatUint(detail.SenderShard, 10)
+	}
+	if detail.RecipientShardKnown {
+		recipientShard = strconv.FormatUint(detail.RecipientShard, 10)
+	}
+	if detail.SenderShardKnown && detail.RecipientShardKnown {
+		cross = "0"
+		if detail.SenderShard != detail.RecipientShard {
+			cross = "1"
+		}
+	}
+	return []string{strconv.FormatUint(detail.Nonce, 10), strconv.FormatUint(detail.DatasetRowIndex, 10),
+		detail.Sender, detail.Recipient, senderShard, recipientShard, cross}
 }
 
 // to test Tx detail
@@ -45,6 +89,10 @@ func (ttd *TestTxDetail) UpdateMeasureRecord(b *message.BlockInfoMsg) {
 		ttd.txHash2DetailTime[string(innertx.TxHash)].TxProposeTimestamp = innertx.Time
 		ttd.txHash2DetailTime[string(innertx.TxHash)].BlockProposeTimestamp = b.ProposeTime
 		ttd.txHash2DetailTime[string(innertx.TxHash)].TxCommitTimestamp = b.CommitTime
+		detail := ttd.txHash2DetailTime[string(innertx.TxHash)]
+		detail.captureIdentity(innertx)
+		detail.SenderShard, detail.RecipientShard = b.SenderShardID, b.SenderShardID
+		detail.SenderShardKnown, detail.RecipientShardKnown = true, true
 	}
 	for _, r1tx := range b.Relay1Txs {
 		if _, ok := ttd.txHash2DetailTime[string(r1tx.TxHash)]; !ok {
@@ -53,6 +101,9 @@ func (ttd *TestTxDetail) UpdateMeasureRecord(b *message.BlockInfoMsg) {
 		ttd.txHash2DetailTime[string(r1tx.TxHash)].TxProposeTimestamp = r1tx.Time
 		ttd.txHash2DetailTime[string(r1tx.TxHash)].BlockProposeTimestamp = b.ProposeTime
 		ttd.txHash2DetailTime[string(r1tx.TxHash)].Relay1CommitTimestamp = b.CommitTime
+		detail := ttd.txHash2DetailTime[string(r1tx.TxHash)]
+		detail.captureIdentity(r1tx)
+		detail.SenderShard, detail.SenderShardKnown = b.SenderShardID, true
 	}
 	for _, r2tx := range b.Relay2Txs {
 		if _, ok := ttd.txHash2DetailTime[string(r2tx.TxHash)]; !ok {
@@ -60,6 +111,9 @@ func (ttd *TestTxDetail) UpdateMeasureRecord(b *message.BlockInfoMsg) {
 		}
 		ttd.txHash2DetailTime[string(r2tx.TxHash)].Relay2CommitTimestamp = b.CommitTime
 		ttd.txHash2DetailTime[string(r2tx.TxHash)].TxCommitTimestamp = b.CommitTime
+		detail := ttd.txHash2DetailTime[string(r2tx.TxHash)]
+		detail.captureIdentity(r2tx)
+		detail.RecipientShard, detail.RecipientShardKnown = b.SenderShardID, true
 	}
 	for _, b1tx := range b.Broker1Txs {
 		if _, ok := ttd.txHash2DetailTime[string(b1tx.RawTxHash)]; !ok {
@@ -97,10 +151,17 @@ func (ttd *TestTxDetail) writeToCSV() {
 		"Broker1 Tx commit timestamp (not a broker tx -> nil)",
 		"Broker2 Tx commit timestamp (not a broker tx -> nil)",
 		"Confirmed latency of this tx (ms)",
+		// 追加字段，保持原九列名称和位置，兼容旧分析脚本。
+		"Tx local nonce", "Dataset row index", "Sender address", "Recipient address",
+		"Sender shard", "Recipient shard", "Cross shard",
 	}
 	measureVals := make([][]string, 0)
 
 	for key, val := range ttd.txHash2DetailTime {
+		latency := ""
+		if !val.TxProposeTimestamp.IsZero() && !val.TxCommitTimestamp.IsZero() && !val.TxCommitTimestamp.Before(val.TxProposeTimestamp) {
+			latency = strconv.FormatInt(val.TxCommitTimestamp.Sub(val.TxProposeTimestamp).Milliseconds(), 10)
+		}
 		csvLine := []string{
 			new(big.Int).SetBytes([]byte(key)).String(),
 
@@ -114,8 +175,9 @@ func (ttd *TestTxDetail) writeToCSV() {
 			timestampToString(val.Broker1CommitTimestamp),
 			timestampToString(val.Broker2CommitTimestamp),
 
-			strconv.FormatInt(int64(val.TxCommitTimestamp.Sub(val.TxProposeTimestamp).Milliseconds()), 10),
+			latency,
 		}
+		csvLine = append(csvLine, val.metadataCSV()...)
 		measureVals = append(measureVals, csvLine)
 	}
 

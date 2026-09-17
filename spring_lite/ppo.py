@@ -21,6 +21,10 @@ class RolloutBuffer:
     target_actions: List[int] = field(default_factory=list)
     target_weights: List[float] = field(default_factory=list)
     action_masks: List[List[int]] = field(default_factory=list)
+    discounts: List[float] = field(default_factory=list)
+    trace_discounts: List[float] = field(default_factory=list)
+    # 仅供离线诊断；不参与奖励、优势或优化器更新。
+    diagnostic_steps: List[dict] = field(default_factory=list)
 
     def add(
         self,
@@ -34,6 +38,8 @@ class RolloutBuffer:
         target_action=-1,
         target_weight=0.0,
         action_mask=None,
+        discount=None,
+        trace_discount=None,
     ):
         clean_state = np.asarray(state, dtype=np.float32)
         self.states.append(clean_state)
@@ -50,6 +56,8 @@ class RolloutBuffer:
         self.target_weights.append(float(target_weight))
         raw_mask = [] if action_mask is None else list(action_mask)
         self.action_masks.append([int(x) for x in raw_mask])
+        self.discounts.append(discount)
+        self.trace_discounts.append(trace_discount)
 
     def clear(self):
         self.states.clear()
@@ -62,6 +70,9 @@ class RolloutBuffer:
         self.target_actions.clear()
         self.target_weights.clear()
         self.action_masks.clear()
+        self.discounts.clear()
+        self.trace_discounts.clear()
+        self.diagnostic_steps.clear()
 
     def __len__(self):
         return len(self.states)
@@ -85,6 +96,7 @@ class PPOAgent:
         argmax_balance_coef: float = 0.0,
         argmax_balance_temperature: float = 0.20,
         device: str = "cpu",
+        diagnostics: bool = False,
     ):
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -99,6 +111,7 @@ class PPOAgent:
         self.argmax_balance_coef = argmax_balance_coef
         self.argmax_balance_temperature = max(1e-3, float(argmax_balance_temperature))
         self.device = torch.device(device)
+        self.diagnostics = diagnostics
 
         self.net = ActorCritic(state_dim, action_dim, hidden_dim).to(self.device)
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
@@ -132,14 +145,16 @@ class PPOAgent:
 
         return int(action.item()), float(confidence.item())
 
-    def _gae_returns(self, rewards, dones, values, next_values):
+    def _gae_returns(self, rewards, dones, values, next_values, discounts=None, trace_discounts=None):
         advantages = np.zeros(len(rewards), dtype=np.float32)
         gae = 0.0
 
         for idx in reversed(range(len(rewards))):
             non_terminal = 0.0 if dones[idx] else 1.0
-            delta = rewards[idx] + self.gamma * next_values[idx] * non_terminal - values[idx]
-            gae = delta + self.gamma * self.gae_lambda * non_terminal * gae
+            discount = self.gamma if discounts is None or discounts[idx] is None else discounts[idx]
+            trace = self.gamma*self.gae_lambda if trace_discounts is None or trace_discounts[idx] is None else trace_discounts[idx]
+            delta = rewards[idx] + discount * next_values[idx] * non_terminal - values[idx]
+            gae = delta + trace * non_terminal * gae
             advantages[idx] = gae
 
         returns = advantages + np.asarray(values, dtype=np.float32)
@@ -217,6 +232,8 @@ class PPOAgent:
             dones=np.asarray(buffer.dones, dtype=bool),
             values=np.asarray(buffer.values, dtype=np.float32),
             next_values=bootstrap_next_values.detach().cpu().numpy(),
+            discounts=buffer.discounts,
+            trace_discounts=buffer.trace_discounts,
         )
         returns = torch.tensor(
             returns_np,
@@ -242,6 +259,12 @@ class PPOAgent:
             )
         else:
             advantages = advantages_raw
+
+        diagnostic = None
+        if self.diagnostics:
+            from training_diagnostics import UpdateDiagnostics
+            diagnostic = UpdateDiagnostics(self, buffer, returns_np, advantages_np,
+                                           bootstrap_next_values.detach().cpu().numpy())
 
         last_loss = {}
         last_approx_kl = 0.0
@@ -344,10 +367,18 @@ class PPOAgent:
                 self.argmax_balance_coef * argmax_balance_loss
             )
 
+            if diagnostic is not None:
+                diagnostic.before_step(policy_loss, entropy_loss_weighted,
+                                       value_loss_weighted, ratio, probs, values)
+
             self.optimizer.zero_grad()
             loss.backward()
+            if diagnostic is not None:
+                diagnostic.before_clip()
             torch.nn.utils.clip_grad_norm_(self.net.parameters(), 0.5)
             self.optimizer.step()
+            if diagnostic is not None:
+                diagnostic.after_step()
             last_supervised_loss = float(supervised_loss.item())
             last_argmax_balance_loss = float(argmax_balance_loss.item())
 
@@ -385,6 +416,8 @@ class PPOAgent:
                 "sharp_prob_dist": last_sharp_prob_dist,
             }
 
+        if diagnostic is not None:
+            last_loss["diagnostics"] = diagnostic.finish(states, action_masks)
         return last_loss
     
     def save(self, path, extra=None):

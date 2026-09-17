@@ -24,6 +24,7 @@ from config import (
 )
 from heuristic import heuristic_from_state
 from ppo import PPOAgent
+from mechanism import input_dim
 
 
 class AgentCache:
@@ -35,9 +36,9 @@ class AgentCache:
         self.model_mtime_ns: int = -1
         self.checkpoint_config_signature: str = ""
 
-    def _create_fresh_agent(self, shards: int, iot_feature_dim: int = 0) -> PPOAgent:
+    def _create_fresh_agent(self, shards: int, iot_feature_dim: int = 0, version='legacy', layout=None) -> PPOAgent:
         return PPOAgent(
-            state_dim=state_dim(shards, iot_feature_dim),
+            state_dim=input_dim(shards, iot_feature_dim, version, layout),
             action_dim=shards,
             hidden_dim=HIDDEN_DIM,
             device="cpu",
@@ -56,7 +57,9 @@ class AgentCache:
         allow_model_init: bool = True,
         expected_checkpoint: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Optional[PPOAgent], str]:
-        expected_dim = state_dim(shards, iot_feature_dim)
+        version = (expected_checkpoint or {}).get('mechanism_version', 'legacy')
+        layout = (expected_checkpoint or {}).get('state_layout')
+        expected_dim = input_dim(shards, iot_feature_dim, version, layout)
         current_mtime = self._model_mtime(model_path)
         model_path_key = str(model_path)
         checkpoint_config_signature = json.dumps(
@@ -84,7 +87,7 @@ class AgentCache:
             if not allow_model_init:
                 return None, "no_model"
 
-            agent = self._create_fresh_agent(shards, iot_feature_dim)
+            agent = self._create_fresh_agent(shards, iot_feature_dim, version, layout)
             agent.save(
                 model_path,
                 extra={
@@ -104,7 +107,7 @@ class AgentCache:
             return agent, "python_ppo"
 
         # 如果模型存在，加载模型。
-        agent = self._create_fresh_agent(shards, iot_feature_dim)
+        agent = self._create_fresh_agent(shards, iot_feature_dim, version, layout)
 
         try:
             payload = torch.load(model_path, map_location=agent.device)
@@ -127,7 +130,7 @@ class AgentCache:
             agent.net.load_state_dict(payload["model_state_dict"])
 
         except Exception as exc:
-            # 模型损坏或维度不匹配时，直接重置成新模型。
+            # 加载失败只返回原因；冻结实验不得重置训练模型或静默换策略。
             return None, f"load_failed:{exc}"
 
         self.agent = agent
@@ -204,7 +207,8 @@ def infer_items(
     expected_checkpoint: Optional[Dict[str, Any]] = None,
     cache: Optional[AgentCache] = None,
 ) -> List[Dict[str, Any]]:
-    expected_dim = state_dim(shards, iot_feature_dim)
+    expected_dim = input_dim(shards, iot_feature_dim, (expected_checkpoint or {}).get('mechanism_version', 'legacy'),
+                             (expected_checkpoint or {}).get('state_layout'))
     agent_cache = cache or CACHE
     agent, model_status = agent_cache.get_agent(
         shards,
@@ -227,6 +231,8 @@ def infer_items(
     for idx, item in enumerate(items):
         state = item.get("state", [])
         if len(state) != expected_dim:
+            if expected_checkpoint:
+                raise RuntimeError(f'frozen model input dimension mismatch: got {len(state)}, expected {expected_dim}')
             outputs[idx] = safe_heuristic(item, shards, "dim_mismatch", request_id)
             continue
 

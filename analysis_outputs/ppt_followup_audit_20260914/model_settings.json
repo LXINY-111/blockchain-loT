@@ -1,0 +1,53 @@
+[
+  {
+    "model_source": "train_offline",
+    "state_dim": 203,
+    "shards": 16,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "reward_mode": "iot_dense_balanced",
+    "local_reward_weight": 0.0,
+    "action_reward_scale": 0.1,
+    "tx_batch_size": 1000,
+    "batch_size": 1024,
+    "capacity_backlog_mode": 0,
+    "backlog_penalty_weight": 0.0,
+    "epochs": 15,
+    "seed": 7,
+    "checkpoint_epoch": 12
+  },
+  {
+    "model_source": "train_offline",
+    "state_dim": 203,
+    "shards": 16,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "reward_mode": "iot_dense_balanced",
+    "local_reward_weight": 0.0,
+    "action_reward_scale": 0.1,
+    "tx_batch_size": 1000,
+    "batch_size": 1024,
+    "capacity_backlog_mode": 0,
+    "backlog_penalty_weight": 0.0,
+    "epochs": 15,
+    "seed": 17,
+    "checkpoint_epoch": null
+  },
+  {
+    "model_source": "train_offline",
+    "state_dim": 203,
+    "shards": 16,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "reward_mode": "iot_dense_balanced",
+    "local_reward_weight": 0.0,
+    "action_reward_scale": 0.1,
+    "tx_batch_size": 1000,
+    "batch_size": 1024,
+    "capacity_backlog_mode": 0,
+    "backlog_penalty_weight": 0.0,
+    "epochs": 15,
+    "seed": 27,
+    "checkpoint_epoch": 5
+  }
+]

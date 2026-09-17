@@ -82,24 +82,37 @@ func (tat *TestModule_avgTPS_Relay) HandleExtraMessage([]byte) {}
 // output the average TPS
 func (tat *TestModule_avgTPS_Relay) OutputRecord() (perEpochTPS []float64, totalTPS float64) {
 	tat.writeToCSV()
+	return tat.calculateTPS()
+}
 
+func (tat *TestModule_avgTPS_Relay) calculateTPS() (perEpochTPS []float64, totalTPS float64) {
 	// calculate the simple result
 	perEpochTPS = make([]float64, tat.epochID+1)
 	totalTxNum := 0.0
-	eTime := time.Now()
+	eTime := time.Time{}
 	lTime := time.Time{}
 	for eid, exTxNum := range tat.excutedTxNum {
+		// 开头的空轮次没有提议/提交时间，不能把公元 1 年当作实验起点。
+		// 空轮次保留数组位置并返回 0；没有有效时间窗口时不做除法。
+		if exTxNum <= 0 || tat.startTime[eid].IsZero() || tat.endTime[eid].IsZero() {
+			continue
+		}
 		timeGap := tat.endTime[eid].Sub(tat.startTime[eid]).Seconds()
+		if timeGap <= 0 {
+			continue
+		}
 		perEpochTPS[eid] = exTxNum / timeGap
 		totalTxNum += exTxNum
-		if eTime.After(tat.startTime[eid]) {
+		if eTime.IsZero() || eTime.After(tat.startTime[eid]) {
 			eTime = tat.startTime[eid]
 		}
 		if tat.endTime[eid].After(lTime) {
 			lTime = tat.endTime[eid]
 		}
 	}
-	totalTPS = totalTxNum / (lTime.Sub(eTime).Seconds())
+	if !eTime.IsZero() && lTime.After(eTime) {
+		totalTPS = totalTxNum / (lTime.Sub(eTime).Seconds())
+	}
 	return
 }
 
@@ -107,18 +120,23 @@ func (tat *TestModule_avgTPS_Relay) writeToCSV() {
 	fileName := tat.OutputMetricName()
 	measureName := []string{"EpochID", "Total tx # in this epoch", "Normal tx # in this epoch", "Relay1 tx # in this epoch", "Relay2 tx # in this epoch", "Epoch start time", "Epoch end time", "Avg. TPS of this epoch"}
 	measureVals := make([][]string, 0)
+	perEpochTPS, _ := tat.calculateTPS()
 
 	for eid, exTxNum := range tat.excutedTxNum {
-		timeGap := tat.endTime[eid].Sub(tat.startTime[eid]).Seconds()
+		start, end := "", ""
+		if !tat.startTime[eid].IsZero() && !tat.endTime[eid].IsZero() {
+			start = strconv.FormatInt(tat.startTime[eid].UnixMilli(), 10)
+			end = strconv.FormatInt(tat.endTime[eid].UnixMilli(), 10)
+		}
 		csvLine := []string{
 			strconv.Itoa(eid),
-			strconv.FormatFloat(exTxNum, 'f', '8', 64),
+			strconv.FormatFloat(exTxNum, 'f', 8, 64),
 			strconv.Itoa(tat.normalTxNum[eid]),
 			strconv.Itoa(tat.relay1TxNum[eid]),
 			strconv.Itoa(tat.relay2TxNum[eid]),
-			strconv.FormatInt(tat.startTime[eid].UnixMilli(), 10),
-			strconv.FormatInt(tat.endTime[eid].UnixMilli(), 10),
-			strconv.FormatFloat(exTxNum/timeGap, 'f', '8', 64),
+			start,
+			end,
+			strconv.FormatFloat(perEpochTPS[eid], 'f', 8, 64),
 		}
 		measureVals = append(measureVals, csvLine)
 	}

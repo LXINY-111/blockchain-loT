@@ -150,9 +150,10 @@ type SpringOnlineUpdateInput struct {
 	TxEndNonce   uint64 `json:"tx_end_nonce"`
 	TxCount      int    `json:"tx_count"`
 
-	FeedbackEpoch int `json:"feedback_epoch"`
-	Shards        int `json:"shards"`
-	IOTFeatureDim int `json:"iot_feature_dim,omitempty"`
+	FeedbackEpoch      int                    `json:"feedback_epoch"`
+	Shards             int                    `json:"shards"`
+	IOTFeatureDim      int                    `json:"iot_feature_dim,omitempty"`
+	ExpectedCheckpoint map[string]interface{} `json:"expected_checkpoint,omitempty"`
 
 	Actions    []SpringTrainAction `json:"actions"`
 	Reward     float64             `json:"reward"`
@@ -346,7 +347,8 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 		beta = 0.1
 	}
 
-	eps := 1e-6
+	// 与 Python config.EPS 一致，避免低负载小窗口的奖励数值差异。
+	eps := 1e-8
 
 	loads := make([]int, params.ShardNum)
 	effectiveLoads := make([]float64, params.ShardNum)
@@ -428,12 +430,23 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 	}
 
 	// Paper workload-balance term: r_wlb = exp(-beta * abs_diff).
-	avgLoad := effectiveTx / float64(params.ShardNum)
+	// 原始交易折算量用于跨片率；v3 均衡和热点使用完整执行阶段量。
+	balanceLoads := effectiveLoads
+	balanceTotal := effectiveTx
+	if params.SpringMechanismVersion == "v3" {
+		balanceLoads = make([]float64, params.ShardNum)
+		balanceTotal = 0
+		for i, load := range loads {
+			balanceLoads[i] = float64(load)
+			balanceTotal += float64(load)
+		}
+	}
+	avgLoad := balanceTotal / float64(params.ShardNum)
 
 	rawAbsDiff := 0.0
 	rawVar := 0.0
 
-	for _, load := range effectiveLoads {
+	for _, load := range balanceLoads {
 		diff := load - avgLoad
 		rawAbsDiff += math.Abs(diff)
 		rawVar += diff * diff
@@ -475,9 +488,9 @@ func (rthm *RelayCommitteeModule) springBuildFeedbackRewardRecord(
 	// SPRING-style reward:
 	// r_t = λ * r_cstr + (1 - λ) * r_wlb
 	maxLoadShare := 0.0
-	if effectiveTx > eps {
-		for _, load := range effectiveLoads {
-			share := load / (effectiveTx + eps)
+	if balanceTotal > eps {
+		for _, load := range balanceLoads {
+			share := load / (balanceTotal + eps)
 			if share > maxLoadShare {
 				maxLoadShare = share
 			}
@@ -877,7 +890,10 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 	// SPRING-Lite reward propagation:
 	// keep the delayed block-level CSTR/WLB signal, but give each action an
 	// immediate shaped reward based on sender_pos and pre-action shard load.
-	const localRewardWeight = 0.65
+	localRewardWeight := 0.0
+	if springIOTEnabled() {
+		localRewardWeight = 0.65
+	}
 
 	for _, batch := range readyBatches {
 		matchedIDs = append(matchedIDs, batch.BatchID)
@@ -1016,9 +1032,10 @@ func (rthm *RelayCommitteeModule) springBuildOnlineUpdateInputLocked(
 		TxEndNonce:   txEndNonce,
 		TxCount:      txCount,
 
-		FeedbackEpoch: rewardRecord.Epoch,
-		Shards:        params.ShardNum,
-		IOTFeatureDim: springConfiguredIOTFeatureDim(),
+		FeedbackEpoch:      rewardRecord.Epoch,
+		Shards:             params.ShardNum,
+		IOTFeatureDim:      springConfiguredIOTFeatureDim(),
+		ExpectedCheckpoint: springExpectedCheckpointConfig(),
 
 		Actions: actions,
 

@@ -1,30 +1,34 @@
 # 真实链上账户关系 + 物联网场景数据 v2
 
-生成日期：2026-09-12。状态：300,000 笔已实际生成，逐行数据校验通过；尚未接入旧物联网训练入口，未运行 PPO 训练或真实链上实验。
+生成日期：2026-09-12。接入状态更新：2026-09-13。300,000 笔已实际生成，逐行数据校验通过；已增加保留真实账户的专用入口，并完成短训练、离线评估和 Go/Python 对照验证。用户后续已完成 seed=7 的正式离线实验，1 万笔链上交易也已全部提交；启动脚本误报失败已修复，并在临时目录完成修复后的 1,000 笔真实链上复测。接入方式、修复说明和完整命令见 [接入与核查说明](../docs/IoT_v2_接入与两端一致性核查.md)。
 
 ## 1. 这次生成了什么
 
 本数据集由“原封不动的链上交易文件 + 与每笔交易对应的场景表 + 稳定的账户映射 + 可追溯的通信样本库”组成。真实交易决定谁与谁交互；物联网原始数据提供通信统计量和空间链路模板。两者没有实测的一一对应关系，组合属于显式仿真场景。
 
-| 文件 | 行粒度与用途 |
-|---|---|
-| selectedTxs_iot_v2.csv | 300,000 笔交易，无表头、18 列；与项目原 selectedTxs_300K.csv 逐字节相同 |
-| transaction_scene.csv | 一笔交易一行，共 300,000 行；真实地址、双方画像/位置、通信样本编号、通信量、距离与双向质量 |
-| account_profiles.csv | 一个真实账户一行，共 54,403 行；固定画像与位置、首次出现序号 |
-| device_profiles.csv | 一种原始设备画像一行，共 27 行；来源文件、原始行数、筛选数、样本数 |
-| flow_templates.csv | 一条保留的原始通信样本一行，共 95,055 行；可定位到 ZIP 内文件及数据行 |
-| sites.csv | 一个逻辑部署位置一行，共 54 行；使用 Intel 数据中的坐标 |
-| site_links.csv | 一个有向位置对一行，共 2,916 行，包括同位置对；原始概率与有效概率分开保存 |
-| scene_library.json | 样本库配置、原始文件内容摘要、来源与仿真假设 |
-| template_usage.json | 每条样本在新数据里实际使用多少次 |
-| construction_examples.json | 前三笔交易的完整构造示例，包括账户和源通信记录 |
-| dataset_summary.json | 实际生成统计及版本 |
-| validation.json | 全量独立校验结果 |
-| source_validation.json | 重新读取原始 ZIP，逐条核对 95,055 个样本的文件、行号和属性，全部通过 |
-| code_scope_audit.json | 原系统代码未被本轮数据生成改写的检查 |
-| build_status.json | 生成/校验状态；不能仅凭目录存在认定成功 |
-| data_contract.json | 后续接入时必须遵守的字段和身份约定 |
-| checksums.json | 交付文件内容摘要，便于确认是否被改变 |
+目录仅保留本说明和以下 7 个 CSV（逗号分隔数据文件）。它们共同组成一套 300K（30 万笔）数据，不是七套独立实验数据。除交易主表无表头外，其余 6 表均有表头；下表行数均不计表头。
+
+| 文件 | 内容与行数 | 具体用法 |
+|---|---|---|
+| selectedTxs_iot_v2.csv | 300,000 笔原交易，无表头、18 列；与项目原 selectedTxs_300K.csv 逐字节相同 | 交易主输入，提供真实发送方、接收方和原金额；与场景表同步读取 |
+| transaction_scene.csv | 300,000 行逐交易场景：双方地址、画像、位置、通信模板、包数、字节数、距离和双向质量 | 为对应交易附加物联网属性；第 n 行数据对应主表第 n 笔，tx_index 从 0 开始 |
+| account_profiles.csv | 54,403 个账户的固定画像、类型、位置、坐标、首次出现序号 | 以 account_address（账户地址）查询身份属性，供账户初始化和核对；不能按画像或位置合并账户 |
+| device_profiles.csv | 27 种设备画像的名称、原设备地址、来源文件及原始/有效/抽样记录数 | 以 profile_id（画像编号）解释账户采用了哪种通信画像；不是 27 个链上账户 |
+| flow_templates.csv | 95,055 条通信模板，含协议、双向包数/负载、原始时长、源文件和行号 | 以 template_id（模板编号）追溯场景属性；更大交易数据复用这个固定样本库 |
+| sites.csv | 54 个逻辑部署位置及二维米制坐标 | 以 site_id（位置编号）查坐标、计算或核对通信距离；位置编号不代表分片 |
+| site_links.csv | 2,916 个有向位置对，含原始质量、有效质量和使用规则 | 以发送位置、接收位置的有序组合查询链路；A→B 与 B→A 分别查，不交换方向 |
+
+### 如何一起使用
+
+1. 顺序读取交易主表和场景表：主表按从 0 开始计列时，第 3 列是发送地址，第 4 列是接收地址，第 8 列是原金额；按日常从 1 开始计列，则分别是第 4、5、9 列。场景表的 from_address、to_address 必须与之相等。
+2. 用发送/接收地址连接账户表；用账户的 profile_id 连接设备画像表；用场景的 template_id 连接通信模板表。
+3. 用双方 site_id 连接位置表，并以 (from_site_id, to_site_id) 查询正向链路，再交换位置查询反向链路。场景表已经保存算好的距离与双向有效质量，位置/链路表用于核对和后续重建。
+4. 训练时按一致规则划分交易主表及场景表的训练段、验证段、测试段；不能单独排序、打乱或过滤其中一张表。当前 7 张表没有预先划分这些数据段。
+5. 扩大交易规模时使用第 9 节的 --reuse-library（复用场景库）命令，生成器读取 4 张基础表：设备画像、通信模板、位置、有向链路。新交易会另行生成自己的交易主表、场景表和账户表。
+
+账户表的 first_tx_index（首次出现交易序号）用于审计，不应将全数据的账户出现信息提前喂给策略。模板中的源 IP、端口和时间只表明原通信记录的来源，不是链上账户的实际网络地址和交易时间。
+
+过程状态、逐模板次数、独立校验报告和示例等 10 个辅助 JSON（结构化记录文件）已从本目录移除。必要的种子、版本、统计、来源和文件内容摘要合并在本文末尾；构造示例保留在第 6 节。清理不改变上述 7 个数据文件。
 
 源交易文件和副本的 SHA256 均为：
 12297773f5f3e04e4631315d56a86001c43ba3ca001c3c84efcc923f06ca63bf
@@ -108,7 +112,7 @@ Intel 发布页面明确坐标单位为米，链路记录为整个采集期的�
 
 **时长单位存在待核实点。**发布方 README 将 flowDuration 标为秒，但本地选中值最高 15,845,942,856，若当秒会超过 500 年，与多月采集跨度明显不符。毫秒解释在数量级上更合理，但本次没有读取原始 PCAP/提取器证明这一点，因此没有擅自除以 1,000。所有原值保留，单位标记 source_raw_no_conversion，未输出“字节/秒”或“毫秒延迟”。
 
-本次有 94,332 条选中模板时长为 0，原样保留，不用极小正数填充来制造巨大速率。后续接入原系统的流量速率特征时，需先解决单位和零时长处理。
+本次有 94,332 条选中模板时长为 0，原样保留，不用极小正数填充来制造巨大速率。接入时沿用原系统的归一化强度公式，零时长沿用原有负载量回退；该特征不解释为已经验证单位的“字节/秒”。若要研究物理速率，仍须核实单位。
 [发布方字段说明](https://datadryad.org/dataset/doi:10.5061/dryad.w0vt4b94b)
 
 UNSW 与 Intel 来自不同采集，Ethereum 账户与它们也没有实测匹配。两套背景数据的整个时间范围仅用于独立的场景库校准，没有从链上验证段或测试段学习映射参数。本版不保留原 IoT 时间序列的连续性，也不模拟时变链路。
@@ -132,6 +136,8 @@ UNSW 与 Intel 来自不同采集，Ethereum 账户与它们也没有实测匹�
 ## 9. 复现和后续扩展命令
 
 在 PowerShell 中执行。现有 data_iot_v2 不会被覆盖。
+
+本目录的校验是只读的，结果显示在终端，不会重新添加辅助文件。本文末尾的参数区供校验和复用读取，请随 7 张表一起保留。原生成命令在新的输出目录仍会产生过程记录，以便排查生成错误；本次仅精简已交付的 data_iot_v2。
 
 重新生成一份同配置数据：
 ~~~powershell
@@ -158,17 +164,112 @@ python -B .\spring_lite\validate_iot_v2_dataset.py --dataset-dir .\data_iot_v2_1
 
 需要增大每种画像的模板上限时，重新从原始 ZIP 建立一个独立版本的库；不要在同组训练/验证/测试之间偷偷更换模板库或种子。
 
-## 10. 本轮代码范围与后续接入
+## 10. 数据构造阶段范围与后续接入记录
 
-仅新增：
+数据构造阶段仅新增：
 - spring_lite/prepare_iot_v2_dataset.py：生成器，含来源校验、固定映射、抽样、复用库和统计。
 - spring_lite/validate_iot_v2_dataset.py：独立逐行校验。
-- spring_lite/test_prepare_iot_v2_dataset.py：5 项性质测试，覆盖原样复制、追加/分块不重映射、损坏拒绝、有向零链路和不覆盖已有数据。
+- spring_lite/test_prepare_iot_v2_dataset.py：性质测试，覆盖原样复制、追加/分块不重映射、损坏拒绝、有向零链路、不覆盖已有数据，以及精简目录的只读校验和复用。
 
-5 项测试已通过。另重新打开原始 ZIP，对全部 95,055 条样本的文件、行号、数值、协议、IP/端口及时间逐条追溯核对，全部一致。199 个此前的其他已跟踪文件内容和 8 个核心共享文件恢复内容均未改变。没有修改 MDP、奖励、PPO 或 Go 运行代码。
+首次生成时 5 项测试已通过。目录清理后，包含新增精简目录检查在内的 6 项测试全部通过；30 万笔交易重新逐行校验通过，并重新打开原始 ZIP，对全部 95,055 条样本的文件、行号、数值、协议、IP/端口及时间逐条追溯核对，全部一致。7 个 CSV 的内容摘要与清理前完全相同，校验后目录仍只有 8 个文件。
 
-新场景表不是旧“私有状态—固定锚点”协议。**不要仅替换旧入口的 CSV/附表路径就直接开始物联网训练**：旧加载器仍会将 from/to 解释成锚点与状态对象并改写执行身份。后续按约定检查并适配两端，才能在保留真实账户关系的同时读取这些属性。
+首次生成时已核对 199 个此前的其他已跟踪文件内容和 8 个核心共享文件恢复内容均未改变。目录清理阶段的代码差异也仅涉及下面说明的 3 个数据工具。以上是当时的记录；2026-09-13 的接入改动另见接入与核查说明，不能把构造阶段的范围当成当前整个工作区的范围。
 
-本轮没有提前生成依赖决策状态的 203 维观察。真实邻居及权重应在当前可见批次/历史中汇总，分片负载由环境计算；不能把未来全程关系写入静态特征。原 10 个物联网位置的类型/关系特征如何接入，也须按此数据契约明确处理。
+新场景表不是旧“私有状态—固定锚点”协议。Python 训练与评估必须指定 `--tx_identity iot_v2 --mdp_mode iot`；Go 使用 `SpringIOTIdentityMode=2`、`SpringIOTMode=1`。旧 `iot` 身份入口会拒绝新场景表，避免静默改写真实交易身份。建议使用新增的 `prepare_iot_v2_run.py` 生成独立链上运行目录。
+
+数据文件没有提前生成依赖决策状态的 203 维观察。接入代码在当前可见批次汇总真实对端关系和 10 维场景特征，分片负载由运行环境计算；没有把未来全程关系写入静态特征。原关联数量位置用于不同真实对端数，四类占比保留，本版只有设备项非零。
 
 术语：profile=通信画像；template=通信样本模板；site=逻辑部署位置；sidecar=附加数据表；seed=随机种子；reservoir sampling=蓄水池抽样；SHA256=文件内容摘要；actor_type=场景账户类型；MDP=马尔可夫决策过程；PPO=近端策略优化；UTC=协调世界时。
+
+此前目录清理仅适配上述 3 个数据工具：生成器可从说明中读取冻结库参数；校验器可读取说明并保持精简目录只读；测试补充精简目录校验和复用检查。后续接入没有改变构造映射、抽样规则或 7 个 CSV 的内容。
+
+## 11. 随数据保留的复现参数
+
+以下参数区替代独立的库配置和统计文件，校验器与复用命令会读取它。summary 表示本数据统计；library 表示冻结的场景库；seed 是随机种子；index_offset 是全局交易序号偏移；sha256 是文件内容摘要。它们描述构造依据，不代表本次已运行训练。
+
+<details>
+<summary>展开查看完整参数与来源摘要</summary>
+
+<!-- iot-v2-metadata:start -->
+```json
+{
+  "summary": {
+    "version": "real_accounts_iot_scene_v2_1",
+    "seed": 7,
+    "index_offset": 0,
+    "templates_per_profile": 4096,
+    "original_transaction_file": "E:\\project_iot\\block-emulator-main-iot\\selectedTxs_300K.csv",
+    "original_transaction_sha256": "12297773f5f3e04e4631315d56a86001c43ba3ca001c3c84efcc923f06ca63bf",
+    "transactions": 300000,
+    "accounts": 54403,
+    "directed_account_pairs": 64835,
+    "unique_templates_used": 64698,
+    "repeated_template_assignments": 235302,
+    "max_template_reuse": 47,
+    "zero_directed_quality_rows": 35390,
+    "co_located_rows": 5926,
+    "zero_duration_rows": 94332,
+    "control_template_rows": 20504,
+    "dataset_file_sha256": {
+      "account_profiles.csv": "04d027d2062efee54b93ac603597f857c687c98aedf8c110d82a0beb1dfae97b",
+      "device_profiles.csv": "9f2ed9c144d05d295d9c0a4a00001b26d15a3011e3e5d5a743e106585bf6580c",
+      "flow_templates.csv": "bbbfb67c4148e1caf6b9ff8593f7278fd948dbbdd5c0f2ecfd9478bf6410bccd",
+      "selectedTxs_iot_v2.csv": "12297773f5f3e04e4631315d56a86001c43ba3ca001c3c84efcc923f06ca63bf",
+      "site_links.csv": "fbb0c67fb57c74f5e6ea5154e7cd9eb9ca3e77df2e9bae2c372cc728b2ca66c3",
+      "sites.csv": "a75f9f88712ee0a67d25f37f4a038a54c4f612ea5f09d6fef5e37eea438a3a74",
+      "transaction_scene.csv": "9e8e4c11f0db512d5d62e049befdb100a41a3c9a92628e68a83857693525415b"
+    }
+  },
+  "library": {
+    "version": "real_accounts_iot_scene_v2_1",
+    "seed": 7,
+    "templates_per_profile": 4096,
+    "source_sha256": {
+      "flows.zip": "91d99c0f6074df6552db2c224c34023ba6b9bbdb18a3d18e6b156c5e6affce64",
+      "mote_locs.txt": "92decbba82c8253636f75e322abdf46400efbfaad765ffcc995a14d30d2f7466",
+      "connectivity.txt": "e0e5dfd4dca48819fcbafbcc8c9883fd9b4d24051998e5238bc7d502535322d2"
+    },
+    "source_paths": {
+      "flows.zip": "E:\\project_iot\\原始数据集\\flows.zip",
+      "mote_locs.txt": "E:\\project_iot\\原始数据集\\mote_locs.txt",
+      "connectivity.txt": "E:\\project_iot\\原始数据集\\connectivity.txt"
+    },
+    "source_urls": {
+      "unsw": "https://iotanalytics.unsw.edu.au/unsw-iotraffic.html",
+      "dryad": "https://datadryad.org/dataset/doi:10.5061/dryad.w0vt4b94b",
+      "intel": "https://db.csail.mit.edu/labdata/labdata.html"
+    },
+    "profiles": 27,
+    "sites": 54,
+    "raw_flows": 4944041,
+    "eligible_flows": 4944033,
+    "sampled_templates": 95055,
+    "rejected_flows": {
+      "unexpected_source_year": 8
+    },
+    "topology_ignored": {
+      "links_without_coordinates": 54,
+      "incomplete_links_without_coordinates": 1
+    },
+    "duration_unit": "source_raw_no_conversion",
+    "duration_unit_note": "Publisher README labels seconds; local raw values retained. Do not label derived rates as bytes/s before extractor/PCAP verification.",
+    "mapping_assumptions": {
+      "account_kind": "logical_iot_device",
+      "profile_prior": "uniform_across_device_profiles",
+      "site_prior": "uniform_across_coordinate_sites",
+      "co_located_quality": 1.0,
+      "quality_zero": "preserved",
+      "edge_cloud_service_roles": "not_invented"
+    },
+    "library_file_sha256": {
+      "flow_templates.csv": "bbbfb67c4148e1caf6b9ff8593f7278fd948dbbdd5c0f2ecfd9478bf6410bccd",
+      "device_profiles.csv": "9f2ed9c144d05d295d9c0a4a00001b26d15a3011e3e5d5a743e106585bf6580c",
+      "sites.csv": "a75f9f88712ee0a67d25f37f4a038a54c4f612ea5f09d6fef5e37eea438a3a74",
+      "site_links.csv": "fbb0c67fb57c74f5e6ea5154e7cd9eb9ca3e77df2e9bae2c372cc728b2ca66c3"
+    }
+  }
+}
+```
+<!-- iot-v2-metadata:end -->
+
+</details>

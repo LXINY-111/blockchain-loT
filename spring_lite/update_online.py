@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import math
 import time
@@ -23,6 +24,7 @@ from config import (
     state_dim,
 )
 from ppo import PPOAgent, RolloutBuffer
+from checkpoint_compat import checkpoint_config_mismatches, format_checkpoint_mismatch
 
 
 ROLLOUT_BUFFER_PATH = CHECKPOINT_DIR / "online_rollout_buffer.json"
@@ -467,13 +469,38 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
     iot_feature_dim = update_iot_feature_dim(data)
     flush_update = bool(data.get("flush_update", False))
 
+    expected = data.get("expected_checkpoint", {})
+    if expected.get('mechanism_version', data.get('mechanism_version', 'legacy')) == 'v3':
+        raise ValueError('v3 uses continuous offline training and frozen chain inference; legacy online updates are incompatible')
+    if model_path.is_file():
+        import torch
+        # 即使调用方省略版本字段，也不能把新版模型当作维度损坏后重置覆盖。
+        checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
+        if checkpoint.get('extra', {}).get('mechanism_version') == 'v3':
+            raise ValueError('Refuse legacy online update of a v3 checkpoint')
+    buffer_path = ROLLOUT_BUFFER_PATH
+    prepared_agent = None
+    if expected:
+        # 在线样本按模型和语义隔离，防止相同 203 维的旧锚点经验混入新账户模型。
+        signature = hashlib.sha256(json.dumps(expected, sort_keys=True).encode()).hexdigest()[:12]
+        buffer_path = model_path.with_name(model_path.stem + ".online_" + signature + ".json")
+        prepared_agent = build_agent(shards, model_path, iot_feature_dim)
+        if model_path.exists():
+            _, payload, source = prepared_agent
+            if source != "loaded_model":
+                raise ValueError("Refuse to reset an incompatible online model: " + source)
+            mismatches = checkpoint_config_mismatches(payload.get("extra", {}), expected)
+            if mismatches:
+                raise ValueError(format_checkpoint_mismatch(mismatches))
+
     new_buffer, meta = build_buffer_from_update(data)
 
-    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    if not expected:
+        CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     model_path.parent.mkdir(parents=True, exist_ok=True)
 
     pending_buffer, pending_meta = load_pending_buffer(
-        ROLLOUT_BUFFER_PATH,
+        buffer_path,
         shards,
         iot_feature_dim,
     )
@@ -495,7 +522,7 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
         "input_path": str(input_path),
         "model_path": str(model_path),
         "log_path": str(log_path),
-        "rollout_buffer_path": str(ROLLOUT_BUFFER_PATH),
+        "rollout_buffer_path": str(buffer_path),
         "new_actions": len(new_buffer),
         "skipped": meta["skipped"],
         "batch_reward": meta["batch_reward"],
@@ -556,7 +583,7 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
     }
 
     if len(new_buffer) == 0:
-        save_pending_buffer(ROLLOUT_BUFFER_PATH, pending_buffer, shards, iot_feature_dim)
+        save_pending_buffer(buffer_path, pending_buffer, shards, iot_feature_dim)
         result["ok"] = True
         result["message"] = "skip_no_valid_new_actions"
         append_train_log(log_path, result)
@@ -569,7 +596,7 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
         update_threshold = MIN_FLUSH_BATCH_SIZE
 
     if len(pending_buffer) < update_threshold:
-        save_pending_buffer(ROLLOUT_BUFFER_PATH, pending_buffer, shards, iot_feature_dim)
+        save_pending_buffer(buffer_path, pending_buffer, shards, iot_feature_dim)
 
         result["ok"] = True
         result["updated"] = False
@@ -581,7 +608,7 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
         append_train_log(log_path, result)
         return result
 
-    agent, old_payload, model_source = build_agent(shards, model_path, iot_feature_dim)
+    agent, old_payload, model_source = prepared_agent or build_agent(shards, model_path, iot_feature_dim)
     result["model_source"] = model_source
 
     loss_info = agent.update(pending_buffer)
@@ -597,6 +624,7 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
     # restart can still verify MDP, reward, and candidate-filter compatibility.
     extra = {
         **old_extra,
+        **expected,
         "online_update_count": new_update_count,
         "last_batch_id": batch_id,
         "last_feedback_epoch": feedback_epoch,
@@ -622,7 +650,7 @@ def run_update(input_path: Path, model_path: Path, log_path: Path) -> Dict[str, 
     agent.save(model_path, extra=extra)
 
     # 更新成功后清空已用 rollout buffer。
-    save_pending_buffer(ROLLOUT_BUFFER_PATH, RolloutBuffer(), shards, iot_feature_dim)
+    save_pending_buffer(buffer_path, RolloutBuffer(), shards, iot_feature_dim)
 
     result["ok"] = True
     result["updated"] = True

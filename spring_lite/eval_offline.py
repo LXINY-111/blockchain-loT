@@ -49,6 +49,8 @@ from config import (
 )
 from action_mask import mask_logits, normalize_action_mask
 from action_select import tie_aware_argmax
+from iot_v2 import V2_DIRECTORY, load_semantics, resolved_identity
+from mechanism import add_mechanism_args, settings, metadata, input_dim, validate_args, load_statistics
 from checkpoint_compat import checkpoint_config_mismatches, format_checkpoint_mismatch
 from heuristic import addr2shard, heuristic_from_state
 from offline_env import (
@@ -112,6 +114,7 @@ def new_summary(
 
 
 def update_summary(summary: Dict[str, object], metrics: BatchMetrics) -> None:
+    summary["load_semantics_version"] = metrics.load_semantics_version
     summary["batches"] = int(summary["batches"]) + 1
     summary["tx_count"] = int(summary["tx_count"]) + metrics.tx_count
     summary["action_count"] = int(summary["action_count"]) + metrics.action_count
@@ -315,6 +318,7 @@ def summary_view(summary: Dict[str, object]) -> Dict[str, object]:
         "owner_load_dist": owner_load_dist,
         "owner_max_load_share": owner_max_load_share,
         "stage_load_dist": stage_load_dist,
+        "execution_load": load_statistics(loads),
         "stage_max_load_share": stage_max_load_share,
         "stage_max_load_per_tx": stage_max_load_per_tx,
         "per_shard_capacity_tps": per_shard_capacity_tps,
@@ -355,7 +359,7 @@ def is_iot_mdp(args: argparse.Namespace) -> bool:
 
 def uses_iot_identity(args: argparse.Namespace) -> bool:
     mode = str(getattr(args, "tx_identity", "auto")).strip().lower()
-    if mode == "iot":
+    if mode in ("iot", "iot_v2"):
         return True
     if mode == "raw":
         return False
@@ -373,19 +377,22 @@ def iot_feature_dim_for_args(args: argparse.Namespace) -> int:
 
 def eval_state_dim(args: argparse.Namespace, shards: Optional[int] = None) -> int:
     shard_count = int(shards if shards is not None else args.shards)
-    return state_dim(shard_count, iot_feature_dim_for_args(args))
+    return input_dim(shard_count, iot_feature_dim_for_args(args), settings(args)['mechanism_version'])
 
 
 def resolve_csv_path(args: argparse.Namespace) -> Path:
     csv_arg = str(getattr(args, "csv", "")).strip()
     if csv_arg:
         return Path(csv_arg)
+    if resolved_identity(args) == "iot_v2":
+        return V2_DIRECTORY / "selectedTxs_iot_v2.csv"
     return DEFAULT_IOT_CSV_PATH if uses_iot_identity(args) else DEFAULT_CSV_PATH
 
 
 def resolve_iot_sidecar_path(args: argparse.Namespace) -> Path:
     sidecar = str(getattr(args, "sidecar", "")).strip()
-    return Path(sidecar) if sidecar else DEFAULT_IOT_SIDECAR_PATH
+    default = V2_DIRECTORY / "transaction_scene.csv" if resolved_identity(args) == "iot_v2" else DEFAULT_IOT_SIDECAR_PATH
+    return Path(sidecar) if sidecar else default
 
 
 def load_eval_transactions(args: argparse.Namespace, csv_path: Path):
@@ -398,6 +405,7 @@ def load_eval_transactions(args: argparse.Namespace, csv_path: Path):
         return load_iot_transactions(
             csv_path,
             sidecar_path,
+            identity=resolved_identity(args),
             max_txs=args.max_txs,
             start_tx=start_tx,
         )
@@ -410,8 +418,9 @@ def load_eval_transactions(args: argparse.Namespace, csv_path: Path):
 
 def expected_checkpoint_config(args: argparse.Namespace) -> Dict[str, object]:
     return {
+        **metadata(args),
         "mdp_mode": args.mdp_mode,
-        "tx_identity_resolved": "iot" if uses_iot_identity(args) else "raw",
+        "tx_identity_resolved": resolved_identity(args),
         "shards": args.shards,
         "iot_feature_dim": iot_feature_dim_for_args(args),
         "sender_pos_mode": args.sender_pos_mode,
@@ -426,7 +435,7 @@ def expected_checkpoint_config(args: argparse.Namespace) -> Dict[str, object]:
         "candidate_load_weight": args.candidate_load_weight,
         "max_block_size": args.max_block_size,
         "block_interval_ms": args.block_interval_ms,
-        "load_semantics_version": LOAD_SEMANTICS_VERSION,
+        "load_semantics_version": load_semantics(args),
     }
 
 
@@ -464,7 +473,7 @@ def load_agent(args: argparse.Namespace) -> Optional[PPOAgent]:
     return agent
 
 
-def make_policy(args: argparse.Namespace, agent: Optional[PPOAgent]):
+def make_policy(args: argparse.Namespace, agent: Optional[PPOAgent], env=None):
     rng = random.Random(args.seed)
 
     def ppo_policy(
@@ -509,6 +518,14 @@ def make_policy(args: argparse.Namespace, agent: Optional[PPOAgent]):
         _related: str,
         _info: SenderPosInfo,
     ) -> PolicyOutput:
+        if resolved_identity(args) == "iot_v2" and env is not None:
+            # Go 启发式使用已放置账户数量；不能替换成归一化历史交易负载。
+            hash_sid = addr2shard(_address, args.shards)
+            scores = [(1000.0 * _info.sender_pos[sid] if _info.related_known else 0.0)
+                      - env.shard_load[sid]
+                      + ((0.001 if _info.related_known else 1.0) if sid == hash_sid else 0.0)
+                      for sid in range(args.shards)]
+            return PolicyOutput(action=max(range(args.shards), key=lambda sid: (scores[sid], -sid)), source="heuristic")
         return PolicyOutput(
             action=heuristic_from_state(state, args.shards, _info.action_mask),
             source="heuristic",
@@ -532,6 +549,11 @@ def make_policy(args: argparse.Namespace, agent: Optional[PPOAgent]):
 
     if args.policy == "ppo":
         return ppo_policy
+    if args.policy == "candidate_only":
+        if env is None:
+            raise ValueError("candidate_only requires the placement environment")
+        return lambda state, address, related, info: PolicyOutput(
+            action=env._best_candidate_action(address, info.sender_pos, info.action_mask), source="candidate_only")
     if args.policy == "heuristic":
         return heuristic_policy
     if args.policy == "hash":
@@ -551,6 +573,7 @@ def write_jsonl(path: str, record: Dict[str, object]) -> None:
 
 
 def evaluate(args: argparse.Namespace) -> Dict[str, object]:
+    validate_args(args)
     csv_path = resolve_csv_path(args)
     args.csv = str(csv_path)
     if not csv_path.exists():
@@ -566,7 +589,6 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
         )
 
     agent = load_agent(args)
-    policy = make_policy(args, agent)
     env = SpringOfflineEnv(
         shards=args.shards,
         tx_batch_size=args.tx_batch_size,
@@ -587,15 +609,27 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
         backlog_penalty_weight=args.backlog_penalty_weight,
         reward_mode=args.reward_mode,
         iot_feature_dim=iot_feature_dim_for_args(args),
+        **settings(args),
         iot_cstr_weight=args.iot_cstr_weight,
         iot_balance_weight=args.iot_balance_weight,
         iot_comm_cost_weight=args.iot_comm_cost_weight,
         iot_hotspot_weight=args.iot_hotspot_weight,
-        candidate_top_k=args.candidate_top_k,
-        capacity_guard=args.capacity_guard,
+        candidate_top_k=0 if args.policy in ("hash", "random") else args.candidate_top_k,
+        capacity_guard=0 if args.policy in ("hash", "random") else args.capacity_guard,
         capacity_guard_factor=args.capacity_guard_factor,
         candidate_load_weight=args.candidate_load_weight,
     )
+    policy = make_policy(args, agent, env)
+
+    iot_metric = None
+    if getattr(args, "iot_metrics", False):
+        if resolved_identity(args) != "iot_v2":
+            raise ValueError("--iot_metrics requires --tx_identity iot_v2")
+        from iot_metrics import IoTMetrics, evaluation_context
+        iot_scenes, manifest = evaluation_context(csv_path, args.sidecar, args.start_tx, len(txs),
+            args.iot_reference_start_tx, args.iot_reference_max_txs)
+        iot_metric = IoTMetrics(manifest, "unavailable_in_offline_placement_evaluation")
+        scene_cursor = 0
 
     summary = new_summary(
         args.shards,
@@ -605,6 +639,15 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
     for batch_idx, batch in enumerate(iter_batches(txs, args.tx_batch_size), start=1):
         _actions, metrics = env.run_batch(batch, policy)
         update_summary(summary, metrics)
+
+        if iot_metric is not None:
+            # 在该批次完成放置后测量，不把最终映射冒充历史决策，也不反馈给训练。
+            for tx in batch:
+                scene = iot_scenes[scene_cursor]
+                if (tx.sender, tx.recipient) != (scene.sender, scene.recipient):
+                    raise ValueError("Offline transaction/IoT scene alignment failed")
+                iot_metric.add(scene, env.addr_shard[tx.sender] != env.addr_shard[tx.recipient])
+                scene_cursor += 1
 
         if args.log_interval_batches > 0 and batch_idx % args.log_interval_batches == 0:
             view = summary_view(summary)
@@ -636,6 +679,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
         "dataset_start_tx": args.start_tx,
         "dataset_end_tx_exclusive": args.start_tx + len(txs),
         "dataset_window_state": "window_local_cold_start",
+        **metadata(args),
         "mdp_mode": args.mdp_mode,
         "tx_identity": args.tx_identity,
         "loaded_txs": len(txs),
@@ -645,7 +689,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
         "tx_batch_size": args.tx_batch_size,
         "max_block_size": args.max_block_size,
         "block_interval_ms": args.block_interval_ms,
-        "load_semantics_version": LOAD_SEMANTICS_VERSION,
+        "load_semantics_version": load_semantics(args),
         "sender_pos_mode": args.sender_pos_mode,
         "reward_mode": args.reward_mode,
         "lambda_weight": args.lambda_weight,
@@ -671,6 +715,11 @@ def evaluate(args: argparse.Namespace) -> Dict[str, object]:
         "argmax_tie_eps": args.argmax_tie_eps,
         "summary": summary_view(summary),
     }
+    # 哈希和随机基线不使用候选过滤；记录实际环境配置，避免日志误报。
+    result["candidate_top_k"] = env.candidate_top_k
+    result["capacity_guard"] = env.capacity_guard
+    if iot_metric is not None:
+        result["iot_metrics"] = iot_metric.summary()
     write_jsonl(args.log_jsonl, result)
     return result
 
@@ -680,9 +729,9 @@ def main() -> None:
     parser.add_argument("--csv", type=str, default="")
     parser.add_argument("--sidecar", type=str, default="")
     parser.add_argument("--mdp_mode", choices=["spring", "iot"], default="iot")
-    parser.add_argument("--tx_identity", choices=["auto", "raw", "iot"], default="auto")
+    parser.add_argument("--tx_identity", choices=["auto", "raw", "iot", "iot_v2"], default="auto")
     parser.add_argument("--model", type=str, default=str(MODEL_PATH))
-    parser.add_argument("--policy", choices=["ppo", "heuristic", "hash", "random"], default="ppo")
+    parser.add_argument("--policy", choices=["ppo", "heuristic", "hash", "random", "candidate_only"], default="ppo")
     parser.add_argument("--sample", action="store_true")
     parser.add_argument("--shards", type=int, default=DEFAULT_SHARD_NUM)
     parser.add_argument("--start_tx", type=int, default=DEFAULT_TEST_START_TX)
@@ -740,8 +789,13 @@ def main() -> None:
     )
     parser.add_argument("--log_interval_batches", type=int, default=0)
     parser.add_argument("--log_jsonl", type=str, default=str(DEFAULT_EVAL_LOG_JSONL))
+    parser.add_argument("--iot_metrics", action="store_true", help="report IoT v2 weighted and fixed-cohort metrics without changing the policy")
+    parser.add_argument("--iot_reference_start_tx", type=int, default=200000)
+    parser.add_argument("--iot_reference_max_txs", type=int, default=50000)
 
+    add_mechanism_args(parser)
     args = parser.parse_args()
+    validate_args(args)
     normalize_reward_mode(args)
     result = evaluate(args)
     print(json.dumps(result, ensure_ascii=False, indent=2))
